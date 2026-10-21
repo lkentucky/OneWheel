@@ -33,5 +33,11 @@ Thumbs.db
 desktop.ini
 .vscode/
 .idea/
+__pycache__/
+*.py[cod]
+.monitor_data/
 
 # Keep .project, .cproject, .settings and the required zf_device_config.a.
+
+# Local WiFi credentials; copy the tracked example on a fresh checkout.
+/Seekfree_TC264_Opensource_Library/code/wifi_link_config.h

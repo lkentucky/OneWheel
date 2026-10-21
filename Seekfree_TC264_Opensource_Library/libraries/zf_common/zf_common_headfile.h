@@ -125,6 +125,7 @@
 #include "four_posture.h"
 #include "camera.h"
 #include "picture_process.h"
+#include "wifi_link.h"
 //=====================================================”√ªß≤„======================================================
 
 #endif

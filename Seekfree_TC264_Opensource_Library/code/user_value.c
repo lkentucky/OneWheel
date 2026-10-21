@@ -7,12 +7,12 @@
 #include "zf_common_headfile.h"
 #include "user_value.h"
 
-uint32 system_count;//系统时间计数
-uint8 run_flag=1;//运行标志位
+volatile uint32 system_count;//系统时间计数
+volatile uint8 run_flag=1;//运行标志位
 int16 car_speed; //当前小车速度
 float count_speed=0;
-float k1=1.25;
-float k2=0.5;
+volatile float k1=1.25;
+volatile float k2=0.5;
 float insert_value1=0;
 float insert_value2=0;
 void flash_init(void)
@@ -45,6 +45,7 @@ void send_two_floats(float value1, float value2,float value3) {
     char str_buffer[60]; // 足够容纳两个浮点数
     // 格式化为 "value1,value2" 格式
     snprintf(str_buffer, sizeof(str_buffer), "%.6f,%.6f,%.6f", value1, value2,value3);
+    wifi_link_cpu1_log(str_buffer);
     wireless_uart_send_string(str_buffer);
     wireless_uart_send_string("\r\n"); // 换行
 }

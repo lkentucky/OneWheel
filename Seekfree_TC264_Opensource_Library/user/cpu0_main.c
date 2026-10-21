@@ -60,9 +60,12 @@ int core0_main(void)
 //    seekfree_assistant_camera_information_config(SEEKFREE_ASSISTANT_MT9V03X, base_image[0], MT9V03X_W, MT9V03X_H);
 //    #endif
     // 此处编写用户代码 例如外设初始化代码等
-    cpu_wait_event_ready();         // 等待所有核心初始化完毕
+    // core1_main 里没有调用 cpu_wait_event_ready()，如果在这里等待会永久阻塞
+    // 因此 CPU0 不再等待，把空主循环交给 WiFi 链路状态机（SPI 事务全部在 CPU0）
+    wifi_link_init();
     while (TRUE)
     {
+        wifi_link_service();
 //        bujin_motor_contron(4000);
 
 //       printf("%d,%f\r\n",encoder_data_1,balance_cascade.pitch_speed_cycle.out);

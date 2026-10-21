@@ -12,15 +12,15 @@
 
 typedef struct
 {
-        float d;
-        float i;
+        volatile float d;
+        volatile float i;
         float i_value;
         float i_value_max;
         float i_value_pro;
         float incremental_data[2];
         float out;
         float out_max;
-        float p;
+        volatile float p;
         float p_value_last;
 }pid_cycle_struct;
 

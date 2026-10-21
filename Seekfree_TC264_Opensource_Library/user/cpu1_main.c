@@ -48,6 +48,7 @@
 
 void core1_main(void)
 {
+    uint8 wifi_frame_available;
     disable_Watchdog();                     // 关闭看门狗
     interrupt_global_enable(0);             // 打开全局中断
     // 此处编写用户代码 例如外设初始化代码等
@@ -68,6 +69,8 @@ void core1_main(void)
 //    cpu_wait_event_ready();                 // 等待所有核心初始化完毕
     while (TRUE)
     {
+       wifi_frame_available = mt9v03x_finish_flag ? 1u : 0u;
+       if (wifi_frame_available) { mt9v03x_finish_flag = 0; }
 //        bujin_motor_contron(1000);
 //        small_driver_set_duty(2000,-2000);
         key_scanner ();
@@ -109,6 +112,7 @@ void core1_main(void)
        }
 //       send_two_floats(-100,100);
 //       wireless_uart_send_image(&mt9v03x_image[0][0], MT9V03X_IMAGE_SIZE);
+       wifi_link_cpu1_service(wifi_frame_available);
        system_delay_ms(10);
     }
 

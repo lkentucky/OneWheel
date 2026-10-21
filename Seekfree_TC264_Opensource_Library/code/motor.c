@@ -12,6 +12,7 @@ float bujin_car_speed;//步进电机速度
 
 
 int16 encoder_data_1 = 0;
+int16 bujin_last_duty = 0;
 uint8 run_moter=1;
 float expect_speed=200;
 void Motor_init(void)
@@ -48,6 +49,7 @@ void change_the_speed(void)
 //----------------
 void bujin_motor_contron(int duty)
 {
+	bujin_last_duty = 0;
     if(run_flag)
       {
           if( func_abs(balance_cascade.pitch_cascade_value.filtering_angle)>2000 || func_abs(balance_cascade.cascade_value.filtering_angle)>1500 || func_abs(duty)>8000)//强制保护
@@ -62,6 +64,7 @@ void bujin_motor_contron(int duty)
           if(duty > 0 && run_moter==1)                                                           // 正转
             {
                 duty+=400;
+                bujin_last_duty = (int16)duty;
 //                gpio_set_level(DIR1, GPIO_HIGH);                                    // DIR输出高电平
 //                pwm_set_duty(PWM1, duty );                    // 计算占空比
                 pwm_set_duty(ATOM0_CH2_P21_4,0);
@@ -71,6 +74,7 @@ void bujin_motor_contron(int duty)
             else if(duty<0 && run_moter==1)                                                                   // 反转
             {
                 duty-=400;
+                bujin_last_duty = (int16)duty;
 //                gpio_set_level(DIR1, GPIO_LOW);                                     // DIR输出低电平
 //                pwm_set_duty(PWM1,-duty);                 // 计算占空比
                 pwm_set_duty(ATOM0_CH2_P21_4,-duty);

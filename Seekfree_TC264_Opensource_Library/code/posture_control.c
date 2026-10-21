@@ -117,12 +117,13 @@ void pit_isr_callback(void)
         //读入陀螺仪数据
 
 //        erro=retarder(erro,0.3);//误差逐渐累加
-        expect_speed=retarder(160,0.03);//160
+        expect_speed=retarder(wifi_target_speed,wifi_ramp_step);//160
         if(system_count%20==0)
           {
 
               small_driver_get_speed();
               encoder_data_1 = encoder_get_count(ENCODER_1);                              // 获取编码器计数
+              wifi_encoder_total += (uint32)(int32)encoder_data_1;        // WiFi 链路累计
               encoder_clear_count(ENCODER_1);
               car_speed=(motor_value.receive_left_speed_data-motor_value.receive_right_speed_data)/2;
               pid_control (&balance_cascade.speed_cycle,0,car_speed);//速度环
@@ -139,7 +140,7 @@ void pit_isr_callback(void)
 
               pid_control (&balance_cascade.angle_cycle,balance_cascade.speed_cycle.out, balance_cascade.cascade_value.filtering_angle-k1*erro_yawan);//角度环
               pid_control (&balance_cascade.pitch_angle_cycle,balance_cascade.pitch_speed_cycle.out, balance_cascade.pitch_cascade_value.filtering_angle);//角度环
-              pid_control(&balance_cascade.yaw_erro_cycle,0,(erro));
+              pid_control(&balance_cascade.yaw_erro_cycle,0,wifi_vision_erro(erro));
           }
           pid_control_incremental (&balance_cascade.angular_speed_cycle,  balance_cascade.angle_cycle.out, *balance_cascade.cascade_value.gyrp_raw_data);//角速度
           pid_control_incremental (&balance_cascade.pitch_angular_speed_cycle,-balance_cascade.pitch_angle_cycle.out, *balance_cascade.pitch_cascade_value.gyrp_raw_data);//角速度环balance_cascade.pitch_angular_speed_cycle.out

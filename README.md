@@ -18,6 +18,9 @@
 - **电机接口**：P21.4/P21.5 双 PWM 输出、编码器计数，以及 UART3 小驱动板通信。
 - **屏幕调试**：IPS200 显示二值化图像、当前/历史信标标记和偏差值。首版保持原来的半尺寸图像和标记坐标，替换对应的显示驱动接口。
 - **按键及串口调试**：按键停止运行标志、无线串口数据输出。
+- **WiFi SPI 上位机链路**：SPI_3 上的 WiFi 模块，单 UDP 端口复用（数据 / 日志 / 图像），
+  兼容麦轮项目 `McarPVC` 的 WiFiSPI_Monitor：姿态、编码器、视觉偏差、188×120 灰度图像、
+  日志镜像与在线调参。实现、协议、参数表与构建方式见 [WIFI_LINK.md](WIFI_LINK.md)。
 
 当前代码保留原双核组织：CPU0 负责时钟、调试串口等入口，CPU1 主程序初始化外设并执行视觉/显示循环；`user/isr.c` 中的 CCU60 中断进入控制回调。控制代码以 1 ms 定时中断为基础，包含 5 ms、20 ms 分频任务和约 2 s 的初始等待。
 
@@ -58,13 +61,16 @@ oneWheel/
 ## 导入与编译
 
 1. 安装 ADS 1.10.10，选择英文路径的工作空间。
-2. `File → Import → General → Existing Projects into Workspace`，选择仓库中的 `Seekfree_TC264_Opensource_Library`；建议复制到工作空间。
-3. 将工程设为活动工程，选择 `Debug`，执行 `Clean Project → Build Project`。
-4. 确认编译、链接成功，在工程 `Debug/` 下取得新生成的 ELF、HEX。
+2. 复制 `Seekfree_TC264_Opensource_Library/code/wifi_link_config.example.h` 为同目录的 `wifi_link_config.h`，填写 WiFi 和电脑 IP；本机配置已被 Git 忽略。
+3. `File → Import → General → Existing Projects into Workspace`，选择仓库中的 `Seekfree_TC264_Opensource_Library`；建议复制到工作空间。
+4. 将工程设为活动工程，选择 `Debug`，执行 `Clean Project → Build Project`。
+5. 确认编译、链接成功，在工程 `Debug/` 下取得新生成的 ELF、HEX。
 
 ADS 自带的 TASKING 工具要求通过 IDE 使用。单独在终端运行其编译器可能报 `F104: License does not support running as standalone`；使用 ADS 内的构建操作。
 
 本仓库不提交生成的固件和构建缓存；从源码重新构建。2026-10-20，IPS200 修改后的首版已在 ADS 1.10.10 的 `Debug` 配置下完成独立副本的全量构建：**0 errors、0 warnings**，生成 165 个目标文件及新的 ELF、HEX、MAP。此次未烧录或上板验证。
+
+WiFi SPI 移植经独立审查修复后，于 2026-10-21 再次完成全量构建：**0 errors、0 warnings**，167 个目标文件。RUN 采用分步 SPI 状态机；数据、日志和图像沿用现有上位机协议，独轮原生调参使用 `tools/monitor_onewheel.py`。实际 C 协议测试及上位机启动测试通过，尚未烧录或上板验证。接线、参数单位、启动方法和验证边界见 [WIFI_LINK.md](WIFI_LINK.md)，审查结论见 [DEEPSEEK_REVIEW.md](docs/DEEPSEEK_REVIEW.md)。
 
 ## `.metadata` 是什么
 

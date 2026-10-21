@@ -12,11 +12,11 @@
 
 #define FLASH_SECTION_INDEX       (0)                                 // 存储数据用的扇区
 #define FLASH_PAGE_INDEX          (8)
-extern uint32 system_count;//系统时间计数
-extern uint8 run_flag;//运行标志位
+extern volatile uint32 system_count;//系统时间计数
+extern volatile uint8 run_flag;//运行标志位
 extern int16 car_speed; //当前小车速度
-extern float k1;
-extern float k2;
+extern volatile float k1;
+extern volatile float k2;
 extern float count_speed;
 extern float insert_value1;
 extern float insert_value2;

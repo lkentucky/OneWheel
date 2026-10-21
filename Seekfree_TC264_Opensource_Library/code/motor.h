@@ -18,6 +18,8 @@
 #define ENCODER_1_B                 (TIM6_ENCODER_CH2_P20_0)
 
 
+extern int16 bujin_last_duty;//
+
 extern int16 encoder_data_1;//有刷电机编码器
 extern float bujin_car_speed;//行进电机速度
 extern float expect_speed;
