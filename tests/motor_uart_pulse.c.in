@@ -1,0 +1,141 @@
+/* UART3 commissioning: manually requested, time-limited single-motor pulses. */
+#include "zf_common_headfile.h"
+#include "IfxStm.h"
+
+volatile uint32 motor_test_stage;
+volatile uint32 motor_test_tx_cycles;
+/* ADS: 1 = left, 2 = right, 9 = stop. Each request is consumed once. */
+volatile uint32 motor_test_request;
+volatile int motor_test_duty = -1000;
+volatile uint32 motor_test_duration_ms = 1000;
+volatile int motor_test_output_left, motor_test_output_right;
+volatile int motor_test_peak_left, motor_test_peak_right;
+/* 0 idle, 1 running, 2 complete, 3 no feedback, 4 invalid request, 5 feedback lost, 6 awaiting feedback. */
+volatile uint32 motor_test_result;
+
+static uint32 motor_test_ticks_per_ms;
+static uint32 test_start_ticks, test_duration_ticks, feedback_ticks, feedback_frames;
+static uint32 active_motor, pending_request, pending_ticks;
+
+static void motor_test_stop(uint32 result)
+{
+    active_motor = pending_request = 0;
+    motor_test_output_left = motor_test_output_right = 0;
+    motor_test_result = result;
+}
+
+/* now is the raw STM0 counter; unsigned subtraction handles counter wrap. */
+static void motor_test_service(uint32 now, uint32 frames)
+{
+    uint32 request = motor_test_request;
+    motor_test_request = 0;
+    if (frames != feedback_frames) {
+        feedback_frames = frames;
+        feedback_ticks = now;
+    }
+    if (request == 9) {
+        motor_test_stop(0);
+    } else if (active_motor) {
+        /* New requests cannot prolong or switch an active pulse. */
+        if ((uint32)(now - feedback_ticks) >= motor_test_ticks_per_ms * 500u)
+            motor_test_stop(5);
+        else if ((uint32)(now - test_start_ticks) >= test_duration_ticks)
+            motor_test_stop(2);
+    } else {
+        if (request) {
+            pending_request = request == 1 || request == 2 ? request : 0;
+            pending_ticks = now;
+            motor_test_result = pending_request ? 6 : 4;
+        }
+        if (pending_request && (uint32)(now - pending_ticks) >= motor_test_ticks_per_ms * 1000u) {
+            motor_test_stop(3);
+        } else if (pending_request && frames && (uint32)(now - feedback_ticks) < motor_test_ticks_per_ms * 500u) {
+            int duty = motor_test_duty;
+            uint32 duration = motor_test_duration_ms;
+            request = pending_request;
+            pending_request = 0;
+            if (duty > 2000) duty = 2000;
+            if (duty < -2000) duty = -2000;
+            if (duration < 100) duration = 100;
+            if (duration > 1000) duration = 1000;
+            motor_test_duty = duty;
+            motor_test_duration_ms = duration;
+            motor_test_peak_left = motor_test_peak_right = 0;
+            active_motor = request;
+            test_start_ticks = now;
+            test_duration_ticks = duration * motor_test_ticks_per_ms;
+            motor_test_output_left = request == 1 ? duty : 0;
+            motor_test_output_right = request == 2 ? duty : 0;
+            motor_test_result = 1;
+        }
+    }
+    small_driver_set_duty(motor_test_output_left, motor_test_output_right);
+    motor_test_tx_cycles++;
+}
+
+int core0_main(void)
+{
+    char line[40];
+    uint32 last_query, last_display;
+    clock_init();
+    debug_init();
+    motor_test_stage = 1;
+    ips200_set_dir(IPS200_PORTAIT);
+    ips200_set_color(RGB565_WHITE, RGB565_BLACK);
+    ips200_init(IPS200_TYPE_SPI);
+    ips200_set_font(IPS200_6X8_FONT);
+    ips200_clear();
+    ips200_show_string(0, 0, "Motor manual pulse test");
+    ips200_show_string(0, 16, "TX:P15.6 RX:P15.7 460800");
+    ips200_show_string(0, 32, "ADS request:1=L 2=R 9=STOP");
+    ips200_show_string(0, 48, "UART initializing");
+    small_driver_uart_init();
+    motor_test_stage = 2;
+    ips200_show_string(0, 48, "Waiting for CPU1    ");
+    cpu_wait_event_ready();
+    interrupt_global_enable(0);
+    motor_test_ticks_per_ms = (uint32)IfxStm_getFrequency(&MODULE_STM0) / 1000u;
+    motor_test_stage = 3;
+    last_query = last_display = IfxStm_getLower(&MODULE_STM0);
+
+    while (TRUE)
+    {
+        uint32 now = IfxStm_getLower(&MODULE_STM0);
+        uint32 irq = interrupt_global_disable();
+        uint32 frames = small_driver_speed_frames;
+        uint32 bytes = small_driver_rx_bytes;
+        int motor_left_speed = motor_value.receive_left_speed_data;
+        int motor_right_speed = motor_value.receive_right_speed_data;
+        interrupt_global_enable(irq);
+
+        if (active_motor) {
+            int magnitude = motor_left_speed < 0 ? -motor_left_speed : motor_left_speed;
+            if (magnitude > motor_test_peak_left) motor_test_peak_left = magnitude;
+            magnitude = motor_right_speed < 0 ? -motor_right_speed : motor_right_speed;
+            if (magnitude > motor_test_peak_right) motor_test_peak_right = magnitude;
+        }
+        motor_test_service(now, frames);
+        motor_test_stage = active_motor ? 5 : 4;
+        if ((uint32)(now - last_query) >= motor_test_ticks_per_ms * 200u) {
+            small_driver_get_speed();
+            last_query = now;
+        }
+        if ((uint32)(now - last_display) >= motor_test_ticks_per_ms * 100u) {
+            last_display = now;
+            snprintf(line, sizeof(line), "Result:%lu PWM L:%d R:%d      ",
+                (unsigned long)motor_test_result, motor_test_output_left, motor_test_output_right);
+            ips200_show_string(0, 48, line);
+            snprintf(line, sizeof(line), "TX:%10lu RX:%10lu", (unsigned long)motor_test_tx_cycles, (unsigned long)bytes);
+            ips200_show_string(0, 68, line);
+            snprintf(line, sizeof(line), "Speed pkt:%10lu", (unsigned long)frames);
+            ips200_show_string(0, 88, line);
+            snprintf(line, sizeof(line), "Raw L:%7d R:%7d", motor_left_speed, motor_right_speed);
+            ips200_show_string(0, 108, line);
+            snprintf(line, sizeof(line), "Peak L:%7d R:%7d", motor_test_peak_left, motor_test_peak_right);
+            ips200_show_string(0, 128, line);
+            snprintf(line, sizeof(line), "Set PWM:%d Time:%lums    ", motor_test_duty, (unsigned long)motor_test_duration_ms);
+            ips200_show_string(0, 148, line);
+        }
+        system_delay_ms(10);
+    }
+}

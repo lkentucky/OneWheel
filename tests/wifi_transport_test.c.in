@@ -1,0 +1,198 @@
+/* Actual transport, simulated hardware. Kept out of ADS firmware scanning. */
+#include "wifispi.h"
+#include "imu.h"
+#include "pid.h"
+#include <assert.h>
+#include <math.h>
+#include <stdio.h>
+#include <string.h>
+
+static void test_pack(void)
+{
+    float values[]={1.0f,-2.5f,0.0f};
+    uint8_t frame[VOFA_MAX_FRAME_BYTES];
+    const uint8_t expected[]={0,0,0x80,0x3f,0,0,0x20,0xc0,0,0,0,0,0,0,0x80,0x7f};
+    memset(frame,0xa5,sizeof(frame));
+    assert(vofa_pack(frame,15,values,3)==0 && frame[0]==0xa5);
+    assert(vofa_pack(NULL,sizeof(frame),values,3)==0);
+    assert(vofa_pack(frame,sizeof(frame),NULL,3)==0);
+    assert(vofa_pack(frame,sizeof(frame),values,0)==0);
+    assert(vofa_pack(frame,sizeof(frame),values,41)==0);
+    assert(vofa_pack(frame,sizeof(frame),values,3)==16);
+    assert(memcmp(frame,expected,sizeof(expected))==0 && frame[16]==0xa5);
+    float maximum[40]={0};
+    assert(vofa_pack(frame,sizeof(frame),maximum,40)==sizeof(frame));
+}
+
+#if QCAR_WIFI_ENABLED
+#include "zf_device_wifi_spi.h"
+int host_stm;
+static uint32 ticks;
+static unsigned irq_disabled, init_calls, connect_calls, socket_calls, disconnect_calls;
+static unsigned fail_stage, fail_attempts, fail_send, fail_flush, rx_calls;
+static uint8_t incoming[8192], outgoing[1600], datagrams[128][1600];
+static size_t incoming_size, outgoing_size, sizes[128], packet_count;
+char wifi_spi_version[12], wifi_spi_ip_addr_port[25];
+volatile int32 imu_attitude_status=1, imu_accel_used=1;
+volatile float imu_roll_deg=12, imu_pitch_deg=-4, imu_yaw_deg=30;
+volatile float imu_accel_g[3]={0,0,1}, imu_gyro_dps[3]={1,2,3};
+volatile float imu_accel_norm_g=1.0f, imu_calibration_percent=100, imu_gyro_bias_z_dps;
+volatile float imu_sample_dt_ms=5, imu_solve_us=21, imu_solve_max_us=35;
+volatile float imu_ekf_nis=0.25f, imu_ekf_bias_xy_dps[2]={0.1f,-0.2f};
+volatile uint32 imu_sample_sequence=1234;
+volatile float imu_gyro_z_integral_deg=12.5f;
+const uint8 imu_attitude_method=3;
+int16_t real_speed=88;
+Mono_params mono_params;
+float cascade_vel_out, cascade_vel_out_p, cascade_vel_out_y;
+float cascade_angle_out, cascade_angle_out_p, cascade_angle_out_y;
+float cascade_angle_vel_out, cascade_angle_vel_out_p, cascade_angle_vel_out_y;
+pid_param_t cascade_vel_roll, cascade_vel_pitch, cascade_vel_yaw;
+pid_param_t cascade_ang_roll, cascade_ang_pitch, cascade_ang_yaw;
+pid_param_t cascade_ang_vel_roll, cascade_ang_vel_pitch, cascade_ang_vel_yaw;
+uint32 IfxStm_getLower(int *stm) { assert(stm==&host_stm); return ticks; }
+float IfxStm_getFrequency(int *stm) { assert(stm==&host_stm); return 100000000.0f; }
+uint32 interrupt_global_disable(void) { assert(!irq_disabled); irq_disabled=1; return 7; }
+void interrupt_global_enable(uint32 mask) { assert(irq_disabled && mask==7); irq_disabled=0; }
+void system_delay_ms(uint32 ms) { assert(!irq_disabled); ticks+=100000u*ms; }
+uint8 wifi_spi_init(char *ssid,char *password) {
+    assert(!irq_disabled && !ssid && !password); ++init_calls;
+    strcpy(wifi_spi_version,fail_stage==4?"V1.0":"V2.0");
+    if(fail_attempts) { --fail_attempts; return 1; }
+    return fail_stage==1;
+}
+uint8 wifi_spi_wifi_connect(char *ssid,char *password) {
+    assert(!irq_disabled && ssid && password); ++connect_calls; return fail_stage==2;
+}
+uint8 wifi_spi_socket_connect(char *type,char *ip,char *port,char *local) {
+    assert(!irq_disabled && !strcmp(type,"UDP") && ip && port && local);
+    assert(!strcmp(port,QCAR_WIFI_TARGET_PORT) && !strcmp(local,QCAR_WIFI_LOCAL_PORT));
+    ++socket_calls; return fail_stage==3;
+}
+uint8 wifi_spi_socket_disconnect(void) { assert(!irq_disabled); ++disconnect_calls; return 0; }
+uint32 wifi_spi_send_buffer(const uint8 *data,uint32 size) {
+    assert(!irq_disabled && size<=sizeof(outgoing));
+    if(fail_send) return size;
+    memcpy(outgoing,data,size); outgoing_size=size; return 0;
+}
+uint8 wifi_spi_udp_send_now(void) {
+    assert(!irq_disabled && packet_count<128);
+    if(fail_flush) return 1;
+    memcpy(datagrams[packet_count],outgoing,outgoing_size);
+    sizes[packet_count++]=outgoing_size; return 0;
+}
+uint32 wifi_spi_read_buffer(uint8 *data,uint32 length) {
+    size_t count=incoming_size<length?incoming_size:length;
+    assert(!irq_disabled); ++rx_calls;
+    memcpy(data,incoming,count); memmove(incoming,incoming+count,incoming_size-count);
+    incoming_size-=count; return (uint32)count;
+}
+static void advance(unsigned ms) { ticks+=100000u*ms; wifispi_telemetry_service(); }
+static void queue(const void *bytes,size_t size) {
+    assert(incoming_size+size<=sizeof(incoming));
+    memcpy(incoming+incoming_size,bytes,size); incoming_size+=size;
+}
+static void command(const char *line) {
+    packet_count=0; queue(line,strlen(line));
+    do { advance(10); } while(incoming_size);
+}
+static int has_reply(const char *line) {
+    for(size_t i=0;i<packet_count;++i)
+        if(sizes[i]==strlen(line) && !memcmp(datagrams[i],line,sizes[i])) return 1;
+    return 0;
+}
+static float last_value(unsigned channel,unsigned count) {
+    float value; size_t i=packet_count-1;
+    assert(sizes[i]==VOFA_FRAME_BYTES(count));
+    assert(!memcmp(datagrams[i]+4*count,"\0\0\x80\x7f",4));
+    memcpy(&value,datagrams[i]+4*channel,4); return value;
+}
+static void test_transport(void)
+{
+    /* No SPI before the explicit connection request. */
+    advance(100); assert(init_calls==0 && rx_calls==0 && packet_count==0);
+    assert(!wifispi_send_floats((float[]){1},1));
+    wifispi_telemetry_init();
+    assert(wifispi_is_ready() && imu_wifi_status==1 && init_calls==1);
+    assert(wifi_telemetry_channel_count==3 && wifi_telemetry_period_ms==10);
+    advance(9); assert(packet_count==0 && rx_calls==0);
+    advance(1); assert(last_value(0,3)==12 && last_value(2,3)==30);
+    command(" SUB wheel_speed,gyro_z_dps,imu_seq,ekf_nis \r\n");
+    assert(has_reply("MCAR SUB wheel_speed,gyro_z_dps,imu_seq,ekf_nis\n"));
+    assert(last_value(0,4)==88 && last_value(1,4)==3 && last_value(2,4)==1234);
+    const char *bad[]={"SUB wheel_speed,bad\n", "SUB wheel_speed,wheel_speed\n", "SUB wheel_speed,\n", "SUB \n"};
+    for(unsigned i=0;i<sizeof(bad)/sizeof(bad[0]);++i) {
+        command(bad[i]); assert(wifi_telemetry_channel_count==4 && last_value(0,4)==88);
+    }
+    command("RATE 0\nRATE -1\nRATE 1001\nRATE 2x\nRATE 99999999999999999999999\n");
+    assert(wifi_telemetry_period_ms==10);
+    command("STREAM 0\n"); assert(!wifi_telemetry_stream_enabled && has_reply("MCAR STREAM 0\n"));
+    command("GET?\nLIST?\nRATE 1000\n");
+    assert(has_reply("MCAR RATE 10\n") && has_reply("MCAR STREAM 0\n"));
+    assert(has_reply("MCAR RATE 1000\n") && rx_calls>0);
+    command("STREAM 1\nRATE 2\n"); assert(wifi_telemetry_stream_enabled && wifi_telemetry_period_ms==2);
+    command("[slider,cascade_ang_roll.kp,2.5]");
+    assert(cascade_ang_roll.kp==2.5f && has_reply("MCAR SLIDER cascade_ang_roll.kp 2.5\n"));
+    command("[\"slider\",\"balance_angle_x\",-1.25e1]\n");
+    assert(mono_params.balance_angle_x==-12.5f);
+    command("[slider,cascade_ang_roll.kp,");
+    command("3.0][slider,cascade_ang_roll.ki,0.5]RATE 20\n");
+    assert(cascade_ang_roll.kp==3 && cascade_ang_roll.ki==0.5f && wifi_telemetry_period_ms==20);
+    const char *bad_slider[]={
+        "[slider,cascade_ang_roll.kp,NaN]", "[slider,cascade_ang_roll.kp,1e100]",
+        "[slider,cascade_ang_roll.kp,0x1p0]", "[slider,cascade_ang_roll.kp,1,2]",
+        "[slider,cascade_ang_roll.kp,-1]", "[slider,cascade_ang_roll.kp,1001]",
+        "[slider,run,1]", "[slider,balance_angle_x,46]", "GOTO 1 20 20 0\n", "STOP 2\n",
+        "[slider,cascade_ang_roll.kp,[slider,cascade_ang_roll.kp,9]]\n"
+    };
+    for(unsigned i=0;i<sizeof(bad_slider)/sizeof(bad_slider[0]);++i) {
+        uint32 errors=wifi_telemetry_command_errors;
+        command(bad_slider[i]);
+        assert(wifi_telemetry_command_errors>errors && cascade_ang_roll.kp==3);
+        assert(mono_params.balance_angle_x==-12.5f);
+    }
+    char huge[1100]; memset(huge,'x',sizeof(huge)); queue(huge,sizeof(huge));
+    command("\nSUB roll_deg,pitch_deg,yaw_deg\n");
+    assert(has_reply("MCAR ERR invalid or oversized line\n") && wifi_telemetry_channel_count==3);
+    command("[slider,cascade_ang_roll.kp,");
+    const char binary[]={0,'7',']'}; queue(binary,sizeof(binary)); command("\n");
+    assert(cascade_ang_roll.kp==3 && has_reply("MCAR ERR invalid or oversized line\n"));
+    command("RATE 10\n"); packet_count=0;
+    ticks=UINT32_MAX-500000u; wifispi_telemetry_service(); packet_count=0;
+    advance(10); assert(last_value(0,3)==12); /* STM wrap-around. */
+    uint32 sent=imu_wifi_tx_packets;
+    fail_send=1; assert(!wifi_justfloat(1,2,3) && imu_wifi_status==-4 && imu_wifi_tx_packets==sent);
+    fail_send=0; fail_flush=1; assert(!wifi_justfloat(1) && imu_wifi_tx_packets==sent);
+    fail_flush=0; assert(wifi_justfloat(1,2,3) && imu_wifi_status==1 && imu_wifi_tx_packets==sent+1);
+    wifispi_telemetry_stop();
+    assert(!wifispi_is_ready() && imu_wifi_status==0 && disconnect_calls==1);
+    packet_count=0; unsigned old_rx=rx_calls; advance(1000);
+    assert(packet_count==0 && rx_calls==old_rx);
+    fail_attempts=2; wifispi_telemetry_init();
+    assert(wifispi_is_ready() && imu_wifi_init_attempts==3 && imu_wifi_last_error==-1);
+    for(unsigned stage=1;stage<=4;++stage) {
+        fail_stage=stage; wifispi_telemetry_init();
+        assert(!wifispi_is_ready() && imu_wifi_init_attempts==QCAR_WIFI_INIT_ATTEMPTS);
+        assert(imu_wifi_status==-(stage==4?1:(int)stage));
+    }
+    fail_stage=0; wifispi_telemetry_init();
+    assert(wifispi_is_ready() && wifi_telemetry_channel_count==3 && wifi_telemetry_period_ms==10);
+    assert(connect_calls>0 && socket_calls>0 && !irq_disabled);
+    puts("PASS: UDP frames, subscription, sliders, malformed input, IRQ boundaries, STM wrap, retries and stop");
+}
+#endif
+
+int main(void)
+{
+    test_pack();
+#if QCAR_WIFI_ENABLED
+    test_transport();
+#else
+    wifispi_telemetry_init();
+    assert(imu_wifi_status==-5 && !wifispi_is_ready());
+    wifispi_telemetry_service();
+    assert(!wifi_justfloat(1,2,3));
+    wifispi_telemetry_stop();
+    puts("PASS: disabled build links with no SPI/STM/IMU/control hardware symbols; JustFloat packing");
+#endif
+}

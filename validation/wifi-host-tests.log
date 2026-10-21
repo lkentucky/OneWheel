@@ -1,0 +1,11 @@
+2026-10-21, Windows / GCC, actual ported wifispi.c and Qcar data types
+
+python tests/check_wifi.py
+PASS: UDP frames, subscription, sliders, malformed input, IRQ boundaries, STM wrap, retries and stop
+PASS: disabled build links with no SPI/STM/IMU/control hardware symbols; JustFloat packing
+
+python tests/check_menu_tree.py
+PASS: empty/single/nested circular tree, repeat linking, pool limit
+
+python tests/check_menu_keys.py
+PASS: updated key mapping, navigation, editing, step cycle, bool, types, priority and clearing
