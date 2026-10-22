@@ -1,4 +1,50 @@
 #include "small_driver_uart_control.h"
+#include "IfxStm.h"
+
+static volatile uint32 feedback_sequence;
+static volatile uint32 feedback_ticks;
+static volatile uint8 feedback_valid;
+
+uint8 small_driver_feedback_fresh(uint32 now, uint32 ticks_per_ms)
+{
+    uint32 stamp = feedback_ticks;
+    __dsync();
+    return (uint8)(feedback_valid && ticks_per_ms &&
+        (uint32)(now - stamp) < ticks_per_ms * MOMENTUM_FEEDBACK_TIMEOUT_MS);
+}
+
+uint8 small_driver_feedback_snapshot(int16 *left, int16 *right)
+{
+    uint32 sequence = feedback_sequence;
+    int16 l, r;
+    if (!feedback_valid || sequence & 1u) { return 0; }
+    __dsync();
+    l = motor_value.receive_left_speed_data;
+    r = motor_value.receive_right_speed_data;
+    __dsync();
+    if (sequence != feedback_sequence) { return 0; }
+    *left = l; *right = r;
+    return 1;
+}
+
+static uint8 small_driver_try_frame(uint8 command, int16 left, int16 right)
+{
+    uint8 frame[7];
+    uint8 i;
+    frame[0] = 0xA5; frame[1] = command;
+    frame[2] = (uint8)(((uint16)left) >> 8); frame[3] = (uint8)left;
+    frame[4] = (uint8)(((uint16)right) >> 8); frame[5] = (uint8)right;
+    frame[6] = 0;
+    for (i = 0; i < 6; i++) { frame[6] += frame[i]; }
+    return uart_try_write_buffer(SMALL_DRIVER_UART, frame, sizeof(frame));
+}
+
+uint8 small_driver_try_set_duty(int16 left, int16 right)
+{
+    return small_driver_try_frame(1u, left, right);
+}
+
+uint8 small_driver_try_get_speed(void) { return small_driver_try_frame(2u, 0, 0); }
 
 small_device_value_struct motor_value;      // 定义通讯参数结构体
 
@@ -40,9 +86,16 @@ void uart_control_callback(void)
 
                     if(motor_value.receive_data_buffer[1] == 0x02)                          // 判断是否正确接收到 速度输出 功能字
                     {
+                        feedback_sequence++;
+                        __dsync();
                         motor_value.receive_left_speed_data  = (((int)motor_value.receive_data_buffer[2] << 8) | (int)motor_value.receive_data_buffer[3]);  // 拟合左侧电机转速数据
 
                         motor_value.receive_right_speed_data = (((int)motor_value.receive_data_buffer[4] << 8) | (int)motor_value.receive_data_buffer[5]);  // 拟合右侧电机转速数据
+                        feedback_ticks = IfxStm_getLower(&MODULE_STM0);
+                        __dsync();
+                        feedback_sequence++;
+                        __dsync();
+                        feedback_valid = 1;
                     }
 
                     motor_value.receive_data_count = 0;                                     // 清除缓冲区计数值
@@ -134,6 +187,8 @@ void small_driver_get_speed(void)
 //-------------------------------------------------------------------------------------------------------------------
 void small_driver_init(void)
 {
+    feedback_sequence = feedback_ticks = 0;
+    feedback_valid = 0;
     memset(motor_value.send_data_buffer, 0, 7);                             // 清除缓冲区数据
 
     memset(motor_value.receive_data_buffer, 0, 7);                          // 清除缓冲区数据

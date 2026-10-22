@@ -83,6 +83,7 @@ typedef enum // 枚举PWM引脚
 //====================================================PWM 基础函数====================================================
 void pwm_all_channel_close      (void);
 void pwm_init                   (pwm_channel_enum pwmch, uint32 freq, uint32 duty);
+void pwm_output_enable(pwm_channel_enum pwmch, uint8 enabled);
 void pwm_set_duty               (pwm_channel_enum pwmch, uint32 duty);
 //====================================================PWM 基础函数====================================================
 

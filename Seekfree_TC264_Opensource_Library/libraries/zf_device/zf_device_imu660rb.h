@@ -58,6 +58,7 @@
 #define _zf_device_imu660rb_h_
 
 #include "zf_common_typedef.h"
+#include "config.h"
 
 // IMU660RB_USE_SOFT_IIC定义为0表示使用硬件SPI驱动 定义为1表示使用软件IIC驱动
 // 当更改IMU660RB_USE_SOFT_IIC定义后，需要先编译并下载程序，单片机与模块需要断电重启才能正常通讯
@@ -73,14 +74,14 @@
 #else
 
 //====================================================硬件 SPI 驱动====================================================
-#define IMU660RB_SPI_SPEED          (10 * 1000 * 1000)                          // 硬件 SPI 速率
-#define IMU660RB_SPI                (SPI_0)                                     // 硬件 SPI 号
-#define IMU660RB_SPC_PIN            (SPI0_SCLK_P20_11 )                             // 硬件 SPI SCK 引脚
-#define IMU660RB_SDI_PIN            (SPI0_MOSI_P20_14)                             // 硬件 SPI MOSI 引脚
-#define IMU660RB_SDO_PIN            (SPI0_MISO_P20_12)                             // 硬件 SPI MISO 引脚
+#define IMU660RB_SPI_SPEED          (HW_IMU660RB_SPI_SPEED) // 硬件 SPI 速率
+#define IMU660RB_SPI                (HW_IMU660RB_SPI) // 硬件 SPI 号
+#define IMU660RB_SPC_PIN            (HW_IMU660RB_SPC_PIN) // 硬件 SPI SCK 引脚
+#define IMU660RB_SDI_PIN            (HW_IMU660RB_SDI_PIN) // 硬件 SPI MOSI 引脚
+#define IMU660RB_SDO_PIN            (HW_IMU660RB_SDO_PIN) // 硬件 SPI MISO 引脚
 //====================================================硬件 SPI 驱动====================================================
 #endif
-#define IMU660RB_CS_PIN             (P20_13)                                       // CS 片选引脚
+#define IMU660RB_CS_PIN             (HW_IMU660RB_CS_PIN) // CS 片选引脚
 #define IMU660RB_CS(x)              ((x) ? (gpio_high(IMU660RB_CS_PIN)) : (gpio_low(IMU660RB_CS_PIN)))
 
 #define IMU660RB_TIMEOUT_COUNT      (0x00FF)                                    // IMU660 超时计数
@@ -105,13 +106,13 @@
 #define IMU660RB_ACC_ADDRESS        (0x28)
 #define IMU660RB_GYRO_ADDRESS       (0x22)
 
-#define IMU660RB_ACC_SAMPLE         (0x3C)                      // 加速度计量程
+#define IMU660RB_ACC_SAMPLE         (HW_IMU660RB_ACC_SAMPLE) // 加速度计量程
 // 设置为:0x30 加速度量程为:±2G      获取到的加速度计数据 除以16393，可以转化为带物理单位的数据，单位：g(m/s^2)
 // 设置为:0x38 加速度量程为:±4G      获取到的加速度计数据 除以8197， 可以转化为带物理单位的数据，单位：g(m/s^2)
 // 设置为:0x3C 加速度量程为:±8G      获取到的加速度计数据 除以4098， 可以转化为带物理单位的数据，单位：g(m/s^2)
 // 设置为:0x34 加速度量程为:±16G     获取到的加速度计数据 除以2049， 可以转化为带物理单位的数据，单位：g(m/s^2)
 
-#define IMU660RB_GYR_SAMPLE         (0x5C)                      // 陀螺仪量程
+#define IMU660RB_GYR_SAMPLE         (HW_IMU660RB_GYR_SAMPLE) // 陀螺仪量程
 // 设置为:0x52 陀螺仪量程为:±125dps  获取到的陀螺仪数据除以228.6，   可以转化为带物理单位的数据，单位为：°/s
 // 设置为:0x50 陀螺仪量程为:±250dps  获取到的陀螺仪数据除以114.3，   可以转化为带物理单位的数据，单位为：°/s
 // 设置为:0x54 陀螺仪量程为:±500dps  获取到的陀螺仪数据除以57.1，    可以转化为带物理单位的数据，单位为：°/s

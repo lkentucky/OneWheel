@@ -20,6 +20,11 @@ typedef struct
 extern ICM_DATA icm_data_lpf;
 extern ICM_DATA re_icm_data;
 extern float pitch_filiter;
+extern volatile int16 momentum_left_duty;
+extern volatile int16 momentum_right_duty;
+void control_stop(void);
+void control_request_stop(void);
+uint8 control_request_start(void);
 void imu_data_get(void);
 void dynamic_value_control(void);
 void pit_isr_callback(void);

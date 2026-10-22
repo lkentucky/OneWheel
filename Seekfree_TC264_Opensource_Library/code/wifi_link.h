@@ -28,22 +28,7 @@
 // 车模与电脑必须连接同一个 WiFi；本机配置文件不提交到 Git。
 // 也可在运行中通过 "MCAR SET <id> host <a.b.c.d>" 修改（见 wifi_link.c）
 
-//=====================================================图像参数=====================================================
-/* Distance calibration: zero means unavailable. Never guess cm per count. */
-#ifndef WIFI_LINK_CM_PER_COUNT
-#define WIFI_LINK_CM_PER_COUNT (0.0f)
-#endif
-
-#define WIFI_LINK_IMG_W             (188)
-#define WIFI_LINK_IMG_H             (120)
-#define WIFI_LINK_IMG_SIZE          (WIFI_LINK_IMG_W * WIFI_LINK_IMG_H)
-
-//=====================================================周期参数=====================================================
-#define WIFI_LINK_DATA_PERIOD_MS    (50)        // 参数包周期
-#define WIFI_LINK_LOG_PERIOD_MS     (20)        // 日志包周期
-#define WIFI_LINK_IMAGE_PERIOD_MS   (66)        // 图像帧间隔（约 15fps）
-#define WIFI_LINK_RETRY_MS          (5000)      // 掉线重连间隔
-#define WIFI_LINK_BOOT_DELAY_MS     (300)       // 上电后等待其它外设初始化
+#include "config.h"
 
 //=====================================================对外变量=====================================================
 extern volatile float wifi_target_speed;                             // 前进目标（编码器计数/20ms）

@@ -35,87 +35,11 @@
 
 #include "zf_common_headfile.h"
 
-// Same SPI interface as Seekfree E8_14_mt9v03x_ips200_display_demo.
-#define ONEWHEEL_IPS200_INTERFACE    (IPS200_TYPE_SPI)
-#pragma section all "cpu1_dsram"
-// 将本语句与#pragma section all restore语句之间的全局变量都放在CPU1的RAM中
-
-// **************************** 代码区域 ****************************
-
-// 本例程是开源库空工程 可用作移植或者测试各类内外设
-// 本例程是开源库空工程 可用作移植或者测试各类内外设
-// 本例程是开源库空工程 可用作移植或者测试各类内外设
-
 void core1_main(void)
 {
-    uint8 wifi_frame_available;
-    disable_Watchdog();                     // 关闭看门狗
-    interrupt_global_enable(0);             // 打开全局中断
-    // 此处编写用户代码 例如外设初始化代码等
-    ips200_init(ONEWHEEL_IPS200_INTERFACE);
-    mt9v03x_init();
-
-    gpio_init(P21_4, GPO, 0, GPO_PUSH_PULL);
-    key_init(10);
-    imu660rb_init();
-    Motor_init();
-    balance_cascade_init();
-    small_driver_uart_init();       // 初始化驱动通讯功能
-    icm_init();
-    wireless_uart_init();          // 初始化正常 输出测试信息
-
-    pit_ms_init(CCU60_CH0, 1);
-    // 此处编写用户代码 例如外设初始化代码等
-//    cpu_wait_event_ready();                 // 等待所有核心初始化完毕
+    app_init();
     while (TRUE)
     {
-       wifi_frame_available = mt9v03x_finish_flag ? 1u : 0u;
-       if (wifi_frame_available) { mt9v03x_finish_flag = 0; }
-//        bujin_motor_contron(1000);
-//        small_driver_set_duty(2000,-2000);
-        key_scanner ();
-       if(key_get_state(KEY_1)==KEY_SHORT_PRESS  || key_get_state(KEY_2)== KEY_SHORT_PRESS || key_get_state(KEY_3)== KEY_SHORT_PRESS || key_get_state(KEY_4)== KEY_SHORT_PRESS)
-       {
-
-           run_flag=0;
-
-       }
-        memcpy(base_image[0],mt9v03x_image[0],MT9V03X_IMAGE_SIZE);
-        img_threshold=Ostu(base_image);
-        if(img_threshold<180)                    //固定最小阈值
-        {
-            img_threshold=180;
-        }
-
-        Image_Binarization(img_threshold);      //二值化
-        detect_beacon(image_binary,&beacon);    //检测信标
-        error_back=erro;
-        erro_yawan_back=erro_yawan;
-//        ips200_show_gray_image(0,0,mt9v03x_image[0],MT9V03X_W,MT9V03X_H,MT9V03X_W/2,MT9V03X_H/2,0);
-        ips200_show_gray_image(0,0,image_binary[0],MT9V03X_W,MT9V03X_H,MT9V03X_W/2,MT9V03X_H/2,0);
-        ips200_draw_point(beacon.centerX/2,beacon.centerY/2,RGB565_RED);
-        ips200_draw_line(beacon.centerX/2,beacon.centerY/2,beacon.centerX/2+5,beacon.centerY/2,RGB565_RED);
-        ips200_draw_line(beacon.centerX/2,beacon.centerY/2,beacon.centerX/2,beacon.centerY/2+5,RGB565_RED);
-        ips200_draw_line(beacon.centerX/2+5,beacon.centerY/2,beacon.centerX/2+5,beacon.centerY/2+5,RGB565_RED);
-        ips200_draw_line(beacon.centerX/2,beacon.centerY/2+5,beacon.centerX/2+5,beacon.centerY/2+5,RGB565_RED);
-
-       ips200_draw_line(beacon.last_centerX/2,beacon.last_centerY/2,beacon.last_centerX/2+5,beacon.last_centerY/2,    RGB565_GREEN);
-       ips200_draw_line(beacon.last_centerX/2,beacon.last_centerY/2,beacon.last_centerX/2,beacon.last_centerY/2+5,    RGB565_GREEN);
-       ips200_draw_line(beacon.last_centerX/2+5,beacon.last_centerY/2,beacon.last_centerX/2+5,beacon.last_centerY/2+5,    RGB565_GREEN);
-       ips200_draw_line(beacon.last_centerX/2,beacon.last_centerY/2+5,beacon.last_centerX/2+5,beacon.last_centerY/2+5,    RGB565_GREEN);
-
-       ips200_show_float(0,60,erro,4,2);
-//       printf("%d,%f,%d,%d,%f,%d\r\n",icm_data_lpf.accY,balance_cascade.pitch_cascade_value.filtering_angle,icm_data_lpf.gyroZ,icm_data_lpf.accZ,balance_cascade.cascade_value.filtering_angle,icm_data_lpf.gyroY);
-       if (run_flag)
-       {
-           send_two_floats(1.0,encoder_data_1,0.1);
-       }
-//       send_two_floats(-100,100);
-//       wireless_uart_send_image(&mt9v03x_image[0][0], MT9V03X_IMAGE_SIZE);
-       wifi_link_cpu1_service(wifi_frame_available);
-       system_delay_ms(10);
+        app_poll();
     }
-
 }
-#pragma section all restore
-// **************************** 代码区域 ****************************

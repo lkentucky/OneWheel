@@ -116,6 +116,7 @@ extern IfxAsclin_Asc uart3_handle;
 
 //====================================================´®¿Ú »ù´¡º¯Êý====================================================
 void    uart_write_byte                     (uart_index_enum uartn, const uint8 dat);
+uint8   uart_try_write_buffer(uart_index_enum uartn, const uint8 *buff, uint32 len);
 void    uart_write_buffer                   (uart_index_enum uartn, const uint8 *buff, uint32 len);
 void    uart_write_string                   (uart_index_enum uartn, const char *str);
 

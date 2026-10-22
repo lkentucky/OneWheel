@@ -280,6 +280,15 @@ void uart_write_byte (uart_index_enum uart_n, const uint8 dat)
 // 使用示例       uart_write_buffer(UART_1, &a[0], 5);
 // 备注信息
 //-------------------------------------------------------------------------------------------------------------------
+/* Owner-only all-or-nothing FIFO enqueue. No polling or delays. */
+uint8 uart_try_write_buffer(uart_index_enum uart_n, const uint8 *buff, uint32 len)
+{
+    IfxAsclin_Asc *handle = uart_get_handle(uart_n);
+    if (!buff || !len || len > 16u || IfxAsclin_getTxFifoFillLevel(handle->asclin) > 16u - len) { return 0; }
+    IfxAsclin_write8(handle->asclin, buff, len);
+    return 1;
+}
+
 void uart_write_buffer (uart_index_enum uart_n, const uint8 *buff, uint32 len)
 {
     while(len)

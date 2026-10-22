@@ -10,6 +10,9 @@ float atan2f(float y,float x) { return (float)atan2(y,x); }
 float sqrtf(float x) { return (float)sqrt(x); }
 float fmodf(float x,float y) { return (float)fmod(x,y); }
 
+void host_dsync(void) {}
+void uart_write_buffer(int index,const uint8 *data,uint32 length)
+{ (void)index;(void)data;(void)length; }
 int MODULE_STM0;
 cascada_value_struct balance_cascade;
 ICM_DATA icm_data_lpf;
@@ -17,11 +20,15 @@ BeaconInfo beacon;
 uint8 image_binary[MT9V03X_H][MT9V03X_W];
 volatile uint32 system_count;
 volatile uint8 run_flag;
+volatile uint8 app_imu_ready;
 volatile float k1=1.25f, k2=.5f;
 float expect_speed=160;
 float erro;
-int16 encoder_data_1, car_speed, bujin_last_duty;
+int16 encoder_data_1, car_speed;
+volatile int16 bujin_last_duty;
 mock_motor motor_value;
+volatile int16 momentum_left_duty, momentum_right_duty;
+void control_request_stop(void) { run_flag=0; }
 char wifi_spi_version[12], wifi_spi_mac_addr[20], wifi_spi_ip_addr_port[25];
 static uint32 ticks, assertions, socket_calls;
 static uint8 busy, spi_stage, command, reply_code=WIFI_SPI_REPLY_OK;
@@ -87,7 +94,10 @@ static void reset(void)
     run_flag=0;
 }
 static void cmd(const char *text)
-{ wl_command_bytes((const uint8 *)text,(uint32)strlen(text)); wl_c0_log[wl_c0_len]=0; }
+{
+    wl_command_bytes((const uint8 *)text,(uint32)strlen(text));
+    if (wl_c0_len < sizeof(wl_c0_log)) { if(wl_c0_len<sizeof(wl_c0_log))wl_c0_log[wl_c0_len]=0; }
+}
 static void clear_log(void) { wl_c0_len=0; }
 static void finish_tx(void)
 {
@@ -125,6 +135,14 @@ static void test_parser(void)
     clear_log();cmd("MCAR SET 1 run 1\n"); assert(run_flag==0);
     run_flag=1;clear_log();cmd("MCAR SET 1 roll_angle_p 6\n");assert(balance_cascade.angle_cycle.p==0);
     clear_log();cmd("MCAR SET 1 run 0\n");assert(run_flag==0);
+    run_flag=1;wl_c0_len=249;cmd("MCAR SET 1 run 0\n");assert(run_flag==0);assert(wl_c0_len<=sizeof(wl_c0_log));
+    run_flag=1;wl_c0_len=2048;cmd("MCAR SET 1 run 0\n");assert(run_flag==0);assert(wl_c0_len==2048);
+    run_flag=1;wl_c0_len=249;cmd("MCAR SET 1 run 1\n");assert(run_flag==1);
+    run_flag=1;wl_c0_len=249;cmd("MCAR SET 1 run nan\n");assert(run_flag==1);
+    run_flag=1;wl_c0_len=249;cmd("MCAR SET 1 run 0 extra\n");assert(run_flag==1);
+    run_flag=1;wl_c0_len=249;cmd("MCAR SET 999999999999 run 0\n");assert(run_flag==1);
+    run_flag=1;wl_c0_len=2048;cmd("MCAR SET 1 run\n");assert(run_flag==1);
+    run_flag=0;clear_log();
     clear_log();cmd("MCAR SET 1 ramp_ms 500\n");assert(fabs(wifi_ramp_step-.32f)<1e-6);
     clear_log();cmd("MCAR SET 1 cruise_cms 10\n"); assert(wifi_target_speed==123);
     clear_log();cmd("MCAR SET 1 host 999.1.1.1\n");assert(!wl_next_host[0]);
@@ -166,6 +184,8 @@ static void test_transport(void)
     reset();wifi_link_log("queued\n");wl_now_ms=100;
     wifi_link_io_receive(0);wl_io_service();
     assert(wl_last_rx_ms==100);wl_run();assert(io_state==IO_FLUSH);
+    reset();wl_now_ms=100;wl_last_rx_ms=wl_last_data_ms=wl_last_log_ms=100;
+    wl_run();assert(!wifi_link_io_busy() && !wl_share.frame_want);
 }
 static void test_data_and_camera(void)
 {
@@ -173,9 +193,16 @@ static void test_data_and_camera(void)
     reset();icm_data_lpf.accZ=4098;icm_data_lpf.gyroZ=14300;
     system_count=100;wifi_link_cpu1_service(1);system_count=120;wifi_link_cpu1_service(0);
     assert(fabs(wl_share.yaw_deg-20)<.001);system_count=220;wifi_link_cpu1_service(1);
-    assert(fabs(wl_share.yaw_deg-120)<.001);assert(wl_share.vision_frames==2);
-    assert(wl_share.vision_interval_us==120000);
+    assert(fabs(wl_share.yaw_deg-120)<.001);assert(wl_share.vision_frames==0);
+    assert(wl_share.vision_interval_us==0);
     wifi_encoder_total=(uint32)-123;encoder_data_1=-12;bujin_last_duty=-1400;
+    momentum_left_duty=350;momentum_right_duty=-400;
+    app_imu_ready=1;
+    balance_cascade.cascade_value.filtering_angle=123.5f;
+    balance_cascade.pitch_cascade_value.filtering_angle=-321.25f;
+    balance_cascade.cascade_value.mechanical_zero=30;
+    balance_cascade.pitch_cascade_value.mechanical_zero=-100;
+    balance_cascade.angular_speed_cycle.out=350.75f;
     wl_send_data();finish_tx();save("data.bin",captured,captured_length);
     for(i=0;i<WIFI_LINK_IMG_SIZE;i++)wl_frame[i]=(uint8)(i*7);
     wl_share.frame_ready=1;wl_share.frame_index=99;

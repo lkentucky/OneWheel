@@ -62,6 +62,7 @@ extern cascada_value_struct balance_cascade;
 extern cascada_value_struct balance_cascade_resave;
 extern float new_mechanical_zero;
 void balance_cascade_init(void);
+void balance_cascade_reset(void);
 void pid_control (pid_cycle_struct *pid_cycle,float target,float real);
 void first_order_complementary_filtering(cascade_common_value_struct *filter_value,int16 gyro_raw_data,int16 acc_raw_data);
 void pid_control_incremental(pid_cycle_struct *pid_cycle,float target,float real );

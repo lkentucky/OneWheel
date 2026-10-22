@@ -11,13 +11,13 @@
 #include "zf_common_headfile.h"
 
 
-#define SMALL_DRIVER_UART                       (UART_3        )
+#define SMALL_DRIVER_UART                       (MOMENTUM_UART)
 
-#define SMALL_DRIVER_BAUDRATE                   (460800        )
+#define SMALL_DRIVER_BAUDRATE                   (MOMENTUM_UART_BAUD)
 
-#define SMALL_DRIVER_RX                         (UART3_TX_P15_6)
+#define SMALL_DRIVER_RX                         (MOMENTUM_UART_TX)
 
-#define SMALL_DRIVER_TX                         (UART3_RX_P15_7)
+#define SMALL_DRIVER_TX                         (MOMENTUM_UART_RX)
 
 typedef struct
 {
@@ -36,6 +36,10 @@ typedef struct
 }small_device_value_struct;
 
 extern small_device_value_struct motor_value;
+uint8 small_driver_feedback_fresh(uint32 now_ticks, uint32 ticks_per_ms);
+uint8 small_driver_feedback_snapshot(int16 *left, int16 *right);
+uint8 small_driver_try_set_duty(int16 left, int16 right);
+uint8 small_driver_try_get_speed(void);
 
 
 

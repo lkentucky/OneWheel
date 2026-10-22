@@ -64,6 +64,7 @@ IFX_INTERRUPT(cc61_pit_ch0_isr, 0, CCU6_1_CH0_ISR_PRIORITY)
 {
     interrupt_global_enable(0);                     // ¿ªÆôÖÐ¶ÏÇ¶Ì×
     pit_clear_flag(CCU61_CH0);
+    safety_output_tick(); /* CPU1: independent output and completed-control watchdog. */
 
 
 

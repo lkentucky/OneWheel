@@ -304,6 +304,21 @@ void pwm_all_channel_close (void)
 // 使用示例     pwm_set_duty(ATOM0_CH7_P02_7, 5000); // 设置占空比为百分之5000/PWM_DUTY_MAX*100
 // 备注信息     GTM_ATOM0_PWM_DUTY_MAX宏定义在zf_driver_pwm.h  默认为10000
 //-------------------------------------------------------------------------------------------------------------------
+/* Force the physical pin low independently of the ATOM shadow update. */
+void pwm_output_enable(pwm_channel_enum pwmch, uint8 enabled)
+{
+    IfxGtm_Atom_ToutMap *pin = get_pwm_pin(pwmch);
+    if (enabled)
+    {
+        IfxPort_setPinModeOutput(pin->pin.port, pin->pin.pinIndex, IfxPort_OutputMode_pushPull, pin->select);
+    }
+    else
+    {
+        IfxPort_setPinLow(pin->pin.port, pin->pin.pinIndex);
+        IfxPort_setPinModeOutput(pin->pin.port, pin->pin.pinIndex, IfxPort_OutputMode_pushPull, IfxPort_OutputIdx_general);
+    }
+}
+
 void pwm_set_duty (pwm_channel_enum pwmch, uint32 duty)
 {
     uint32 period;

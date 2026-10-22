@@ -28,7 +28,7 @@
 
 //=====================================================协议常量=====================================================
 #define WL_MUX_HEADER_SIZE      (8)
-#define WL_DATA_SIZE            (148)
+#define WL_DATA_SIZE            (228)
 #define WL_CAM_HEADER_SIZE      (24)
 #define WL_CAM_CHUNK_SIZE       (1400)
 #define WL_CAM_CHUNK_COUNT      ((WIFI_LINK_IMG_SIZE + WL_CAM_CHUNK_SIZE - 1) / WL_CAM_CHUNK_SIZE)
@@ -64,10 +64,10 @@ typedef struct
 
 static volatile wl_share_struct wl_share;
 
-volatile float wifi_target_speed = 160.0f;       // 行进轮目标速度（原控制环里的固定 160）
-volatile float wifi_ramp_step = 0.03f;
-volatile float wifi_ramp_ms = 160.0f / 0.03f;
-volatile float wifi_deadband_px = 0.0f;
+volatile float wifi_target_speed = CONTROL_TARGET_SPEED_DEFAULT;       // 行进轮目标速度（原控制环里的固定 160）
+volatile float wifi_ramp_step = CONTROL_RAMP_REFERENCE / CONTROL_RAMP_MS_DEFAULT;
+volatile float wifi_ramp_ms = CONTROL_RAMP_MS_DEFAULT;
+volatile float wifi_deadband_px = CONTROL_DEADBAND_PX_DEFAULT;
 volatile uint32 wifi_encoder_total = 0;           // 行进轮编码器累计计数（控制中断里累加）
 
 //=====================================================缓冲区（dsram1）=====================================================
@@ -191,6 +191,11 @@ void wifi_link_log(const char *format, ...)
     va_start(args, format);
     vsnprintf(text, sizeof(text), format, args);
     va_end(args);
+    /* Network failures must remain visible even before UDP is available. */
+    if (APP_BOOT_DIAGNOSTICS_ENABLE && !strncmp(text, "[NET]", 5))
+    {
+        uart_write_buffer(DEBUG_UART_INDEX, (const uint8 *)text, (uint32)strlen(text));
+    }
     wl_c0_append(text);
 }
 
@@ -366,8 +371,8 @@ static void wl_send_data(void)
     wl_put_float(p + 88, (float)car_speed);
 
     wl_put_float(p + 92, (float)bujin_last_duty);           // duty[0] 行进轮输出
-    wl_put_float(p + 96, 0.0f);
-    wl_put_float(p + 100, 0.0f);
+    wl_put_float(p + 96, (float)momentum_left_duty);
+    wl_put_float(p + 100, (float)momentum_right_duty);
     wl_put_float(p + 104, 0.0f);
 
     wl_put_float(p + 108, wl_share.erro_px);
@@ -381,6 +386,33 @@ static void wl_send_data(void)
     wl_put_u32(p + 136, wifi_link_io_last_us());                                 // wifi_time_us
     wl_put_u32(p + 140, wifi_link_io_peak_us());                                 // wifi_peak_us
     wl_put_u32(p + 144, wl_share.vision_event);
+
+    /* OWHL v1: raw controller units, independently of sensor-frame Euler angles. */
+    memcpy(p + 148, "OWHL", 4);
+    wl_put_u16(p + 152, 1);
+    wl_put_u16(p + 154, (uint16)((run_flag ? 1u : 0u) |
+        (app_imu_ready ? 2u : 0u) | (system_count >= APP_CONTROL_WARMUP_MS ? 4u : 0u) |
+        (APP_DRIVE_ENABLE ? 8u : 0u) | (APP_CAMERA_ENABLE ? 16u : 0u) |
+        (CONTROL_ROLL_ENABLE ? 32u : 0u) | (CONTROL_PITCH_ENABLE ? 64u : 0u) |
+        (CONTROL_MOTOR_ENABLE ? 128u : 0u) | (CONTROL_YAW_ENABLE ? 256u : 0u)));
+    wl_put_float(p + 156, balance_cascade.cascade_value.filtering_angle);
+    wl_put_float(p + 160, balance_cascade.pitch_cascade_value.filtering_angle);
+    wl_put_float(p + 164, balance_cascade.speed_cycle.out);
+    wl_put_float(p + 168, balance_cascade.pitch_speed_cycle.out);
+    wl_put_float(p + 172, balance_cascade.angle_cycle.out);
+    wl_put_float(p + 176, -balance_cascade.pitch_angle_cycle.out);
+    wl_put_float(p + 180, -balance_cascade.yaw_erro_cycle.out);
+    wl_put_float(p + 184, balance_cascade.angular_speed_cycle.out);
+    wl_put_float(p + 188, balance_cascade.pitch_angular_speed_cycle.out);
+    wl_put_float(p + 192, balance_cascade.motor_cycle.out);
+    wl_put_float(p + 196, balance_cascade.yaw_angular_speed_cycle.out);
+    wl_put_float(p + 200, balance_cascade.cascade_value.mechanical_zero);
+    wl_put_float(p + 204, balance_cascade.pitch_cascade_value.mechanical_zero);
+    wl_put_float(p + 208, wifi_target_speed);
+    wl_put_float(p + 212, wifi_ramp_step);
+    wl_put_float(p + 216, (float)ROLL_GYRO_RAW);
+    wl_put_float(p + 220, (float)PITCH_GYRO_RAW);
+    wl_put_float(p + 224, (float)YAW_GYRO_RAW);
 
     __dsync();
     if (sequence != wl_share.sequence) { return; }
@@ -438,7 +470,7 @@ static void wl_send_image_slice(void)
         // 请求下一帧
         if (wl_share.frame_want)
         {
-            if ((wl_now_ms - wl_frame_done_ms) > 300u)       // CPU1 长时间不响应则撤回请求
+            if ((wl_now_ms - wl_frame_done_ms) > WIFI_LINK_FRAME_TIMEOUT_MS)       // CPU1 长时间不响应则撤回请求
             {
                 wl_share.frame_want = 0;
             }
@@ -510,40 +542,42 @@ typedef struct
 
 static const wl_param_struct wl_params[] =
 {
-    {"speed",         &wifi_target_speed,                       -1000.0f, 1000.0f},
-    {"k1",            &k1,                                        -10.0f,   10.0f},
-    {"k2",            &k2,                                        -10.0f,   10.0f},
+    {"speed",         &wifi_target_speed,                       -TUNE_SPEED_LIMIT, TUNE_SPEED_LIMIT},
+    {"roll_zero", &balance_cascade.cascade_value.mechanical_zero, -TUNE_ZERO_LIMIT, TUNE_ZERO_LIMIT},
+    {"pitch_zero", &balance_cascade.pitch_cascade_value.mechanical_zero, -TUNE_ZERO_LIMIT, TUNE_ZERO_LIMIT},
+    {"k1",            &k1,                                        -TUNE_VISION_GAIN_LIMIT,   TUNE_VISION_GAIN_LIMIT},
+    {"k2",            &k2,                                        -TUNE_VISION_GAIN_LIMIT,   TUNE_VISION_GAIN_LIMIT},
 
-    {"roll_angle_p",  &balance_cascade.angle_cycle.p,           -10000.0f, 10000.0f},
-    {"roll_angle_i",  &balance_cascade.angle_cycle.i,           -10000.0f, 10000.0f},
-    {"roll_angle_d",  &balance_cascade.angle_cycle.d,           -10000.0f, 10000.0f},
-    {"roll_speed_p",  &balance_cascade.speed_cycle.p,           -10000.0f, 10000.0f},
-    {"roll_speed_i",  &balance_cascade.speed_cycle.i,           -10000.0f, 10000.0f},
-    {"roll_speed_d",  &balance_cascade.speed_cycle.d,           -10000.0f, 10000.0f},
-    {"roll_rate_p",   &balance_cascade.angular_speed_cycle.p,   -10000.0f, 10000.0f},
-    {"roll_rate_i",   &balance_cascade.angular_speed_cycle.i,   -10000.0f, 10000.0f},
-    {"roll_rate_d",   &balance_cascade.angular_speed_cycle.d,   -10000.0f, 10000.0f},
+    {"roll_angle_p",  &balance_cascade.angle_cycle.p,           -TUNE_GAIN_LIMIT, TUNE_GAIN_LIMIT},
+    {"roll_angle_i",  &balance_cascade.angle_cycle.i,           -TUNE_GAIN_LIMIT, TUNE_GAIN_LIMIT},
+    {"roll_angle_d",  &balance_cascade.angle_cycle.d,           -TUNE_GAIN_LIMIT, TUNE_GAIN_LIMIT},
+    {"roll_speed_p",  &balance_cascade.speed_cycle.p,           -TUNE_GAIN_LIMIT, TUNE_GAIN_LIMIT},
+    {"roll_speed_i",  &balance_cascade.speed_cycle.i,           -TUNE_GAIN_LIMIT, TUNE_GAIN_LIMIT},
+    {"roll_speed_d",  &balance_cascade.speed_cycle.d,           -TUNE_GAIN_LIMIT, TUNE_GAIN_LIMIT},
+    {"roll_rate_p",   &balance_cascade.angular_speed_cycle.p,   -TUNE_GAIN_LIMIT, TUNE_GAIN_LIMIT},
+    {"roll_rate_i",   &balance_cascade.angular_speed_cycle.i,   -TUNE_GAIN_LIMIT, TUNE_GAIN_LIMIT},
+    {"roll_rate_d",   &balance_cascade.angular_speed_cycle.d,   -TUNE_GAIN_LIMIT, TUNE_GAIN_LIMIT},
 
-    {"pitch_angle_p", &balance_cascade.pitch_angle_cycle.p,     -10000.0f, 10000.0f},
-    {"pitch_angle_i", &balance_cascade.pitch_angle_cycle.i,     -10000.0f, 10000.0f},
-    {"pitch_angle_d", &balance_cascade.pitch_angle_cycle.d,     -10000.0f, 10000.0f},
-    {"pitch_speed_p", &balance_cascade.pitch_speed_cycle.p,     -10000.0f, 10000.0f},
-    {"pitch_speed_i", &balance_cascade.pitch_speed_cycle.i,     -10000.0f, 10000.0f},
-    {"pitch_speed_d", &balance_cascade.pitch_speed_cycle.d,     -10000.0f, 10000.0f},
-    {"pitch_rate_p",  &balance_cascade.pitch_angular_speed_cycle.p, -10000.0f, 10000.0f},
-    {"pitch_rate_i",  &balance_cascade.pitch_angular_speed_cycle.i, -10000.0f, 10000.0f},
-    {"pitch_rate_d",  &balance_cascade.pitch_angular_speed_cycle.d, -10000.0f, 10000.0f},
+    {"pitch_angle_p", &balance_cascade.pitch_angle_cycle.p,     -TUNE_GAIN_LIMIT, TUNE_GAIN_LIMIT},
+    {"pitch_angle_i", &balance_cascade.pitch_angle_cycle.i,     -TUNE_GAIN_LIMIT, TUNE_GAIN_LIMIT},
+    {"pitch_angle_d", &balance_cascade.pitch_angle_cycle.d,     -TUNE_GAIN_LIMIT, TUNE_GAIN_LIMIT},
+    {"pitch_speed_p", &balance_cascade.pitch_speed_cycle.p,     -TUNE_GAIN_LIMIT, TUNE_GAIN_LIMIT},
+    {"pitch_speed_i", &balance_cascade.pitch_speed_cycle.i,     -TUNE_GAIN_LIMIT, TUNE_GAIN_LIMIT},
+    {"pitch_speed_d", &balance_cascade.pitch_speed_cycle.d,     -TUNE_GAIN_LIMIT, TUNE_GAIN_LIMIT},
+    {"pitch_rate_p",  &balance_cascade.pitch_angular_speed_cycle.p, -TUNE_GAIN_LIMIT, TUNE_GAIN_LIMIT},
+    {"pitch_rate_i",  &balance_cascade.pitch_angular_speed_cycle.i, -TUNE_GAIN_LIMIT, TUNE_GAIN_LIMIT},
+    {"pitch_rate_d",  &balance_cascade.pitch_angular_speed_cycle.d, -TUNE_GAIN_LIMIT, TUNE_GAIN_LIMIT},
 
-    {"motor_p",       &balance_cascade.motor_cycle.p,           -10000.0f, 10000.0f},
-    {"motor_i",       &balance_cascade.motor_cycle.i,           -10000.0f, 10000.0f},
-    {"motor_d",       &balance_cascade.motor_cycle.d,           -10000.0f, 10000.0f},
+    {"motor_p",       &balance_cascade.motor_cycle.p,           -TUNE_GAIN_LIMIT, TUNE_GAIN_LIMIT},
+    {"motor_i",       &balance_cascade.motor_cycle.i,           -TUNE_GAIN_LIMIT, TUNE_GAIN_LIMIT},
+    {"motor_d",       &balance_cascade.motor_cycle.d,           -TUNE_GAIN_LIMIT, TUNE_GAIN_LIMIT},
 
-    {"yaw_p",         &balance_cascade.yaw_erro_cycle.p,        -10000.0f, 10000.0f},
-    {"yaw_i",         &balance_cascade.yaw_erro_cycle.i,        -10000.0f, 10000.0f},
-    {"yaw_d",         &balance_cascade.yaw_erro_cycle.d,        -10000.0f, 10000.0f},
-    {"yaw_rate_p",    &balance_cascade.yaw_angular_speed_cycle.p, -10000.0f, 10000.0f},
-    {"yaw_rate_i",    &balance_cascade.yaw_angular_speed_cycle.i, -10000.0f, 10000.0f},
-    {"yaw_rate_d",    &balance_cascade.yaw_angular_speed_cycle.d, -10000.0f, 10000.0f},
+    {"yaw_p",         &balance_cascade.yaw_erro_cycle.p,        -TUNE_GAIN_LIMIT, TUNE_GAIN_LIMIT},
+    {"yaw_i",         &balance_cascade.yaw_erro_cycle.i,        -TUNE_GAIN_LIMIT, TUNE_GAIN_LIMIT},
+    {"yaw_d",         &balance_cascade.yaw_erro_cycle.d,        -TUNE_GAIN_LIMIT, TUNE_GAIN_LIMIT},
+    {"yaw_rate_p",    &balance_cascade.yaw_angular_speed_cycle.p, -TUNE_GAIN_LIMIT, TUNE_GAIN_LIMIT},
+    {"yaw_rate_i",    &balance_cascade.yaw_angular_speed_cycle.i, -TUNE_GAIN_LIMIT, TUNE_GAIN_LIMIT},
+    {"yaw_rate_d",    &balance_cascade.yaw_angular_speed_cycle.d, -TUNE_GAIN_LIMIT, TUNE_GAIN_LIMIT},
 };
 
 #define WL_PARAM_COUNT  (sizeof(wl_params) / sizeof(wl_params[0]))
@@ -651,7 +685,15 @@ static void wl_command_line(char *line)
     errno = 0;
     id = strtoul(token[2], &end, 10);
     if (end == token[2] || *end || errno == ERANGE || id > 2147483647UL) { return; }
-    /* Do not apply a write when its acknowledgement cannot fit in the queue. */
+    /* A legal stop must run even when the log/ACK queue is full. */
+    if (!strcmp(token[1], "SET") && count == 5 && !strcmp(token[3], "run") &&
+        wl_number(token[4], &value) && value == 0.0f)
+    {
+        control_request_stop();
+        wl_reply_ok(token[2], "run", 0.0f);
+        return;
+    }
+    /* Other writes still need room for their acknowledgement. */
     if (wl_c0_len > sizeof(wl_c0_log) - 1800u) { return; }
     if (!strcmp(token[1], "ALIVE") && count == 3)
     {
@@ -670,7 +712,7 @@ static void wl_command_line(char *line)
         wl_reply_ok(token[2], "deadband_px", wifi_deadband_px);
         if (WIFI_LINK_CM_PER_COUNT > 0.0f)
         {
-            wl_reply_ok(token[2], "cruise_cms", wifi_target_speed * 50.0f * WIFI_LINK_CM_PER_COUNT);
+            wl_reply_ok(token[2], "cruise_cms", wifi_target_speed * (1000.0f / CONTROL_SPEED_PERIOD_MS) * WIFI_LINK_CM_PER_COUNT);
         }
         wl_reply_done(token[2]);
         return;
@@ -687,7 +729,7 @@ static void wl_command_line(char *line)
     if (!strcmp(token[3], "run"))
     {
         if (value != 0.0f) { wl_reply_err(token[2], "LOCAL_START_REQUIRED"); return; }
-        run_flag = 0;
+        control_request_stop();
         wl_reply_ok(token[2], "run", 0.0f);
         return;
     }
@@ -696,24 +738,24 @@ static void wl_command_line(char *line)
     {
         float calibration = WIFI_LINK_CM_PER_COUNT;
         if (calibration <= 0.0f) { wl_reply_err(token[2], "UNCALIBRATED"); return; }
-        if (value < 0.0f || value > 200.0f || value / (50.0f * calibration) > 1000.0f)
+        if (value < 0.0f || value > TUNE_CRUISE_MAX_CMS || value / ((1000.0f / CONTROL_SPEED_PERIOD_MS) * calibration) > TUNE_SPEED_LIMIT)
         { wl_reply_err(token[2], "RANGE"); return; }
-        wifi_target_speed = value / (50.0f * calibration);
+        wifi_target_speed = value / ((1000.0f / CONTROL_SPEED_PERIOD_MS) * calibration);
         wl_reply_ok(token[2], "cruise_cms", value);
         return;
     }
     if (!strcmp(token[3], "ramp_ms"))
     {
-        if (value < 100.0f || value > 20000.0f) { wl_reply_err(token[2], "RANGE"); return; }
+        if (value < TUNE_RAMP_MIN_MS || value > TUNE_RAMP_MAX_MS) { wl_reply_err(token[2], "RANGE"); return; }
         if (run_flag) { wl_reply_err(token[2], "STOP_FIRST"); return; }
         wifi_ramp_ms = value;
-        wifi_ramp_step = 160.0f / value;
+        wifi_ramp_step = CONTROL_RAMP_REFERENCE / value;
         wl_reply_ok(token[2], "ramp_ms", value);
         return;
     }
     if (!strcmp(token[3], "deadband_px"))
     {
-        if (value < 0.0f || value > 10.0f) { wl_reply_err(token[2], "RANGE"); return; }
+        if (value < 0.0f || value > TUNE_DEADBAND_MAX_PX) { wl_reply_err(token[2], "RANGE"); return; }
         wifi_deadband_px = value;
         wl_reply_ok(token[2], "deadband_px", value);
         return;
@@ -780,14 +822,14 @@ static void wl_run(void)
     if (!wl_module_idle())
     {
         if (!wl_idle_busy_ms) { wl_idle_busy_ms = wl_now_ms; }
-        if ((uint32)(wl_now_ms - wl_idle_busy_ms) >= 250u)
+        if ((uint32)(wl_now_ms - wl_idle_busy_ms) >= WIFI_LINK_IO_TIMEOUT_MS)
         {
             wl_backoff(WL_ST_INIT, "module busy timeout");
         }
         return;
     }
     wl_idle_busy_ms = 0;
-    if ((uint32)(wl_now_ms - wl_last_rx_ms) >= 5u)
+    if ((uint32)(wl_now_ms - wl_last_rx_ms) >= WIFI_LINK_RX_PERIOD_MS)
     {
         wifi_link_io_receive(wl_now_ms);
         wl_last_rx_ms = wl_now_ms;
@@ -801,7 +843,7 @@ static void wl_run(void)
     {
         wl_send_data();
     }
-    else { wl_send_image_slice(); }
+    else if (APP_WIFI_IMAGE_ENABLE) { wl_send_image_slice(); }
     if (wifi_link_io_busy()) { wl_io_service(); }
 }
 
@@ -856,6 +898,7 @@ void wifi_link_service(void)
             wifi_link_io_init(wl_command_bytes, wl_tick_per_us);
             wl_pending_kind = WL_TX_NONE;
             wl_frame_pos = 0;
+            wifi_link_log("[NET] module init begin\r\n");
             result = wifi_spi_init(WIFI_LINK_SSID, WIFI_LINK_PASSWORD);
             if (0 == result)
             {
@@ -870,7 +913,9 @@ void wifi_link_service(void)
 
         case WL_ST_SOCKET:
         {
-            uint8 result = wifi_spi_socket_connect("UDP", wl_host, WIFI_LINK_HOST_PORT, WIFI_LINK_LOCAL_PORT);
+            uint8 result;
+            wifi_link_log("[NET] UDP socket begin\r\n");
+            result = wifi_spi_socket_connect("UDP", wl_host, WIFI_LINK_HOST_PORT, WIFI_LINK_LOCAL_PORT);
             if (0 == result)
             {
                 wifi_link_log("[NET] udp %s:%s local %s ip %s\r\n",
@@ -887,7 +932,7 @@ void wifi_link_service(void)
             else
             {
                 wl_socket_fail++;
-                if (wl_socket_fail >= 6)
+                if (wl_socket_fail >= WIFI_LINK_SOCKET_RETRY_LIMIT)
                 {
                     wl_socket_fail = 0;
                     wl_backoff(WL_ST_INIT, "socket retries exhausted");
@@ -918,7 +963,7 @@ void wifi_link_service(void)
         } break;
     }
 
-    system_delay_us(300);           // 让出 CPU0，同时给控制中断留出响应时间
+    system_delay_us(WIFI_LINK_CPU0_DELAY_US);           // 让出 CPU0，同时给控制中断留出响应时间
 }
 
 //=====================================================CPU1 侧=====================================================
@@ -952,14 +997,14 @@ void wifi_link_cpu1_service(uint8 new_frame)
     }
     have_sample = 1;
     last_ms = now;
-    wl_share.erro_px = erro;
+    wl_share.erro_px = APP_CAMERA_ENABLE ? erro : 0.0f;
     /* Yaw error loop output is a raw gyro target. Inner-loop output is PWM. */
     wl_share.omega_cmd = -balance_cascade.yaw_erro_cycle.out * imu660rb_gyro_transition(1);
-    wl_share.vx_cmd = expect_speed * (50.0f * WIFI_LINK_CM_PER_COUNT);
-    wl_share.vision_event = (beacon.sum > 0 && beacon.centerX >= 10 &&
+    wl_share.vx_cmd = expect_speed * ((1000.0f / CONTROL_SPEED_PERIOD_MS) * WIFI_LINK_CM_PER_COUNT);
+    wl_share.vision_event = (APP_CAMERA_ENABLE && beacon.sum > 0 && beacon.centerX >= 10 &&
                             beacon.centerX < WIFI_LINK_IMG_W && beacon.centerY >= 39 &&
                             beacon.centerY < WIFI_LINK_IMG_H - 10) ? 1u : 0u;
-    if (new_frame)
+    if (APP_CAMERA_ENABLE && new_frame)
     {
         if (wl_share.vision_frames) { wl_share.vision_interval_us = (uint32)(now - last_frame_ms) * 1000u; }
         last_frame_ms = now;
@@ -969,7 +1014,7 @@ void wifi_link_cpu1_service(uint8 new_frame)
     wl_share.sequence++;
     __dsync();
     wl_share.cpu1_ready = 1;
-    if (new_frame && wl_share.frame_want && !wl_share.frame_ready)
+    if (APP_WIFI_IMAGE_ENABLE && new_frame && wl_share.frame_want && !wl_share.frame_ready)
     {
         memcpy(wl_frame, image_binary, WIFI_LINK_IMG_SIZE);
         wl_share.frame_index++;

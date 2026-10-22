@@ -33,49 +33,13 @@
 * 2022-09-15       pudding            first version
 ********************************************************************************************************************/
 #include "zf_common_headfile.h"
-#pragma section all "cpu0_dsram"
-// 将本语句与#pragma section all restore语句之间的全局变量都放在CPU0的RAM中
 
-// 本例程是开源库空工程 可用作移植或者测试各类内外设
-// 本例程是开源库空工程 可用作移植或者测试各类内外设
-// 本例程是开源库空工程 可用作移植或者测试各类内外设
-
-// **************************** 代码区域 ***********************mt9v03x_image*****
-
-/*img_threshold为阈值
- * camera.c文件为二值化、红外检测，误差输出
- * posture_control.c中dynamic_value_control函数中设置固定PWM用来转弯
- */
-uint8 data_buffer[32];
-uint8 data_len;
 int core0_main(void)
 {
-    clock_init();                   // 获取时钟频率<务必保留>
-    debug_init();                   // 初始化默认调试串口
-    // 此处编写用户代码 例如外设初始化代码等
-//    wireless_uart_init();          // 初始化正常 输出测试信息
-//    seekfree_assistant_interface_init(SEEKFREE_ASSISTANT_WIRELESS_UART);
-//    #if(0 == INCLUDE_BOUNDARY_TYPE)
-//        // 发送总钻风图像信息(仅包含原始图像信息)
-//    seekfree_assistant_camera_information_config(SEEKFREE_ASSISTANT_MT9V03X, base_image[0], MT9V03X_W, MT9V03X_H);
-//    #endif
-    // 此处编写用户代码 例如外设初始化代码等
-    // core1_main 里没有调用 cpu_wait_event_ready()，如果在这里等待会永久阻塞
-    // 因此 CPU0 不再等待，把空主循环交给 WiFi 链路状态机（SPI 事务全部在 CPU0）
-    wifi_link_init();
+    app_cpu0_init();
     while (TRUE)
     {
-        wifi_link_service();
-//        bujin_motor_contron(4000);
-
-//       printf("%d,%f\r\n",encoder_data_1,balance_cascade.pitch_speed_cycle.out);
-//        printf("%d,%d,%f,%d,%d,%f\r\n",icm_data_lpf.gyroZ,icm_data_lpf.accY,balance_cascade.pitch_cascade_value.filtering_angle,icm_data_lpf.gyroY,icm_data_lpf.accZ,balance_cascade.cascade_value.filtering_angle);
-//        seekfree_assistant_camera_send();
-//       system_delay_ms(10);
-
-        // 此处编写需要循环执行的代码
+        app_cpu0_poll();
     }
+    return 0;
 }
-
-#pragma section all restore
-// **************************** 代码区域 ****************************

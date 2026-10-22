@@ -6,7 +6,7 @@
 #include "wifi_link_io.h"
 #include "IfxStm.h"
 
-#define IO_TIMEOUT_MS (250u)
+#define IO_TIMEOUT_MS WIFI_LINK_IO_TIMEOUT_MS
 
 typedef enum { IO_IDLE, IO_DATA, IO_FLUSH, IO_ACK, IO_RX, IO_DRAIN } io_phase;
 static io_phase io_state;

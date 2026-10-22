@@ -11,7 +11,7 @@ float erro;
 float error_back;
 float erro_yawan;
 float erro_yawan_back;
-float last_erro=94;
+float last_erro=CAMERA_CENTER_X;
 //红外检测，包括误差
 void detect_beacon(uint8 image[MT9V03X_H][MT9V03X_W], BeaconInfo *info){
     int16 sumvalue=0;
@@ -24,17 +24,17 @@ void detect_beacon(uint8 image[MT9V03X_H][MT9V03X_W], BeaconInfo *info){
     info->area = 0;
 
     // 遍历图像检测红外点
-    for (int y = 39; y < MT9V03X_H-10; y++) {
-        for (int x = 10; x < MT9V03X_W; x++) {
+    for (int y = CAMERA_SCAN_MIN_Y; y < MT9V03X_H-CAMERA_SCAN_BOTTOM_MARGIN; y++) {
+        for (int x = CAMERA_SCAN_MIN_X; x < MT9V03X_W; x++) {
             if (image[y][x] > IR_THRESHOLD ){
-                for(int i=0;i<10;i++)
-                    for(int j=0;j<10;j++)
+                for(int i=0;i<CAMERA_WINDOW_SIZE;i++)
+                    for(int j=0;j<CAMERA_WINDOW_SIZE;j++)
                     {
                         value+=image[y-i][x-j];
                     }
                 if(value>sumvalue)
                 {
-                    if(func_abs(y-info->centerY)>20)
+                    if(func_abs(y-info->centerY)>CAMERA_CANDIDATE_SEPARATION)
                     {
                         info->sum_last=sumvalue;
                         info->last_centerX=info->centerX;
@@ -47,7 +47,7 @@ void detect_beacon(uint8 image[MT9V03X_H][MT9V03X_W], BeaconInfo *info){
                     info->centerY=y;
                     value=0;
                 }
-                else if(value>info->sum_last && func_abs(y-info->centerY)>20)
+                else if(value>info->sum_last && func_abs(y-info->centerY)>CAMERA_CANDIDATE_SEPARATION)
                 {
                     info->sum_last=value;
                     info->last_centerX=x;
@@ -70,8 +70,8 @@ void detect_beacon(uint8 image[MT9V03X_H][MT9V03X_W], BeaconInfo *info){
 //        info->centerX=info->last_centerX;
 //        info->centerY=info->last_centerY;
 //    }
-    info->quanzhong=1.5*func_abs(MT9V03X_W/2-info->centerX)+func_abs(MT9V03X_H-info->centerY)*6.5-info->sum*2;
-    info->last_quanzhong=1.5*func_abs(MT9V03X_W/2-info->last_centerX)+func_abs(MT9V03X_H-info->last_centerY)*6.5+2*info->sum_last;
+    info->quanzhong=CAMERA_WEIGHT_X*func_abs(CAMERA_CENTER_X-info->centerX)+func_abs(MT9V03X_H-info->centerY)*CAMERA_WEIGHT_Y-info->sum*CAMERA_WEIGHT_AREA;
+    info->last_quanzhong=CAMERA_WEIGHT_X*func_abs(MT9V03X_W/2-info->last_centerX)+func_abs(MT9V03X_H-info->last_centerY)*CAMERA_WEIGHT_Y+CAMERA_WEIGHT_AREA*info->sum_last;
     if(info->quanzhong >info->last_quanzhong )
     {
         lingshi=info->sum;
@@ -85,7 +85,7 @@ void detect_beacon(uint8 image[MT9V03X_H][MT9V03X_W], BeaconInfo *info){
         info->last_centerY=lingshi;
     }
     last_erro=erro;
-    erro=1.0*(MT9V03X_W/2-info->centerX);
+    erro=1.0*(CAMERA_CENTER_X-info->centerX);
     if(erro>0)
     {
         erro+=0;
@@ -96,10 +96,10 @@ void detect_beacon(uint8 image[MT9V03X_H][MT9V03X_W], BeaconInfo *info){
     }
     if(info->centerX==0)
     {
-//        erro=func_abs(last_erro+1)/(last_erro+1)*65;
-        if(last_erro<20)
+//        erro=func_abs(last_erro+1)/(last_erro+1)*CAMERA_LOST_ERROR;
+        if(last_erro<CAMERA_LOST_SWITCH_ERROR)
         {
-            erro=func_abs(last_erro+1)/(last_erro+1)*65;
+            erro=func_abs(last_erro+1)/(last_erro+1)*CAMERA_LOST_ERROR;
         }
         else
         {
@@ -153,7 +153,7 @@ uint8 Ostu(uint8 index[MT9V03X_H][MT9V03X_W])
         MK[i]=sumMK+i*P[i];
         sumMK=MK[i];
     }
-    for(uint8 i=5;i<245;i++)
+    for(uint8 i=CAMERA_OTSU_START;i<CAMERA_OTSU_END;i++)
     {
         vartmp=((MK[GrayScale-1]*PK[i]-MK[i])*(MK[GrayScale-1]*PK[i]-MK[i]))/(PK[i]*(1-PK[i]));
         if(vartmp>var)
@@ -180,7 +180,7 @@ void Image_Binarization(int threshold)//图像二值化
                 image_binary[i][j]=IMG_BLACK;//黑
         }
     }
-    for(int y=0;y<30;y++)
+    for(int y=0;y<CAMERA_BLANK_TOP_ROWS;y++)
         for(int x=0;x<MT9V03X_W;x++)
         {
             image_binary[y][x]=0;
@@ -188,30 +188,31 @@ void Image_Binarization(int threshold)//图像二值化
         }
 }
 
+static float retarder_output;
+void retarder_reset(void) { retarder_output = 0; }
 float retarder(float input,float unit)
 {
-    static float output=0;
-//    if(func_abs(error_back-output)>30)
+//    if(func_abs(error_back-retarder_output)>30)
 //    {
 //        unit=2*unit;
 //    }
-    if(output>input)
+    if(retarder_output>input)
     {
-        output-=unit;
-        if(output<input)
+        retarder_output-=unit;
+        if(retarder_output<input)
         {
-            output=input;
+            retarder_output=input;
         }
     }
     else
     {
-        output+=unit;
-        if(output>input)
+        retarder_output+=unit;
+        if(retarder_output>input)
         {
-            output=input;
+            retarder_output=input;
         }
     }
-    return output;
+    return retarder_output;
 }
 float en_retarder(float input,float unit)
 {

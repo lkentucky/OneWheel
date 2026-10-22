@@ -117,9 +117,12 @@
 //====================================================应用组件层====================================================
 
 //=====================================================用户层======================================================
+#include "config.h"
+#include "app.h"
 #include "balance_control.h"
 #include "motor.h"
 #include "posture_control.h"
+#include "safety_output.h"
 #include "small_driver_uart_control.h"
 #include "user_value.h"
 #include "four_posture.h"

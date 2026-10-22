@@ -66,6 +66,7 @@
 #define _zf_device_ips200_h_
 
 #include "zf_common_typedef.h"
+#include "config.h"
 
 //==================================================定义 IPS200 基本配置================================================
 #define IPS200_USE_SOFT_SPI             (0 )                                    // 默认使用硬件 SPI 方式驱动 建议使用硬件 SPI 方式驱动
@@ -79,18 +80,18 @@
 #else
 //====================================================硬件 SPI 驱动====================================================
 // 如果使用的是SPI 串口的两寸屏幕 SPI 驱动控制引脚 可以修改
-#define IPS200_SPI_SPEED                (60*1000*1000)                          // 硬件 SPI 速率
-#define IPS200_SPI                      (SPI_2           )                      // 硬件 SPI 号
-#define IPS200_SCL_PIN_SPI              (SPI2_SCLK_P15_3 )                      // 硬件 SPI SCK 引脚
-#define IPS200_SDA_PIN_SPI              (SPI2_MOSI_P15_5 )                      // 硬件 SPI MOSI 引脚
-#define IPS200_SDA_IN_PIN_SPI           (SPI2_MISO_P15_4 )                      // 硬件 SPI MISO 引脚  IPS没有MISO引脚，但是这里任然需要定义，在spi的初始化时需要使用
+#define IPS200_SPI_SPEED                (HW_IPS200_SPI_SPEED) // 硬件 SPI 速率
+#define IPS200_SPI                      (HW_IPS200_SPI) // 硬件 SPI 号
+#define IPS200_SCL_PIN_SPI              (HW_IPS200_SCL_PIN_SPI) // 硬件 SPI SCK 引脚
+#define IPS200_SDA_PIN_SPI              (HW_IPS200_SDA_PIN_SPI) // 硬件 SPI MOSI 引脚
+#define IPS200_SDA_IN_PIN_SPI           (HW_IPS200_SDA_IN_PIN_SPI) // 硬件 SPI MISO 引脚  IPS没有MISO引脚，但是这里任然需要定义，在spi的初始化时需要使用
 //====================================================硬件 SPI 驱动====================================================
 #endif
 // 如果使用的是SPI 串口的两寸屏幕 SPI 驱动控制引脚 可以修改
-#define IPS200_RST_PIN_SPI              (P15_1)                                 // (SPI串口)液晶复位引脚定义
-#define IPS200_DC_PIN_SPI               (P15_0)                                 // (SPI串口)液晶命令位引脚定义
-#define IPS200_CS_PIN_SPI               (P15_2)                                 // (SPI串口)液晶片选引脚定义
-#define IPS200_BLk_PIN_SPI              (P15_4)                                 // (SPI串口)液晶背光引脚定义
+#define IPS200_RST_PIN_SPI              (HW_IPS200_RST_PIN_SPI) // (SPI串口)液晶复位引脚定义
+#define IPS200_DC_PIN_SPI               (HW_IPS200_DC_PIN_SPI) // (SPI串口)液晶命令位引脚定义
+#define IPS200_CS_PIN_SPI               (HW_IPS200_CS_PIN_SPI) // (SPI串口)液晶片选引脚定义
+#define IPS200_BLk_PIN_SPI              (HW_IPS200_BLk_PIN_SPI) // (SPI串口)液晶背光引脚定义
 
 // 如果使用的是八位并口的两寸屏幕 并口驱动控制引脚 可以修改
 #define IPS200_RD_PIN_PARALLEL8         (P15_3)                                 // (八位并口)液晶读取位引脚定义
