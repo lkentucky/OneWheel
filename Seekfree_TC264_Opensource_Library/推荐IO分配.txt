@@ -1,0 +1,178 @@
+
+摄像头 8个数据口 一个串口  两eru中断
+	数据口：00_0 00_1 00_2 00_3 00_4 00_5 00_6 00_7
+	配置串口：摄像头RX：02_2     摄像头TX：02_3
+	VSY：02_0
+	HREF：程序不需要，所以不接
+	PCLK：02_1
+
+四路运放 A0 A1 A2 A3 等
+
+四个编码器
+	LSB：33_7   DIR：33_6
+	LSB：02_8   DIR：00_9
+	LSB：10_3   DIR：10_1
+	LSB：20_3   DIR：20_0
+
+8路pwm 21_2 21_3 21_4 21_5 02_4 02_5 02_6 02_7
+
+ICM20602
+	CLK：	P20_11  
+	MOSI：	P20_14 
+	MISO：	P20_12 
+	CS：	P20_13
+	SPI0
+
+TFT屏幕
+	CLK 	15_3 
+	MOSI 	15_5 
+	MISO 	15_4	//实际上TFT没有这个引脚 这里仅仅占位而已  
+	CS0 	15_2 
+	BL 		15_4 	//复用控制背光
+	REST 	15_1 
+	DC 		15_0  
+	SPI2
+
+舵机 P33_9
+
+
+尽量不要使用以下引脚，以下引脚属于boot引脚，不合理的使用容易导致单片机无法启动等问题，
+因此建议大家尽量不要使用。
+P14_2 
+P14_3
+P14_4
+P14_5
+P14_6 
+P10_5 
+P10_6 
+
+
+
+/*********************************************************************************************************************
+* TC264 Opensourec Library 即（TC264 开源库）是一个基于官方 SDK 接口的第三方开源库
+* Copyright (c) 2022 SEEKFREE 逐飞科技
+*
+* 本文件是 TC264 开源库的一部分
+*
+* TC264 开源库 是免费软件
+* 您可以根据自由软件基金会发布的 GPL（GNU General Public License，即 GNU通用公共许可证）的条款
+* 即 GPL 的第3版（即 GPL3.0）或（您选择的）任何后来的版本，重新发布和/或修改它
+*
+* 本开源库的发布是希望它能发挥作用，但并未对其作任何的保证
+* 甚至没有隐含的适销性或适合特定用途的保证
+* 更多细节请参见 GPL
+*
+* 您应该在收到本开源库的同时收到一份 GPL 的副本
+* 如果没有，请参阅<https://www.gnu.org/licenses/>
+*
+* 额外注明：
+* 本开源库使用 GPL3.0 开源许可证协议 以上许可申明为译文版本
+* 许可申明英文版在 libraries/doc 文件夹下的 GPL3_permission_statement.txt 文件中
+* 许可证副本在 libraries 文件夹下 即该文件夹下的 LICENSE 文件
+* 欢迎各位使用并传播本程序 但修改内容时必须保留逐飞科技的版权声明（即本声明）
+*
+* 文件名称          cpu0_main
+* 公司名称          成都逐飞科技有限公司
+* 版本信息          查看 libraries/doc 文件夹内 version 文件 版本说明
+* 开发环境          ADS v1.9.4
+* 适用平台          TC264D
+* 店铺链接          https://seekfree.taobao.com/
+*
+* 修改记录
+* 日期              作者                备注
+* 2022-09-15       pudding            first version
+********************************************************************************************************************/
+#include "zf_common_headfile.h"
+#pragma section all "cpu0_dsram"
+// 将本语句与#pragma section all restore语句之间的全局变量都放在CPU0的RAM中
+
+// 本例程是开源库空工程 可用作移植或者测试各类内外设
+// 本例程是开源库空工程 可用作移植或者测试各类内外设
+// 本例程是开源库空工程 可用作移植或者测试各类内外设
+
+// **************************** 代码区域 ***********************mt9v03x_image*****
+int core0_main(void)
+{
+    clock_init();                   // 获取时钟频率<务必保留>
+    debug_init();                   // 初始化默认调试串口
+    // 此处编写用户代码 例如外设初始化代码等
+    gpio_init(P21_4, GPO, 0, GPO_PUSH_PULL);
+    small_driver_uart_init();       // 初始化驱动通讯功能
+    tft180_init();
+    key_init(10);
+    imu660rb_init();
+    Motor_init();
+    balance_cascade_init();
+    //pit_ms_init(CCU60_CH0, 1);
+    small_driver_set_duty(1000,-1000);
+    // 此处编写用户代码 例如外设初始化代码等
+    cpu_wait_event_ready();         // 等待所有核心初始化完毕
+    while (TRUE)
+    {
+        small_driver_get_speed();
+        key_scanner ();
+        if(key_get_state(KEY_1)==KEY_SHORT_PRESS)
+        {
+            balance_cascade.angular_speed_cycle.i+=0.01;
+            //balance_cascade.pitch_angular_speed_cycle.p=0.7*balance_cascade.angle_cycle.p;
+        }
+        if(key_get_state(KEY_1)== KEY_LONG_PRESS)
+        {
+            balance_cascade.angular_speed_cycle.i-=0.01;
+            //balance_cascade.pitch_angular_speed_cycle.p=0.7*balance_cascade.angle_cycle.p;
+        }
+        if(key_get_state(KEY_2)==KEY_SHORT_PRESS)
+       {
+            balance_cascade.angle_cycle.p+=0.1 ;
+            //balance_cascade.pitch_angle_cycle.p=0.7*balance_cascade.angle_cycle.p;
+       }
+       if(key_get_state(KEY_2)== KEY_LONG_PRESS)
+       {
+
+           balance_cascade.angle_cycle.p-=0.1;
+           //balance_cascade.pitch_angle_cycle.p=0.7*balance_cascade.angle_cycle.p;
+       }
+       if(key_get_state(KEY_3)==KEY_SHORT_PRESS)
+       {
+           balance_cascade.speed_cycle.p+=1;
+           //balance_cascade.pitch_angular_speed_cycle.p=0.7*balance_cascade.angle_cycle.p;
+       }
+       if(key_get_state(KEY_3)== KEY_LONG_PRESS)
+       {
+           balance_cascade.speed_cycle.p-=1;
+           //balance_cascade.pitch_angular_speed_cycle.p=0.7*balance_cascade.angle_cycle.p;
+       }
+       if(key_get_state(KEY_4)==KEY_SHORT_PRESS)
+       {
+          balance_cascade.angular_speed_cycle.i=0 ;
+          balance_cascade.speed_cycle.p=0;
+          balance_cascade.angle_cycle.p=0;
+          balance_cascade.angular_speed_cycle.out=0;
+          //balance_cascade.pitch_angle_cycle.p=0.7*balance_cascade.angle_cycle.p;
+          ///small_driver_set_duty(1000,-1000);
+       }
+       tft180_show_string(0,0,"as_p");
+       tft180_show_string(0,20,"a_p");
+       tft180_show_string(0,40,"as_p");
+       tft180_show_string(0,60,"p_p");
+       tft180_show_string(0,90,"speed");
+       tft180_show_int(60,90,motor_value.receive_left_speed_data,6);
+       tft180_show_float(30,110,-balance_cascade.angular_speed_cycle.out,6,3);
+       tft180_show_float(30,0,balance_cascade.angular_speed_cycle.i,6,3);
+       tft180_show_float(30,20,balance_cascade.angle_cycle.p,6,3);
+       tft180_show_float(30,40,balance_cascade.speed_cycle.p,6,3);
+       tft180_show_float(30,60,balance_cascade.pitch_cascade_value.filtering_angle,6,3);
+        //printf("left speed:%d, right speed:%d\r\n", -motor_value.receive_left_speed_data, motor_value.receive_right_speed_data);
+         //printf("%d,%d,%f,%d,%d,%f\r\n", imu660rb_gyro_y,imu660rb_acc_z,balance_cascade.cascade_value.filtering_angle,imu660rb_gyro_z,imu660rb_acc_y,balance_cascade.pitch_cascade_value.filtering_angle);
+        //printf("filtering_angle :%f,value:%d ,out:%f\r\n", balance_cascade.cascade_value.filtering_angle, *balance_cascade.cascade_value.gyrp_raw_data,balance_cascade.angular_speed_cycle.out);
+        //printf("%d,%f\r\n",imu660ra_acc_x,balance_cascade.pitch_cascade_value.filtering_angle);
+        //printf("%d %d,%d,%d,%d,%d,%d\r\n",encoder_data_1, imu660rb_gyro_x,imu660rb_gyro_y,imu660rb_gyro_z,imu660rb_acc_x,imu660rb_acc_y,imu660rb_acc_z);
+//        printf("%d\r\n",encoder_data_1);
+        system_delay_ms(10);
+
+        // 此处编写需要循环执行的代码
+    }
+}
+
+#pragma section all restore
+// **************************** 代码区域 ****************************

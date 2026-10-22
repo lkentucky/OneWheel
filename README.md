@@ -1,79 +1,101 @@
-# Qcar — TC264 独轮信标工程
+# OneWheel
 
-IMU 姿态解算现已移植自 MCARpreparation，默认 EKF，硬件为逐飞 IMU660RB。使用方法、轴映射、控制接口单位及验证说明见 [IMU.md](IMU.md)。
+> **行进编码器接线修正：** 按本车实际接线改用 GPT12 T2：P33.7计数、P33.6方向。此前P20.3/P20.0配置与接线不符；需要重新编译并烧录后，停车手转轮子验证计数及正反方向。
 
-MCARpreparation 的 WiFi-SPI UDP/JustFloat 传输已移植，支持通道订阅和 PID 滑块下发。从 **WiFi → Connect** 显式连接，接线、网络配置与命令见 [WIFI.md](WIFI.md)。
+> **安全输出修复已更新：** 当前电机运行期输出由CPU1独立1ms中断统一管理，启动增加控制心跳/飞轮反馈新鲜度检查，新增故障需复位清除。详见 [五项修复说明](docs/SAFETY_FIXES_20261022.md)。上位机协议与硬件引脚保持原样。
 
-基于逐飞 `E13_dual_core_demo` 示例，将 [feng0511/monotroch](https://github.com/feng0511/monotroch) 的 TC377 应用移植到 TC264D。底层驱动、启动文件、TC26B iLLD 和链接脚本来自当前目录旁的 `TC264_Library`，应用算法来自 monotroch。
+> **当前快照仍有待修复问题：** 第二轮复审已复现跨核时间采样导致误停、旧反馈在计时器完整回绕后再次有效，以及IMU缺少运行期健康检查。此版本保留现状供备份，具体触发条件、验证证据及参考无刷驱动问题见 [第二轮复审报告](docs/SAFETY_REVIEW_SECOND_20261022.md)。
 
-## 中文编码
+基于 TC264D 的独轮信标车固件，整理自中国矿业大学第 20 届全国大学生智能汽车竞赛独轮信标项目，并使用逐飞 TC264 开源库。本仓库首版将原 TFT1.8 显示改为 **IPS200 2.0 英寸屏（SPI 接口）**，保留原车的控制与视觉算法。
 
-源码及文档统一使用 UTF-8。VS Code 直接打开 **Qcar 文件夹**，会自动应用 `.vscode/settings.json`；ADS 使用 `.settings/org.eclipse.core.resources.prefs` 中的工程级 UTF-8 设置。已打开的旧标签页需关闭后重新打开，ADS 可先选中工程按 F5 刷新。
+## 当前默认：直立调试
 
-已从原始副本恢复可逆的错误转码注释；原文已丢失的注释已结合函数、变量和算法重新写成中文说明。重写说明用于解释现有实现，不代表逐字还原原作者文字。已核对 C/H 文件的非注释内容未改变，字符串和算法保持原样。
+2026-10-21：双核入口已简化为 `app_init()/app_poll()` 和 CPU0 通信轮询；应用开关、PID、零点、方向、周期、保护和引脚集中在 `code/config.h`。上电停车，预热2秒后按K1启动；K2/K3/K4或上位机停车。目标速度默认0，摄像头、IPS200图像和WiFi图传默认关闭，停止时仍可观察传感器/编码器。
+
+上位机已同步增加独轮模式，提供三路电机反馈/输出、原始平衡量、PID输出、运行状态和34项原生调参。使用独立 `OneWheelWiFiMonitor.exe`，不覆盖麦轮程序。完整入口、参数标定、模块选择和恢复图像步骤见 [直立调试说明](docs/UPRIGHT_DEBUG.md)。
+
+当前全量编译：ADS 1.10.10 / TASKING 1.1r8，169个目标文件，0错误、0警告。既有六配置主机回归通过；第二轮复审的定向复现另外确认了上述待修复问题。未烧录、未实车验证。
+
+## 开发环境
+
+- 单片机：Infineon AURIX TC264D / TC26x。
+- IDE：**AURIX Development Studio（ADS）1.10.10**。
+- 编译器：ADS 自带的 **TASKING v1.1r8**，使用工程的 `Debug` 配置。
+- 底层：原项目逐飞 TC264 库及 Infineon iLLD；本次没有整体升级驱动库。
+
+这里使用 ADS，与 AURIX Configuration Studio（ACS）及其 GCC 工具链不同。原项目按 TASKING 构建，不应直接切换成 GCC。
+
+## 项目包含什么
+
+- **视觉信标识别**：MT9V03X 图像采集、Otsu 阈值计算、二值化、候选信标搜索与偏差计算。启用视觉时阈值下限默认为180，可在config.h调整。
+- **姿态和平衡控制**：IMU660RB 数据采集、滤波、速度/角度/角速度控制及偏航控制。
+- **电机接口**：中轮采用 PWM＋DIR（P21.5输出17 kHz PWM、P21.4输出方向电平），编码器计数，以及UART3小驱动板通信。
+- **屏幕调试（默认关闭）**：IPS200 可显示二值化图像、当前/历史信标标记和偏差值。首版保持原来的半尺寸图像和标记坐标，替换对应的显示驱动接口。
+- **按键及串口调试**：K1请求启动、K2/K3/K4停车；无线串口CSV调试默认关闭。
+- **WiFi SPI 上位机链路**：SPI_3 上的 WiFi 模块，单 UDP 端口复用（数据 / 日志 / 图像），
+  兼容麦轮项目 `McarPVC` 的 WiFiSPI_Monitor：姿态、编码器、视觉偏差、188×120 灰度图像、
+  日志镜像与在线调参。实现、协议、参数表与构建方式见 [WIFI_LINK.md](WIFI_LINK.md)。
+
+CPU0主循环负责WiFi链路，CPU1主循环负责按键和遥测发布；摄像头处理和显示已封装为独立函数并在主循环注释。`user/isr.c` 的CPU0 CCU60中断进入1 ms控制回调，包含5 ms、20 ms分频与2 s预热门槛。
+
+以上描述来自当前源码；具体电机型号、机械结构和驱动板型号不能仅由代码确定。
+
+## 目录
+
+```text
+oneWheel/
+├── README.md
+├── .gitignore
+└── Seekfree_TC264_Opensource_Library/
+    ├── .project / .cproject / .settings/  ADS 工程配置
+    ├── user/                            双核入口、中断
+    ├── code/                            控制、视觉、电机与通信
+    ├── libraries/                       逐飞驱动、iLLD、配置静态库
+    └── Lcf_Tasking_Tricore_Tc.lsl        TASKING 链接脚本
+```
+
+`code/four_posture.c` 当前内容均为注释，`code/picture_process.c` 只有说明注释。两者保留作为历史/占位文件，已在工程构建配置中排除，避免 `W508 empty source file` 警告。以后加入有效实现时，需取消对应文件的 `Exclude from Build`。
+
+## IPS200 屏幕接线
+
+本次参考逐飞样例 `E8_14_mt9v03x_ips200_display_demo` 的 **`IPS200_TYPE_SPI`** 模式，调用项目已有的 `zf_device_ips200` 驱动。SPI/控制引脚与原 TFT1.8 配置一致：
+
+| IPS200 信号 | TC264 引脚/配置 |
+| --- | --- |
+| SCL / SCK | P15.3，SPI2 SCLK |
+| SDA / MOSI | P15.5，SPI2 MOSI |
+| RST | P15.1 |
+| DC | P15.0 |
+| CS | P15.2 |
+| BL | P15.4 |
+| GND、供电 | 按屏幕模块及主板的实际接口规格连接 |
+
+显示接口选择为 `code/config.h` 中的 `DISPLAY_INTERFACE`；屏幕引脚也集中在该文件，设备头文件通过别名读取。当前直立调试默认不初始化屏幕。如果实际屏幕是 8 位并口版，需同时调整接口模式、接线和对应引脚，不能直接沿用本表。
 
 ## 导入与编译
 
-1. 打开 AURIX Development Studio，选择 **File → Import → General → Existing Projects into Workspace**。
-2. 选择本目录，导入项目 **Qcar**。保持工程名为 Qcar。
-3. 选中工程，按 F5 刷新，选择 **Project → Build Project**，配置为 **Debug**。
-4. 产物位于 `Debug/Qcar.elf`、`Debug/Qcar.hex`，内存分配见 `Debug/Qcar.map`。
+1. 安装 ADS 1.10.10，选择英文路径的工作空间。
+2. 复制 `Seekfree_TC264_Opensource_Library/code/wifi_link_config.example.h` 为同目录的 `wifi_link_config.h`，填写 WiFi 和电脑 IP；本机配置已被 Git 忽略。
+3. `File → Import → General → Existing Projects into Workspace`，选择仓库中的 `Seekfree_TC264_Opensource_Library`；建议复制到工作空间。
+4. 将工程设为活动工程，选择 `Debug`，执行 `Clean Project → Build Project`。
+5. 确认编译、链接成功，在工程 `Debug/` 下取得新生成的 ELF、HEX。
 
-验证环境：ADS 1.10.10，内置 TASKING 1.1r8 Build 22011964，处理器 `tc26xb`。内置非商业 TASKING 授权要求从 ADS 内编译；独立调用编译器会返回 F104，不能用普通终端脚本代替 IDE 构建。
+ADS 自带的 TASKING 工具要求通过 IDE 使用。单独在终端运行其编译器可能报 `F104: License does not support running as standalone`；使用 ADS 内的构建操作。
 
-软件编译和链接通过不等于实车调试完成。本工程尚未连接开发板、烧录或验证运行周期。首次使用前需核对下表接线、IMU 坐标映射、编码器方向和电机极性；PID、相机标定及阈值保留上游参数，需要按车重新调试。
+本仓库不提交生成的固件和构建缓存；从源码重新构建。2026-10-20，IPS200 修改后的首版已在 ADS 1.10.10 的 `Debug` 配置下完成独立副本的全量构建：**0 errors、0 warnings**，生成 165 个目标文件及新的 ELF、HEX、MAP。此次未烧录或上板验证。
 
-## 移植内容
+此前WiFi SPI移植经独立审查修复，于2026-10-21完成构建（本次直立重构之前）：**0 errors、0 warnings**，167 个目标文件。RUN 采用分步 SPI 状态机；数据、日志和图像沿用现有上位机协议，独轮原生调参使用 `tools/monitor_onewheel.py`。实际 C 协议测试及上位机启动测试通过，尚未烧录或上板验证。接线、参数单位、启动方法和验证边界见 [WIFI_LINK.md](WIFI_LINK.md)，审查结论见 [DEEPSEEK_REVIEW.md](docs/DEEPSEEK_REVIEW.md)。
 
-| 内容 | TC264 实现 |
-| --- | --- |
-| CPU0 | 菜单、初始化、WiFi-SPI UDP 遥测、UART 接收中断、1 ms 级联控制中断、5 ms 姿态更新中断 |
-| CPU1 | 视觉识别、轨迹规划；编译关闭 UDP 遥测后可使用原 TCP 图传预览 |
-| CPU2 | TC264 不存在该核，已合并任务，无 CPU2 启动入口 |
-| 无刷驱动 | 原 UART4 改为 UART2，460800 波特，保留上游 7 字节协议 |
-| 逐飞助手 | 适配本地 TC264 库新版相机、示波器及参数解析接口；调试通信使用 UART0 |
-| 屏幕 | IPS200 SPI 横屏，补入上游目标框、轮廓和轨迹叠加显示 |
-| 视觉容量 | 原 200 项缓存统一改为 32 项；保留 188 × 120 分辨率和 40 帧历史窗口 |
-| 内存 | 连通域标签工作区放 CPU0 DSPR；其余视觉状态放 CPU1 DSPR；两核用户栈各 8 KiB |
-| 图像共享 | CPU1 在处理前复制一帧到工作缓存，识别与图传共用缓存，只有 CPU1 消费完成标志 |
-| 参数保存 | 使用 TC26B Flash 定义，参数页保持上游布局；新增版本标记，空 Flash 使用默认参数 |
+## `.metadata` 是什么
 
-连通域最多使用 31 个非零临时标签（32 项中第 0 项保留为背景）；容量用尽时跳过新增区域，防止访问数组边界之外。此限制也可能漏掉噪声很多的图像中的后续目标，应通过阈值和光学条件控制噪声。不要只增大 `QCAR_MAX_CONTOURS`，还要重新检查 map 的 RAM 余量。
+如果 `oneWheel` 同时被选为 ADS/Eclipse 工作空间，IDE 会在根目录生成 `.metadata/`，保存工程关联、索引、构建日志、窗口布局、调试会话和本机偏好。它不是车辆源码，也不是项目的 `.project/.cproject` 工程定义。
 
-## 默认接线
+`.metadata/` 已加入 `.gitignore`，保留在本机，不上传。克隆仓库后选择自己的工作空间并导入工程即可；不需要复制别人的 `.metadata`。删除它会丢失工作空间状态，因此日常无需删除。
 
-这些是工程采用的默认映射，尚未获得实际主板引脚表。应用侧配置集中于 `code/qcar_config.h`；摄像头、IMU、屏幕和 Wi-Fi 的完整配置仍位于各自的 `libraries/zf_device/zf_device_*.h`。
+## 来源与许可
 
-| 设备/用途 | TC264 引脚及配置 |
-| --- | --- |
-| 调试/逐飞助手 | UART0 TX=P14.0、RX=P14.1，波特率见 `zf_common_debug.h`；不再占用 UART2 无线串口模块 |
-| 无刷驱动 | UART2 TX=P33.9、RX=P33.8，460800；需与驱动的 RX/TX 交叉连接 |
-| 遥控接收 | UART3 TX=P15.6、RX=P15.7，115200 |
-| MT9V03X 配置 | UART1 TX=P02.2、RX=P02.3，9600 |
-| MT9V03X 图像 | D0～D7=P00.0～P00.7，PCLK=P02.1，VSYNC=P02.0，DMA5 |
-| IMU660RB | SPI0 SCK=P20.11、MOSI=P20.14、MISO=P20.12、CS=P20.13 |
-| IPS200 SPI | SCK=P15.3、MOSI=P15.5、DC=P15.0、CS=P15.2、RST=P15.1、背光=P15.4 |
-| 中轮驱动 | PWM=ATOM0_CH5/P02.5，方向=P02.4，20 kHz |
-| 中轮编码器 | TIM6 CH1=P20.3、CH2=P20.0 |
-| EC11 编码器 | TIM5 CH1=P10.3、CH2=P10.1 |
-| 按键 | KEY1=P20.8、KEY2=P20.6、KEY3=P20.7、EC11 按键=P20.9 |
-| 可选 Wi-Fi SPI | SPI3 SCK=P22.3、MOSI=P22.0、MISO=P22.1、CS=P22.2、INT=P15.8、RST=P23.1 |
+- 原车代码：[zui811/CUMT2025-9](https://github.com/zui811/CUMT2025-9)。
+- IPS200 适配参考本地逐飞仓库的 `Example/Motherboard_Demo/Motherboard_Demo/E8_camera/E8_14_mt9v03x_ips200_display_demo`。
+- 保留源文件内的作者、版权和许可声明。逐飞库文件声明 GPL-3.0-or-later，相关说明位于 `libraries/doc/GPL3_permission_statement.txt`；Infineon iLLD 等第三方文件遵循各自文件中的许可。
 
-IMU 保留原车安装映射：车体 X/Y/Z 分别取传感器 Y/Z/X。不同安装方向必须调整 `code/attitude_algorithm.c` 中的 `imu660rb_GetData()`。
-
-Wi-Fi UDP 功能默认编译启用，开机不自动联网；网络配置集中在 `code/qcar_config.h`，沿用 MCARpreparation 的当前配置。停车并退出预览后，从 WiFi → Connect 连接，随后可开启 IMU 预览或控制运行并持续遥测。原 CPU1 TCP 图传可在 `QCAR_WIFI_ENABLED=0` 时恢复，与 UDP 遥测互斥，详见 [WIFI.md](WIFI.md)。
-
-Flash 使用逻辑扇区 0、物理页 0～76；第 0 页保存移植版标记 `0x51434131`。不读取 TC377 设备的旧 Flash 数据。写入通过菜单 KEY3 触发，首次空片不会自动写入。标记用于区分版本，不包含校验和或掉电恢复。
-
-## 主要文件
-
-菜单已替换为 mcar-mailun 的树形节点结构，操作与目录见 [MENU.md](MENU.md)。
-
-- `user/cpu0_main.c`、`user/cpu1_main.c`：双核入口。
-- `user/isr.c`：控制、姿态、相机 DMA/场中断及 UART 接收。
-- `code/pid.c`、`attitude_algorithm.c`：平衡、运动控制与姿态算法。
-- `code/image_process.c`、`component.c`、`target_classifier.c`：信标识别与跟踪。
-- `code/tragectory_planning.c`、`pixel2world.c`：轨迹规划及原车相机标定。
-- `code/menu.c`、`tune.c`、`flash.c`：调参、菜单与参数保存。
-- `THIRD_PARTY.md`：来源、版本及版权说明。
-- `VALIDATION.md`：编译验证记录。
+这是软件整理与屏幕适配版本。电机、摄像头、IMU、屏幕及实际车体参数仍需按自己的硬件核对和调试；构建成功不等于整车已完成上板验证。
