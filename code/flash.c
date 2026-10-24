@@ -705,11 +705,11 @@ void get_flash(void)
     roll_rate_test_kp = 35.0f;
     roll_rate_test_limit = 4000.0f;
     roll_rate_test_sign = 1.0f;
-    ground_rate_test_kp=100.0f;
+    ground_rate_test_kp=30.0f;
     ground_rate_test_limit=4000.0f;
     ground_rate_test_sign=1.0f;
-    ground_angle_kp=10.0f;
-    ground_angle_rate_limit=30.0f;
+    ground_angle_kp=40.0f;
+    ground_angle_rate_limit=100.0f;
     init_mono_params();
     init_mono_beacon_params();
     init_img_process_params();
@@ -725,6 +725,9 @@ void get_flash(void)
     if (my_flash_read(0, 0, uint32) != 0x51434131u) return;
     pid_get_eeprom(&cascade_vel_roll ,&cascade_vel_pitch ,&cascade_ang_roll ,&cascade_ang_pitch ,&cascade_ang_vel_roll ,&cascade_ang_vel_pitch,&cascade_vel_yaw,&cascade_ang_yaw,&cascade_ang_vel_yaw);
     mono_params_get_eeprom(&mono_params);
+    /* 本车实测机械平衡点。Flash 里存的是旧值(0.9°)，存不了也改不了，
+     * 直接覆盖，否则每次上电目标角都是错的，松手就倒。 */
+    mono_params.balance_angle_x = 3.9f;
     mono_beacon_get_eeprom(&mono_beacon);
     img_process_get_eeprom(&imageinfo);
     img_process_get_eeprom_2(&img_process_params);

@@ -36,7 +36,7 @@ State 的正常值：`0` 关闭、`1` 等待静止标定、`2` 闭环中。
 | 0 | CALIBRATING | `IMU:CAL xx%` / `IMU init OK - keep still` | 静止标定中（200 帧，约 1 s） |
 | -1 | INIT_FAILED | `INIT_FAIL` | 硬件初始化失败（WHO_AM_I 或寄存器回读不符） |
 | -2 | TIMEOUT | `TIMEOUT` | 连续 100 ms 没有成功采样（`IMU_TIMEOUT_MS`） |
-| -3 | BAD_DT | `BAD_DT` | 采样间隔 >20 ms，**锁止**，需重新标定或 `imu_recover_after_stall()` |
+| -3 | BAD_DT | `BAD_DT` | 采样间隔 >50 ms（`MAX_SKIP_DT`），**锁止**，需重新标定或 `imu_recover_after_stall()`；20~50 ms 只丢一帧不锁 |
 | -4 | FILTER_ERROR | `FILTER_ERR` | EKF 更新失败 |
 
 `IMU:-2/-3` 时控制会先报 `F:1`；`F:4` 出现在 `IMU:1` 是正常的，因为 25 ms 的停机判断比 100 ms 的 IMU 超时更早。
@@ -51,6 +51,17 @@ State 的正常值：`0` 关闭、`1` 等待静止标定、`2` 闭环中。
 | `SPI` | 上电累计 | SPI 传输超时次数（单次 1 ms 超时） | >0 = 总线卡死、CS 异常 |
 | `NR` | 上电累计 | STATUS 寄存器里 XLDA/GDA 未同时就位的次数 | 增长快 = 传感器没数据或字节被干扰 |
 | `Reg` | 实时 | 最后一次读到的 STATUS（0x1E） | `07` 正常；`00/01/02` 缺 ready 位；`FF` 读失败 |
+
+新增 `imu_bad_bursts`（遥测通道）：12 字节输出全 0x00 或全 0xFF 的坏突发计数。它增长说明总线在整帧事务里掉线，
+比 `NR` 更能区分"没数据"和"数据是假的"。
+
+同一次总线掉线，锁存成哪个 F 取决于空档长度：
+
+| 空档 | 结果 |
+| --- | --- |
+| 20~25 ms | 下一帧 dt>20 ms → `BAD_DT` → `F=1` |
+| ≥25 ms | 控制侧先到 25 ms → `F=4` |
+| ≥100 ms | IMU 自身报 `TIMEOUT(-2)` → `F=1` |
 
 STATUS（0x1E）位定义：bit0 XLDA 加速度就绪、bit1 GDA 陀螺就绪、bit2 TDA 温度就绪。
 
@@ -177,3 +188,39 @@ python tools/wifi_rate_capture.py --profile tools/diagnose_telemetry.json --seco
 - 滑杆写入的是 `ground_rate_test_kp / ground_rate_test_limit / ground_rate_test_sign`（`pid.c`），
   只影响模式 4/5/7 的地轮；模式 3/6 的飞轮用的是 `roll_rate_test_*`，没有对应滑杆。
 - 工作区改动只影响上位机默认值；退出时会被上位机按当前界面重新保存。
+
+## 10. Mode 4 前后平衡调参记录（2026-10-24）
+
+### 收敛后的参数（单轴地轮，Mode 4/7）
+
+| 参数 | 值 | 说明 |
+| --- | --- | --- |
+| `balance_angle_x` | **3.9°** | 机械平衡点，实测；错 1° 就会“松手慢慢倒” |
+| `ground_angle_kp` | **40** | 外环，1° 倾角给 40 dps 目标 |
+| `ground_rate_limit_dps` | **100** | 外环限幅（允许上限），低于 45 会把小角度时的出力卡死 |
+| `rate_kp` | **30** | 内环 |
+| `rate_pwm_limit` | **4000** | 固件校验上限 |
+
+### 三条关键结论
+
+1. **`imu_not_ready` / `imu_bad_bursts` 增长 = IMU 接线问题**，不是固件。
+   偶发（每秒几次）是接头松动，`bad_bursts` 涨到 200/s 就是彻底断开。换了线之后
+   `imu_seq` 正常、两者恒为 0。出现 F=4 / F=1 先看这两个计数，再查线。
+
+2. **`balance_angle_x` 只存在 RAM**，重新烧录/上电会被 Flash 旧值覆盖。
+   目标角一旦不是真实平衡点，外环会一直往一个方向追，表现就是“松手直接倒”。
+   调好后必须 Stop → Save to Flash。
+
+3. **4~5 Hz 的车身抖动不是靠 `rate_kp` 能调掉的**。波形上 `gyro_x` 在 50 ms 内
+   从 −45 跳到 +44，`roll` 跟着跳 ±1°，而 `ground_angle_kp=40` 会把这 1° 放大成
+   ±40 dps 的指令，环路自己喂自己。解决办法是**角度环只用低通后的角度**
+   （`pid.c` 的 `ANGLE_LPF_TAU_S=0.05f`，约 3 Hz 转折）：1 Hz 的平衡回正几乎不受
+   影响，4~8 Hz 的环路增益降一半。实测 `gyro_x` 峰峰 104~126 → 68 dps，
+   `roll` 峰峰 16.9 → 8.6°。再抖就把 τ 提到 0.08f，回正变慢就降到 0.03f。
+
+### 尚未解决
+
+横向（飞轮，Mode 5 的 `dual_roll_*`）：`fly_sign=+1`、作用轴正确（`corr(指令, α_y)=+0.60`），
+恒定 20% 占空比能明显拽手，但闭环在 `fly_rate_kp≥55` 时 20 Hz 自激、低了又撑不住。
+驱动板 CYT2BL3 目前只用到 `0x01` 占空比指令，怀疑 FOC 内部速度环带来的延迟限制了带宽，
+需要该板手册确认能否改用力矩/电流模式。

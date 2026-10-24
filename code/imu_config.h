@@ -14,6 +14,8 @@
 #define ACC_NORM_MIN             0.85f
 #define ACC_NORM_MAX             1.15f
 #define MAX_SAMPLE_DT            0.020f
+/* 超过 MAX_SAMPLE_DT 但在本值以内：只丢这一帧，不锁止（总线偶发毛刺）。 */
+#define MAX_SKIP_DT              0.050f
 
 #define CALIBRATION_SAMPLES      200u
 #define CAL_GYRO_LIMIT_DPS       10.0f

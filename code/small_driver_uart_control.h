@@ -15,6 +15,7 @@
 extern small_device_value_struct motor_value;
 extern volatile uint32 small_driver_rx_bytes;
 extern volatile uint32 small_driver_speed_frames;
+extern volatile float small_driver_test_left, small_driver_test_right;
 
 
 

@@ -24,7 +24,7 @@ volatile float imu_sample_dt_ms, imu_solve_us, imu_solve_max_us;
 volatile int32 imu_accel_used=-1;
 volatile float imu_ekf_nis=-1.0f, imu_ekf_bias_xy_dps[2];
 volatile uint32 imu_sample_sequence;
-volatile uint32 imu_spi_timeouts,imu_not_ready_samples,imu_last_status_reg;
+volatile uint32 imu_spi_timeouts,imu_not_ready_samples,imu_last_status_reg,imu_bad_bursts;
 volatile float imu_gyro_z_integral_deg;
 /* Stable telemetry protocol value: 3 = EKF. */
 const uint8 imu_attitude_method=3u;
@@ -102,6 +102,8 @@ static uint8 imu_read_sample(float gyro_dps[3],float accel_g[3])
     uint8 tx[13]={0},rx[13];
     float sensor_g[3],sensor_a[3];
     uint8 status=imu_reg_read(IMU_STATUS_REG);
+    /* 单次读到 0xFF/无 ready 位多为总线毛刺，同一 tick 内重试一次。 */
+    if (status==0xFFu || (status&0x03u)!=0x03u) status=imu_reg_read(IMU_STATUS_REG);
     imu_last_status_reg=status;
     if (status==0xFFu || (status&0x03u)!=0x03u) {++imu_not_ready_samples;return 0u;}
     tx[0]=IMU660RB_OUTX_L_G|IMU660RB_SPI_R;
@@ -110,6 +112,9 @@ static uint8 imu_read_sample(float gyro_dps[3],float accel_g[3])
     IMU660RB_CS(1);
     if(i){++imu_spi_timeouts;return 0u;}
     memcpy(data,rx+1,12);
+    /* 12 字节完全相同（全 0x00 或全 0xFF）是总线掉线，不能当样本交给 EKF。 */
+    for (i=1u;i<12u;++i) if (data[i]!=data[0]) break;
+    if (i==12u) {++imu_bad_bursts;return 0u;}
     imu660rb_gyro_x=(int16)((uint16)data[0]|((uint16)data[1]<<8));
     imu660rb_gyro_y=(int16)((uint16)data[2]|((uint16)data[3]<<8));
     imu660rb_gyro_z=(int16)((uint16)data[4]|((uint16)data[5]<<8));
@@ -195,6 +200,8 @@ void imu_update_5ms(void)
     if (!g_have_sample) { g_have_sample=1u; return; }
     imu_sample_dt_ms=dt*1000.0f;
     if (dt<=0.0f || dt>MAX_SAMPLE_DT) {
+        /* 短暂空档只丢这一帧（时间基准上面已重建）；真正卡死才锁止。 */
+        if (dt>0.0f && dt<=MAX_SKIP_DT) return;
         imu_attitude_status=IMU_ATTITUDE_BAD_DT; return;
     }
     if (!g_calibrated) {
