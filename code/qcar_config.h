@@ -29,7 +29,7 @@
  * Reading page 83 stalls the CPU on the current board, so this stays off
  * until that page/sector is recovered or the values are moved. */
 #ifndef QCAR_FLASH_EXT
-#define QCAR_FLASH_EXT 1
+#define QCAR_FLASH_EXT 0
 #endif
 /* 1: automatic IMU+WiFi diagnostic boot, 0: original menu boot. */
 #ifndef QCAR_BOOT_IMU_WIFI

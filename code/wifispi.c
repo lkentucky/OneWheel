@@ -125,7 +125,8 @@ static float g_telemetry_ms;
     X(rate_only, rate_only_test) X(startup_scale, control_startup_scale) X(startup_ramp_ms, control_startup_ramp_ms) \
     X(fault_reason, control_fault_reason) X(fault_imu_status, control_fault_imu_status) \
     X(fault_imu_seq, control_fault_seq) X(fault_imu_dt_ms, control_fault_dt_ms) \
-    X(imu_spi_timeouts, imu_spi_timeouts) X(imu_not_ready, imu_not_ready_samples) X(imu_status_reg, imu_last_status_reg)
+    X(imu_spi_timeouts, imu_spi_timeouts) X(imu_not_ready, imu_not_ready_samples) X(imu_status_reg, imu_last_status_reg) \
+    X(imu_bad_bursts, imu_bad_bursts)
 
 #define VARIABLE_ID(name, expr) TV_##name,
 enum { TELEMETRY_VARIABLES(VARIABLE_ID) TV_COUNT };
@@ -158,6 +159,18 @@ static const slider_parameter_t g_slider_parameters[] = {
     {"rate_kp", &ground_rate_test_kp, 0.0f, 500.0f},
     {"rate_pwm_limit", &ground_rate_test_limit, 0.0f, 4000.0f},
     {"rate_sign", &ground_rate_test_sign, -1.0f, 1.0f},
+    /* 模式 4 外环：角度P 与目标角速度限幅，只在 rate_only=0 时参与。 */
+    {"ground_angle_kp", &ground_angle_kp, 0.0f, 100.0f},
+    /* 模式 5 横向（飞轮，代码里是 pitch/imu_pitch_deg，屏幕标 Roll）。 */
+    {"fly_angle_kp", &pitch_balance_kp, 0.0f, 100.0f},
+    {"fly_rate_limit_dps", &pitch_balance_rate_limit, 0.1f, 100.0f},
+    {"fly_rate_kp", &roll_rate_test_kp, 0.0f, 500.0f},
+    {"fly_pwm_limit", &roll_rate_test_limit, 0.0f, 4000.0f},
+    {"fly_sign", &roll_rate_test_sign, -1.0f, 1.0f},
+    /* 停车时单独开环驱动左右无刷（排查飞轮通道用，0 = 不驱动）。 */
+    {"fly_test_left", &small_driver_test_left, -4000.0f, 4000.0f},
+    {"fly_test_right", &small_driver_test_right, -4000.0f, 4000.0f},
+    {"ground_rate_limit_dps", &ground_angle_rate_limit, 0.1f, 100.0f},
     {"balance_angle_x", &mono_params.balance_angle_x, -45.0f, 45.0f},
     {"balance_angle_y", &mono_params.balance_angle_y, -45.0f, 45.0f}
 };

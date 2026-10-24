@@ -863,6 +863,10 @@ void menu(int menu_key)
     if (wheel_test_pwm > (int)PWM_DUTY_MAX) wheel_test_pwm = (int)PWM_DUTY_MAX;
     if (wheel_test_pwm < -(int)PWM_DUTY_MAX) wheel_test_pwm = -(int)PWM_DUTY_MAX;
     if (preview == 3) motor_m_ctrl(wheel_test_pwm);
+    /* 停车时按滑杆开环驱动左右无刷，用于单独排查飞轮通道；
+     * 运行中主循环不参与，控制中断独占驱动。 */
+    if (!running && !preview && driver_ready)
+        small_driver_set_duty((int16)small_driver_test_left, (int16)small_driver_test_right);
     wifi_switch=wifispi_is_ready() && imu_wifi_status!=-4;
     menu_auto_wifi_service();
     menu_wifi_poll();

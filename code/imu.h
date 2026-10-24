@@ -35,7 +35,7 @@ extern volatile float imu_sample_dt_ms, imu_solve_us, imu_solve_max_us;
 extern volatile int32 imu_accel_used;
 extern volatile float imu_ekf_nis, imu_ekf_bias_xy_dps[2];
 extern volatile uint32 imu_sample_sequence;
-extern volatile uint32 imu_spi_timeouts,imu_not_ready_samples,imu_last_status_reg;
+extern volatile uint32 imu_spi_timeouts,imu_not_ready_samples,imu_last_status_reg,imu_bad_bursts;
 /* Unwrapped calibrated sensor-Z rate integral (deg), not full 3D Euler yaw. */
 extern volatile float imu_gyro_z_integral_deg;
 extern const uint8 imu_attitude_method; /* Telemetry protocol ID: always 3 (EKF). */

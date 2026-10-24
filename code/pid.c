@@ -191,7 +191,7 @@ float increment_cascade_angle_vel(pid_param_t * pid,float target_angle_vel, floa
 void init_mono_params(void)
 {
     mono_params.setspeed=0;
-    mono_params.balance_angle_x=3.2f;
+    mono_params.balance_angle_x=3.9f;
     mono_params.balance_angle_y=-0.3f;
     mono_params.dead_zone=0;
     mono_params.dead_zone_p=0;
@@ -530,8 +530,9 @@ static uint32 control_startup_elapsed_ms;
 volatile float dual_angle[2],dual_target[2],dual_angle_error[2];
 volatile float dual_rate[2],dual_target_rate[2],dual_rate_error[2],dual_pwm[2];
 
-float ground_rate_test_kp=100.0f, ground_rate_test_limit=4000.0f, ground_rate_test_sign=1.0f;
-float ground_angle_kp=10.0f, ground_angle_rate_limit=30.0f;
+/* 本车实测收敛值（Mode 4 地轮）：Flash 保存不可用，直接编进默认值。 */
+float ground_rate_test_kp=30.0f, ground_rate_test_limit=4000.0f, ground_rate_test_sign=1.0f;
+float ground_angle_kp=40.0f, ground_angle_rate_limit=100.0f;
 volatile uint32 roll_rate_test_sequence;
 volatile int32 roll_rate_test_state;
 volatile float roll_rate_test_actual, roll_rate_test_error, roll_rate_test_pwm;
@@ -544,6 +545,17 @@ float roll_rate_test_limit = 4000.0f;
 float roll_rate_test_sign = 1.0f;
 static uint8 rate_divider;
 static uint32 rate_stale_ms, rate_sequence;
+/* 角度环只用低通后的角度：车架在 4~8 Hz 会真实振动，直接用原始角度会把振动
+ * 放大成满幅电机指令，形成 5 Hz 极限环。tau=50 ms 对应约 3 Hz 转折，
+ * 对 1 Hz 级别的平衡回正影响很小，但能砍掉振动频段的环路增益。 */
+#define ANGLE_LPF_TAU_S 0.06f
+static float angle_lpf[2];
+static float angle_lpf_update(float *state, float value)
+{
+    const float dt = 0.005f;
+    *state += (value - *state) * (dt / (ANGLE_LPF_TAU_S + dt));
+    return *state;
+}
 
 // 函数简介：停止飞轮角速度测试并清除测试状态和输出。
 // 参数说明：无。
@@ -574,6 +586,8 @@ void roll_rate_test_arm(void)
 {
     roll_rate_test_stop();
     rate_sequence = imu_sample_sequence;
+    /* 角度低通以当前姿态为初值，避免起跑瞬间的大误差。 */
+    angle_lpf[0] = imu_pitch_deg; angle_lpf[1] = imu_roll_deg;
     roll_rate_test_state = 1;
     roll_rate_test_enabled = 1;
 }
@@ -628,11 +642,11 @@ static void dual_balance_update(void)
     uint32 seq,irq; int32 status;
     int output[2]={0,0};
     irq=interrupt_global_disable();
-    a[0].angle=imu_pitch_deg; a[0].rate=attitude_state.gyro.y;
+    a[0].angle=angle_lpf_update(&angle_lpf[0],imu_pitch_deg); a[0].rate=attitude_state.gyro.y;
     a[0].target=mono_params.balance_angle_y;
     a[0].angle_kp=pitch_balance_kp; a[0].rate_limit=pitch_balance_rate_limit;
     a[0].rate_kp=roll_rate_test_kp; a[0].pwm_limit=roll_rate_test_limit; a[0].sign=roll_rate_test_sign;
-    a[1].angle=imu_roll_deg; a[1].rate=attitude_state.gyro.x;
+    a[1].angle=angle_lpf_update(&angle_lpf[1],imu_roll_deg); a[1].rate=attitude_state.gyro.x;
     a[1].target=mono_params.balance_angle_x;
     a[1].angle_kp=ground_angle_kp; a[1].rate_limit=ground_angle_rate_limit;
     a[1].rate_kp=ground_rate_test_kp; a[1].pwm_limit=ground_rate_test_limit; a[1].sign=ground_rate_test_sign;
@@ -737,7 +751,10 @@ static void roll_rate_test_update(void)
             else {
                 roll_rate_test_state = 2;
                 control_startup_advance();
-                pitch_balance_error = balance_angle - (ground_rate_test_enabled ? roll : pitch);
+                /* 索引与双轴路径一致：0=pitch(飞轮)，1=roll(地轮)。 */
+                pitch_balance_error = balance_angle - angle_lpf_update(
+                    &angle_lpf[ground_rate_test_enabled ? 1u : 0u],
+                    ground_rate_test_enabled ? roll : pitch);
                 pitch_balance_target_rate = constrain_float(angle_kp * pitch_balance_error, -rate_limit, rate_limit);
                 roll_rate_test_error = pitch_balance_target_rate - rate;
                 output = (int)roundf(constrain_float(direction * kp * roll_rate_test_error, -limit*control_startup_scale, limit*control_startup_scale));
