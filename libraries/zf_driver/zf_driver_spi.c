@@ -42,6 +42,7 @@
 #include "zf_driver_gpio.h"
 #include "zf_driver_delay.h"
 #include "zf_driver_spi.h"
+#include "IfxStm.h"
 
 #define MAX_BAUD    50000000
 Ifx_QSPI_BACON      bacon[4];
@@ -864,6 +865,43 @@ void spi_read_16bit_registers (spi_index_enum spi_n, const uint16 register_name,
 // 使用示例       spi_transfer_8bit(SPI_1, buf, buf, 1);
 // 备注信息
 //-------------------------------------------------------------------------------------------------------------------
+/* STM deadline bounds RX/TX/end-of-frame waits; unrelated SPI APIs retain
+ * their existing behaviour. Drain every received byte even for write-only IO. */
+uint8 spi_transfer_8bit_timeout(spi_index_enum spi_n, const uint8 *write_buffer,
+                               uint8 *read_buffer, uint32 len, uint32 timeout_ms)
+{
+    volatile Ifx_QSPI *module = IfxQspi_getAddress((IfxQspi_Index)spi_n);
+    uint32 started, timeout_ticks, i;
+    if (!len) return 0;
+    if (!timeout_ms || timeout_ms > 1000u) return 1;
+    timeout_ticks = (uint32)(IfxStm_getFrequency(&MODULE_STM0) / 1000.0f) * timeout_ms;
+    if (!timeout_ticks) return 1;
+    started = IfxStm_getLower(&MODULE_STM0);
+    spi_clear_fifo(module);
+    IfxQspi_clearAllEventFlags(module);
+    IfxQspi_writeBasicConfigurationBeginStream(module, bacon[spi_n].U);
+    for (i=0; i<len; ++i) {
+        uint8 tx = write_buffer ? write_buffer[i] : 0;
+        uint8 rx;
+        if (i+1 == len) IfxQspi_writeBasicConfigurationEndStream(module, bacon[spi_n].U);
+        IfxQspi_writeTransmitFifo(module, tx);
+        while (module->STATUS.B.RXFIFOLEVEL == 0) {
+            if ((uint32)(IfxStm_getLower(&MODULE_STM0)-started) >= timeout_ticks) goto timeout;
+        }
+        rx = (uint8)IfxQspi_readReceiveFifo(module);
+        if (read_buffer) read_buffer[i] = rx;
+    }
+    while (module->STATUS.B.PT1F == 0) {
+        if ((uint32)(IfxStm_getLower(&MODULE_STM0)-started) >= timeout_ticks) goto timeout;
+    }
+    IfxQspi_clearAllEventFlags(module);
+    return 0;
+timeout:
+    spi_clear_fifo(module);
+    IfxQspi_clearAllEventFlags(module);
+    return 1;
+}
+
 void spi_transfer_8bit (spi_index_enum spi_n, const uint8 *write_buffer, uint8 *read_buffer, uint32 len)
 {
     volatile Ifx_QSPI *moudle;                                      // 定义SPI模块对象

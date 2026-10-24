@@ -131,7 +131,6 @@
 #include "key_state_update.h"
 #include "pid.h"
 #include "motor.h"
-#include "icm.h"
 #include "menu.h"
 #include "image_process.h"
 #include "flash.h"

@@ -27,11 +27,16 @@ typedef uint8_t uint8;
 #define PWM_DUTY_MAX 10000
 #define CCU60_CH0 0
 #define CCU60_CH1 1
+static int imu_ready;
 static int wheel_ready, driver_ready, cam_flag, tele_flag, turn_flag, shacheflag;
 static int wifi_spi_flag, running, preview, wheel_test_pwm, redraw, Usart1_Rec_Fini_Flag;
+static int imu_wifi_status;
 static bool wheel_switch, control_timers_ready;
 static struct { int setspeed; } mono_params;
 static const char *message;
+static bool wifi_connecting;
+static Menu_Item *wifi_deferred_item;
+static bool wifi_deferred_value;
 static int output, writes, initializations, driver_stops, disabled;
 static void motor_int(void) { initializations++; output = 0; }
 static void motor_m_ctrl(int pwm) { output = pwm; writes++; }
@@ -58,10 +63,17 @@ static void camera_preview(void) { assert(0); }
 static void imu_preview(void) { assert(0); }
 static void save_params(void) { assert(0); }
 static void load_params(void) { assert(0); }
+static void wifispi_cancel_init(void) {}
 static void wifispi_telemetry_init(void) { assert(0); }
+static void wifi_connect_progress(void) {}
+static void wifispi_set_progress_hook(void (*hook)(void)) { (void)hook; }
 static void wifispi_telemetry_stop(void) { assert(0); }
 static int wifispi_is_ready(void) { return 0; }
 static void wifispi_telemetry_service(void) {}
+static void menu_auto_wifi_service(void) {}
+static void menu_wifi_connect(void) { assert(0); }
+static void menu_wifi_poll(void) {}
+static void menu_apply_deferred_control(void) {}
 static void Menu_Show(void) {}
 static void system_delay_ms(int ms) {}
 '''

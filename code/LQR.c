@@ -74,8 +74,8 @@ volatile int encoder_count = 0;  // 编码器中断计数
 float lqr_control(EKF_State *state) {
     state->x=0;
     state->v=-real_mid_speed*0.00069f;
-    state->theta=mahony_filter.pitch;
-    state->omega=mahony_filter.gyro.y;
+    state->theta=attitude_state.pitch;
+    state->omega=attitude_state.gyro.y;
     float u = -(K[0]*state->x + K[1]*state->v +
                 K[2]*state->theta + K[3]*state->omega);
 

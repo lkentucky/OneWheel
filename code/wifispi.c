@@ -10,6 +10,7 @@
 #include "zf_device_wifi_spi.h"
 #include "zf_driver_delay.h"
 #include "pid.h"
+#include "small_driver_uart_control.h"
 #include <errno.h>
 #include <math.h>
 #include <stdio.h>
@@ -20,6 +21,7 @@
 volatile int imu_wifi_status;
 volatile uint32_t imu_wifi_tx_packets, imu_wifi_init_attempts;
 volatile int imu_wifi_last_error;
+volatile int imu_wifi_module_result = -1;
 volatile uint32_t wifi_telemetry_channel_count, wifi_telemetry_period_ms;
 volatile uint32_t wifi_telemetry_commands, wifi_telemetry_command_errors;
 volatile uint32_t wifi_telemetry_stream_enabled;
@@ -48,7 +50,12 @@ size_t vofa_pack(uint8_t *out,size_t out_capacity,const float *channels,size_t c
 }
 #if QCAR_WIFI_ENABLED
 static int wifi_ready;
+static int g_announce_pending;
+static void (*g_progress_hook)(void);
+static int g_init_cancelled;
 static uint32 g_last_wifi_tx_ticks, g_last_wifi_rx_ticks, g_ticks_per_ms;
+static uint32 g_time_ticks;
+static float g_telemetry_ms;
 
 /* CPU0 owns the transport and snapshots its ISR-produced data. CPU1 never
  * accesses this module when QCAR_WIFI_ENABLED is set. */
@@ -64,11 +71,62 @@ static uint32 g_last_wifi_tx_ticks, g_last_wifi_rx_ticks, g_ticks_per_ms;
     X(imu_seq, imu_sample_sequence) X(imu_method, imu_attitude_method) \
     X(accel_norm_g, imu_accel_norm_g) X(gyro_z_integral_deg, imu_gyro_z_integral_deg) \
     X(wheel_speed, real_speed) X(target_speed, mono_params.setspeed) \
-    X(roll_speed_out, cascade_vel_out) X(pitch_speed_out, cascade_vel_out_p) \
-    X(yaw_speed_out, cascade_vel_out_y) X(roll_angle_out, cascade_angle_out) \
-    X(pitch_angle_out, cascade_angle_out_p) X(yaw_angle_out, cascade_angle_out_y) \
-    X(roll_gyro_out, cascade_angle_vel_out) X(pitch_gyro_out, cascade_angle_vel_out_p) \
-    X(yaw_gyro_out, cascade_angle_vel_out_y)
+    X(pitch_speed_out, cascade_vel_out) X(roll_speed_out, cascade_vel_out_p) \
+    X(yaw_speed_out, cascade_vel_out_y) X(pitch_angle_out, cascade_angle_out) \
+    X(roll_angle_out, cascade_angle_out_p) X(yaw_angle_out, cascade_angle_out_y) \
+    X(pitch_gyro_out, cascade_angle_vel_out) X(roll_gyro_out, cascade_angle_vel_out_p) \
+    X(yaw_gyro_out, cascade_angle_vel_out_y) \
+    X(telemetry_ms, g_telemetry_ms) X(rate_seq, roll_rate_test_sequence) \
+    X(rate_target_dps, pitch_balance_target_rate) X(rate_actual_dps, roll_rate_test_actual) \
+    X(rate_error_dps, roll_rate_test_error) X(rate_pwm, roll_rate_test_pwm) \
+    X(rate_state, roll_rate_test_state) X(rate_enabled, roll_rate_test_enabled) \
+    X(rate_kp, ground_rate_test_enabled?ground_rate_test_kp:roll_rate_test_kp) X(rate_sign, ground_rate_test_enabled?ground_rate_test_sign:roll_rate_test_sign) \
+    X(rate_pwm_limit, ground_rate_test_enabled?ground_rate_test_limit:roll_rate_test_limit) \
+    X(motor_left_pwm, costrained_flywheel_speed_left) \
+    X(motor_right_pwm, -costrained_flywheel_speed_right) \
+    X(flywheel_left_speed_raw, motor_value.receive_left_speed_data) \
+    X(flywheel_right_speed_raw, motor_value.receive_right_speed_data) \
+    X(driver_speed_frames, small_driver_speed_frames) \
+    X(balance_error_deg, pitch_balance_error) X(balance_kp, rate_only_test?0.0f:(ground_rate_test_enabled?ground_angle_kp:pitch_balance_kp)) \
+    X(balance_target_deg, pitch_balance_target_angle) X(balance_rate_limit_dps, ground_rate_test_enabled?ground_angle_rate_limit:pitch_balance_rate_limit) \
+    X(rate_axis, dual_balance_enabled?2:ground_rate_test_enabled) X(motor_ground_pwm, costrained_wheel_speed) \
+    X(balance_actual_deg, pitch_balance_actual_angle) \
+    X(balance_rate_saturated, roll_rate_test_state==2 && fabsf(pitch_balance_target_rate)>=(ground_rate_test_enabled?ground_angle_rate_limit:pitch_balance_rate_limit)) \
+    X(balance_pwm_saturated, roll_rate_test_state==2 && (ground_rate_test_enabled?ground_rate_test_limit:roll_rate_test_limit)>0 && fabsf(roll_rate_test_pwm)>=(ground_rate_test_enabled?ground_rate_test_limit:roll_rate_test_limit)) \
+    X(dual_enabled, dual_balance_enabled) \
+    X(dual_roll_actual_deg, dual_angle[0]) \
+    X(dual_roll_target_deg, dual_target[0]) \
+    X(dual_roll_error_deg, dual_angle_error[0]) \
+    X(dual_roll_target_rate_dps, dual_target_rate[0]) \
+    X(dual_roll_rate_dps, dual_rate[0]) \
+    X(dual_roll_rate_error_dps, dual_rate_error[0]) \
+    X(dual_roll_pwm, dual_pwm[0]) \
+    X(dual_pitch_actual_deg, dual_angle[1]) \
+    X(dual_pitch_target_deg, dual_target[1]) \
+    X(dual_pitch_error_deg, dual_angle_error[1]) \
+    X(dual_pitch_target_rate_dps, dual_target_rate[1]) \
+    X(dual_pitch_rate_dps, dual_rate[1]) \
+    X(dual_pitch_rate_error_dps, dual_rate_error[1]) \
+    X(dual_pitch_pwm, dual_pwm[1]) \
+    X(fly_angle_kp, pitch_balance_kp) \
+    X(fly_rate_kp, roll_rate_test_kp) \
+    X(fly_sign, roll_rate_test_sign) \
+    X(fly_rate_limit_dps, pitch_balance_rate_limit) \
+    X(fly_pwm_limit, roll_rate_test_limit) \
+    X(ground_angle_kp, ground_angle_kp) \
+    X(ground_rate_kp, ground_rate_test_kp) \
+    X(ground_sign, ground_rate_test_sign) \
+    X(ground_rate_limit_dps, ground_angle_rate_limit) \
+    X(ground_pwm_limit, ground_rate_test_limit) \
+    X(dual_roll_rate_sat, roll_rate_test_state==2 && fabsf(dual_target_rate[0])>=pitch_balance_rate_limit) \
+    X(dual_roll_pwm_sat, roll_rate_test_state==2 && roll_rate_test_limit>0 && fabsf(dual_pwm[0])>=roll_rate_test_limit) \
+    X(dual_pitch_rate_sat, roll_rate_test_state==2 && fabsf(dual_target_rate[1])>=ground_angle_rate_limit) \
+    X(dual_pitch_pwm_sat, roll_rate_test_state==2 && ground_rate_test_limit>0 && fabsf(dual_pwm[1])>=ground_rate_test_limit) \
+    X(rate_only, rate_only_test) X(startup_scale, control_startup_scale) X(startup_ramp_ms, control_startup_ramp_ms) \
+    X(fault_reason, control_fault_reason) X(fault_imu_status, control_fault_imu_status) \
+    X(fault_imu_seq, control_fault_seq) X(fault_imu_dt_ms, control_fault_dt_ms) \
+    X(imu_spi_timeouts, imu_spi_timeouts) X(imu_not_ready, imu_not_ready_samples) X(imu_status_reg, imu_last_status_reg)
+
 #define VARIABLE_ID(name, expr) TV_##name,
 enum { TELEMETRY_VARIABLES(VARIABLE_ID) TV_COUNT };
 #undef VARIABLE_ID
@@ -95,6 +153,11 @@ static const slider_parameter_t g_slider_parameters[] = {
     SLIDER_GAINS(cascade_vel_roll), SLIDER_GAINS(cascade_vel_pitch), SLIDER_GAINS(cascade_vel_yaw),
     SLIDER_GAINS(cascade_ang_roll), SLIDER_GAINS(cascade_ang_pitch), SLIDER_GAINS(cascade_ang_yaw),
     SLIDER_GAINS(cascade_ang_vel_roll), SLIDER_GAINS(cascade_ang_vel_pitch), SLIDER_GAINS(cascade_ang_vel_yaw),
+    /* 单轴环在线调参（Mode 7 地轮）。范围与 pid.c 的运行期校验一致：
+     * Kp>500、limit>4000、Sign 不是 ±1 都会锁存 F=6，所以不要用 0 做 Sign。 */
+    {"rate_kp", &ground_rate_test_kp, 0.0f, 500.0f},
+    {"rate_pwm_limit", &ground_rate_test_limit, 0.0f, 4000.0f},
+    {"rate_sign", &ground_rate_test_sign, -1.0f, 1.0f},
     {"balance_angle_x", &mono_params.balance_angle_x, -45.0f, 45.0f},
     {"balance_angle_y", &mono_params.balance_angle_y, -45.0f, 45.0f}
 };
@@ -110,6 +173,8 @@ static void telemetry_reset(void)
     wifi_telemetry_commands=wifi_telemetry_command_errors=0;
     g_command_length=0; g_command_discard=0;
     g_slider_receiving=0;
+    g_announce_pending=0;
+    g_telemetry_ms=0.0f;
 }
 
 static void send_reply(const char *text)
@@ -206,7 +271,7 @@ bad_packet:
 static void reply_names(int all)
 {
     /* Maximum names + delimiters are checked at append time. One UDP datagram. */
-    char reply[1400];
+    char reply[2000];
     size_t used=0, i, count=all?TV_COUNT:wifi_telemetry_channel_count;
     int n=snprintf(reply,sizeof(reply),all?"MCAR LIST ":"MCAR SUB ");
     used=(size_t)n;
@@ -320,36 +385,70 @@ static size_t capture_channels(float channels[VOFA_MAX_CHANNELS])
     interrupt_global_enable(primask);
     return count;
 }
+static int wifi_connect_stage(int stage)
+{
+    imu_wifi_status=stage;
+    if (g_progress_hook) g_progress_hook();
+    return !g_init_cancelled;
+}
 static int imu_wifi_init_once(void)
 {
+    int result;
     memset(wifi_spi_version,0,sizeof(wifi_spi_version));
     memset(wifi_spi_ip_addr_port,0,sizeof(wifi_spi_ip_addr_port));
-    imu_wifi_status=2;
-    if (wifi_spi_init(0,0)!=0 || strncmp(wifi_spi_version,"V2",2)!=0) return -1;
-    imu_wifi_status=3;
-    if (wifi_spi_wifi_connect(QCAR_WIFI_SSID,QCAR_WIFI_PASSWORD)!=0) return -2;
-    imu_wifi_status=4;
-    if (wifi_spi_socket_connect("UDP",QCAR_WIFI_TARGET_IP,
-                               QCAR_WIFI_TARGET_PORT,QCAR_WIFI_LOCAL_PORT)!=0) return -3;
-    return 1;
+    if (!wifi_connect_stage(2)) return -6;
+    imu_wifi_module_result=-1;
+    result=wifi_spi_init(0,0);
+    imu_wifi_module_result=result;
+    if (g_init_cancelled) return -6;
+    if (result!=0 || strncmp(wifi_spi_version,"V2",2)!=0) return -1;
+    if (!wifi_connect_stage(3)) return -6;
+    result=wifi_spi_wifi_connect(QCAR_WIFI_SSID,QCAR_WIFI_PASSWORD);
+    if (g_init_cancelled) return -6;
+    if (result!=0) return -2;
+    if (!wifi_connect_stage(4)) return -6;
+    result=wifi_spi_socket_connect("UDP",QCAR_WIFI_TARGET_IP,
+                                  QCAR_WIFI_TARGET_PORT,QCAR_WIFI_LOCAL_PORT);
+    if (g_init_cancelled) return -6;
+    return result!=0 ? -3 : 1;
 }
 #endif
+void wifispi_set_progress_hook(void (*hook)(void))
+{
+#if QCAR_WIFI_ENABLED
+    g_progress_hook=hook;
+#else
+    (void)hook;
+#endif
+}
+void wifispi_cancel_init(void)
+{
+#if QCAR_WIFI_ENABLED
+    g_init_cancelled=1;
+    wifi_spi_cancel_wait();
+#endif
+}
 int wifispi_init(void)
 {
 #if QCAR_WIFI_ENABLED
     uint32_t attempt;
     int result;
-    wifi_ready=0;
+    wifi_ready=0; g_init_cancelled=0;
+    wifi_spi_set_wait_callback(g_progress_hook);
     imu_wifi_status=0; imu_wifi_init_attempts=0; imu_wifi_last_error=0;
+    imu_wifi_module_result=-1;
     /* 保留原初始化统计语义：启用模式重新初始化不清发送累计数。 */
     system_delay_ms(QCAR_WIFI_STARTUP_DELAY_MS);
     for (attempt=0;attempt<QCAR_WIFI_INIT_ATTEMPTS;++attempt) {
         if (attempt!=0) system_delay_ms(QCAR_WIFI_RETRY_DELAY_MS);
         ++imu_wifi_init_attempts;
         result=imu_wifi_init_once();
-        if (result==1) { wifi_ready=1; imu_wifi_status=1; return 1; }
+        if (result==1) { wifi_ready=1; imu_wifi_status=1; wifi_spi_set_wait_callback(NULL); return 1; }
         imu_wifi_last_error=result; imu_wifi_status=result;
+        if (g_progress_hook) g_progress_hook();
+        if (g_init_cancelled) break;
     }
+    wifi_spi_set_wait_callback(NULL);
     return 0;
 #else
     /* 禁用时绝不初始化 SPI/GPIO，防止覆盖电机引脚复用。 */
@@ -388,7 +487,7 @@ void wifispi_telemetry_init(void)
     (void)wifispi_init();
 #if QCAR_WIFI_ENABLED
     g_ticks_per_ms=(uint32)(IfxStm_getFrequency(&MODULE_STM0)/1000.0f);
-    g_last_wifi_tx_ticks=g_last_wifi_rx_ticks=IfxStm_getLower(&MODULE_STM0);
+    g_last_wifi_tx_ticks=g_last_wifi_rx_ticks=g_time_ticks=IfxStm_getLower(&MODULE_STM0);
 #endif
 }
 void wifispi_telemetry_service(void)
@@ -398,7 +497,10 @@ void wifispi_telemetry_service(void)
     float channels[VOFA_MAX_CHANNELS];
     size_t count;
     if (!wifi_ready) return;
+    if (g_announce_pending) { g_announce_pending=0; wifispi_telemetry_announce(); }
     now=IfxStm_getLower(&MODULE_STM0);
+    g_telemetry_ms+=(float)(uint32)(now-g_time_ticks)/(float)g_ticks_per_ms;
+    g_time_ticks=now;
     /* Poll independently of streaming so STREAM 0 and slow RATE cannot lock
      * the host out. Limit SPI polling to 100 Hz in the main loop. */
     if ((uint32)(now-g_last_wifi_rx_ticks)>=g_ticks_per_ms*10u) {
@@ -410,6 +512,51 @@ void wifispi_telemetry_service(void)
     g_last_wifi_tx_ticks=now;
     count=capture_channels(channels);
     (void)wifispi_send_floats(channels,count);
+#endif
+}
+
+void wifispi_telemetry_angle_profile(void)
+{
+#if QCAR_WIFI_ENABLED
+    static const uint8_t channels[]={TV_telemetry_ms,TV_rate_seq,TV_imu_seq,TV_imu_status,TV_rate_state,TV_rate_enabled,TV_balance_target_deg,TV_balance_actual_deg,TV_balance_error_deg,TV_rate_target_dps,TV_rate_actual_dps,TV_rate_error_dps,TV_rate_pwm,TV_motor_left_pwm,TV_motor_right_pwm,TV_balance_kp,TV_rate_kp,TV_rate_sign,TV_balance_rate_limit_dps,TV_rate_pwm_limit,TV_balance_rate_saturated,TV_balance_pwm_saturated,TV_flywheel_left_speed_raw,TV_flywheel_right_speed_raw,TV_driver_speed_frames,TV_imu_dt_ms,TV_roll_deg,TV_pitch_deg};
+    memcpy(g_channels,channels,sizeof(channels));
+    wifi_telemetry_channel_count=sizeof(channels)/sizeof(channels[0]);
+    wifi_telemetry_period_ms=20;
+    wifi_telemetry_stream_enabled=1;
+    g_announce_pending=1;
+#endif
+}
+
+void wifispi_telemetry_startup_profile(void)
+{
+#if QCAR_WIFI_ENABLED
+    static const uint8_t channels[]={TV_telemetry_ms,TV_rate_seq,TV_imu_seq,TV_imu_status,TV_rate_state,TV_rate_enabled,TV_balance_target_deg,TV_balance_actual_deg,TV_balance_error_deg,TV_rate_target_dps,TV_rate_actual_dps,TV_rate_error_dps,TV_rate_pwm,TV_motor_left_pwm,TV_motor_right_pwm,TV_balance_kp,TV_rate_kp,TV_rate_sign,TV_balance_rate_limit_dps,TV_rate_pwm_limit,TV_balance_rate_saturated,TV_balance_pwm_saturated,TV_imu_dt_ms,TV_rate_axis,TV_rate_only,TV_startup_scale,TV_startup_ramp_ms,TV_fault_reason,TV_fault_imu_status,TV_fault_imu_seq,TV_fault_imu_dt_ms,TV_imu_spi_timeouts,TV_imu_not_ready,TV_imu_status_reg};
+    memcpy(g_channels,channels,sizeof(channels));
+    wifi_telemetry_channel_count=sizeof(channels);wifi_telemetry_period_ms=20;
+    wifi_telemetry_stream_enabled=1;g_announce_pending=1;
+#endif
+}
+
+void wifispi_telemetry_dual_profile(void)
+{
+#if QCAR_WIFI_ENABLED
+    static const uint8_t channels[]={TV_telemetry_ms,TV_rate_seq,TV_imu_seq,TV_imu_status,TV_rate_state,TV_dual_enabled,TV_dual_roll_actual_deg,TV_dual_roll_target_deg,TV_dual_roll_error_deg,TV_dual_roll_target_rate_dps,TV_dual_roll_rate_dps,TV_dual_roll_rate_error_dps,TV_dual_roll_pwm,TV_dual_pitch_actual_deg,TV_dual_pitch_target_deg,TV_dual_pitch_error_deg,TV_dual_pitch_target_rate_dps,TV_dual_pitch_rate_dps,TV_dual_pitch_rate_error_dps,TV_dual_pitch_pwm,TV_fly_angle_kp,TV_fly_rate_kp,TV_fly_sign,TV_fly_rate_limit_dps,TV_fly_pwm_limit,TV_ground_angle_kp,TV_ground_rate_kp,TV_ground_sign,TV_ground_rate_limit_dps,TV_ground_pwm_limit,TV_motor_left_pwm,TV_motor_right_pwm,TV_motor_ground_pwm,TV_imu_dt_ms,TV_fault_reason,TV_fault_imu_status,TV_fault_imu_dt_ms,TV_imu_spi_timeouts,TV_imu_not_ready,TV_startup_scale};
+    memcpy(g_channels,channels,sizeof(channels));
+    wifi_telemetry_channel_count=40;wifi_telemetry_period_ms=20;
+    wifi_telemetry_stream_enabled=1;g_announce_pending=1;
+#endif
+}
+
+void wifispi_telemetry_announce(void)
+{
+#if QCAR_WIFI_ENABLED
+    char reply[80];
+    if (!wifi_ready) return;
+    reply_names(0);
+    (void)snprintf(reply,sizeof(reply),"MCAR RATE %lu\n",(unsigned long)wifi_telemetry_period_ms);
+    send_reply(reply);
+    (void)snprintf(reply,sizeof(reply),"MCAR STREAM %lu\n",(unsigned long)wifi_telemetry_stream_enabled);
+    send_reply(reply);
 #endif
 }
 

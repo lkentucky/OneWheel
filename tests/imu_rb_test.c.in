@@ -9,7 +9,7 @@
 int host_stm;
 static uint32 ticks;
 static uint8 registers[128],ready=3,cs=1,init_result;
-static int irq;
+static int irq,fail_spi;
 static int16 raw_a[3]={4098,0,0},raw_g[3]={14,-28,42};
 int16 imu660rb_acc_x,imu660rb_acc_y,imu660rb_acc_z;
 int16 imu660rb_gyro_x,imu660rb_gyro_y,imu660rb_gyro_z;
@@ -31,6 +31,15 @@ void spi_read_8bit_registers(int s,uint8 r,uint8 *out,uint32 n) {
         out[6+2*i]=(uint8)raw_a[i];out[7+2*i]=(uint8)((uint16)raw_a[i]>>8);
     }
 }
+uint8 spi_transfer_8bit_timeout(int spi,const uint8 *tx,uint8 *rx,uint32 n,uint32 timeout) {
+    assert(spi==0 && !cs && timeout==1);
+    if(fail_spi)return 1;
+    if(n==2) {
+        if(tx[0]&128) {assert(rx);rx[0]=0;rx[1]=spi_read_8bit_register(spi,tx[0]);}
+        else spi_write_8bit_register(spi,tx[0],tx[1]);
+    } else {assert(n==13 && rx);rx[0]=0;spi_read_8bit_registers(spi,tx[0],rx+1,12);}
+    return 0;
+}
 static void tick(void) {ticks+=500000u;imu_update_5ms();assert(cs);}
 static void calibrate(void) {
     assert(imu_attitude_status==IMU_ATTITUDE_CALIBRATING);
@@ -46,20 +55,27 @@ int main(void) {
     raw_g[1]=1000;for(unsigned i=0;i<10;++i) tick();
     assert(imu_attitude_status==0 && imu_calibration_percent==0);
     raw_g[1]=-28;calibrate();
-    assert(imu_get_navigation_sample(&frame) && frame.sequence==1);
+    /* Preview -> Start after a pause retains bias and waits for fresh attitude. */
+    ticks += 100000000u;
+    imu_prepare_start();
+    assert(imu_attitude_status==IMU_ATTITUDE_CALIBRATING);
+    tick(); assert(imu_attitude_status==IMU_ATTITUDE_CALIBRATING);
+    tick(); assert(imu_attitude_status==IMU_ATTITUDE_RUNNING);
+    assert(imu_calibration_percent==100.0f);
+    assert(imu_get_navigation_sample(&frame) && frame.sequence==2);
     assert(frame.accel_g[2]==1 && frame.accel_g[0]==0);
     assert(fabsf(imu_gyro_dps[0]-42/14.3f)<1e-5f);
     assert(fabsf(imu_gyro_dps[1]-28/14.3f)<1e-5f);
-    assert(fabsf(mahony_filter.gyro.z)<1e-5f);
-    assert(fabsf(mahony_filter.acc.z-9.80665f)<1e-5f);
+    assert(fabsf(attitude_state.gyro.z)<1e-5f);
+    assert(fabsf(attitude_state.acc.z-9.80665f)<1e-5f);
     raw_g[0]+=143;tick();
-    assert(imu_get_navigation_sample(&frame) && frame.sequence==2);
+    assert(imu_get_navigation_sample(&frame) && frame.sequence==3);
     assert(fabsf(frame.gyro_dps[2]-10)<1e-4f);
-    assert(fabsf(mahony_filter.gyro.z-10)<1e-4f);
+    assert(fabsf(attitude_state.gyro.z-10)<1e-4f);
     assert(imu_yaw_deg>0 && fabsf(imu_gyro_z_integral_deg-.05f)<1e-5f);
     assert(fabsf(imu_sample_dt_ms-5)<1e-5f);
     raw_a[0]=8196;tick();assert(imu_accel_used==0);raw_a[0]=4098;
-    ready=1;tick();assert(imu_sample_sequence==3); /* both DRDY required */
+    ready=1;tick();assert(imu_sample_sequence==4); /* both DRDY required */
     for(unsigned i=0;i<21;++i) tick();
     assert(imu_attitude_status==IMU_ATTITUDE_TIMEOUT && !imu_get_navigation_sample(&frame));
     ready=3;raw_g[0]=14;imu_request_recalibration();imu_service();calibrate();
@@ -68,7 +84,7 @@ int main(void) {
     /* Unwrapped yaw must cross +/-180 without a 360-degree discontinuity. */
     raw_g[0]+=1430;
     for(unsigned i=0;i<800;++i) tick();
-    assert(fabsf(mahony_filter.True_yaw-400)<.1f);
+    assert(fabsf(attitude_state.True_yaw-400)<.1f);
     /* Check side-tilt rate feeds roll and fore/aft rate feeds pitch. */
     raw_g[0]=14;raw_g[1]=-28;raw_g[2]=42;
     imu_request_recalibration();imu_service();calibrate();
@@ -78,6 +94,9 @@ int main(void) {
     raw_g[2]=42;raw_g[1]-=143;tick();assert(imu_get_navigation_sample(&frame));
     assert(fabsf(frame.gyro_dps[1]-10)<1e-4f && fabsf(frame.gyro_dps[0])<1e-4f);
     assert(imu_pitch_deg>0);
+    fail_spi=1;for(int n=0;n<22;n++)tick();
+    assert(imu_spi_timeouts>0 && imu_not_ready_samples>0 && imu_attitude_status==IMU_ATTITUDE_TIMEOUT);
+    fail_spi=0;
     init_result=1;imu_init();assert(imu_attitude_status==IMU_ATTITUDE_INIT_FAILED);
     printf("RB pipeline method %u: burst/mapping/scaling, calibration, dt rollover, gating, timeout/recovery, yaw passed\n",imu_attitude_method);
 }

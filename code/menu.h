@@ -6,6 +6,7 @@
 #define mt9v034_test_mode 1
 
 void monotroch_init(void);
+void menu_auto_telemetry_init(void);
 void menu(int menu_key);
 void Menu_Create(void);
 void Menu_Init(void);

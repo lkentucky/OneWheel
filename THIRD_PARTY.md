@@ -4,7 +4,7 @@
 
 - 来源：本地 `C:\Users\csz18\Desktop\mcar-mailun\MCARpreparation\project\code\attitude.c/.h`、`imu.c/.h`、`config.h` 中的姿态参数，以及 `tests/attitude_ekf_test.c`。
 - 移植到 `code/attitude.c/.h`、`imu.c/.h`、`imu_config.h`；算法保持原实现，采样适配 IMU660RB，时间基准改为 TC264 STM0。
-- 保留源文件 GPL-3.0-or-later 及 Madgwick 来源说明；EKF 参考 Wang Hongxi 的 QuaternionEKF 设计，采用固定五维误差状态实现。
+- 保留源文件 GPL-3.0-or-later 说明；EKF 参考 Wang Hongxi 的 QuaternionEKF 设计，采用固定五维误差状态实现。姿态模块现仅保留 EKF，其他算法已移除。
 - 姿态移植未接入原导航静止判定，因此不自动启用 Z 零偏跟踪。Wi-Fi 配置和传输的后续移植见下一节。
 
 ## MCARpreparation WiFi-SPI 传输

@@ -44,5 +44,6 @@ void set_clock              (void);                 // 设置系统频率
 void get_clock              (void);                 // 获取系统频率
 void disable_Watchdog       (void);                 // 关闭看门狗
 void clock_init             (void);                 // 时钟初始化
+void cpu_init_notify(void); /* Publish this core ready without waiting for other cores. */
 void cpu_wait_event_ready   (void);                 // 等待所有核心初始化完毕
 #endif

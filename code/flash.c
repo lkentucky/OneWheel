@@ -1,5 +1,158 @@
 #include "flash.h"
 
+#if QCAR_FLASH_EXT
+/* Extension to the existing page 0..76 format. Commit marker is written last. */
+#define RATE_PARAMS_MAGIC 0x52545031u
+static void rate_params_write(void)
+{
+    uint32 words[3], checksum = RATE_PARAMS_MAGIC;
+    unsigned i;
+    memcpy(&words[0], &roll_rate_test_kp, sizeof(uint32));
+    memcpy(&words[1], &roll_rate_test_limit, sizeof(uint32));
+    memcpy(&words[2], &roll_rate_test_sign, sizeof(uint32));
+    for (i = 0; i < 3; ++i) {
+        checksum = (checksum * 16777619u) ^ words[i];
+        eeprom_page_program(0, 78 + i, &words[i]);
+    }
+    eeprom_page_program(0, 81, &checksum);
+    checksum = RATE_PARAMS_MAGIC;
+    eeprom_page_program(0, 77, &checksum);
+}
+
+static void rate_params_read(void)
+{
+    uint32 words[3], checksum = RATE_PARAMS_MAGIC;
+    float values[3];
+    unsigned i;
+    /* Legacy settings do not contain this extension. */
+    if (my_flash_read(0, 77, uint32) != RATE_PARAMS_MAGIC) return;
+    for (i = 0; i < 3; ++i) {
+        words[i] = my_flash_read(0, 78 + i, uint32);
+        if ((words[i] & 0x7f800000u) == 0x7f800000u) return;
+        checksum = (checksum * 16777619u) ^ words[i];
+        memcpy(&values[i], &words[i], sizeof(float));
+    }
+    if (checksum != my_flash_read(0, 81, uint32)) return;
+    if (values[0] < 0.0f || values[0] > 500.0f ||
+        values[1] < 0.0f || values[1] > 4000.0f ||
+        (values[2] != 1.0f && values[2] != -1.0f)) return;
+    roll_rate_test_kp = values[0];
+    roll_rate_test_limit = values[1];
+    roll_rate_test_sign = values[2];
+}
+
+/* Independent extension preserves existing rate gain records (pages 77..81). */
+#define BALANCE_PARAMS_MAGIC 0x42504c31u
+static void balance_params_write(void)
+{
+    uint32 words[2], checksum = BALANCE_PARAMS_MAGIC;
+    unsigned i;
+    memcpy(&words[0], &pitch_balance_kp, sizeof(uint32));
+    memcpy(&words[1], &pitch_balance_rate_limit, sizeof(uint32));
+    for (i=0; i<2; ++i) {
+        checksum = (checksum * 16777619u) ^ words[i];
+        eeprom_page_program(0, 83+i, &words[i]);
+    }
+    eeprom_page_program(0, 85, &checksum);
+    checksum = BALANCE_PARAMS_MAGIC;
+    eeprom_page_program(0, 82, &checksum);
+}
+static void balance_params_read(void)
+{
+    uint32 words[2], checksum = BALANCE_PARAMS_MAGIC;
+    float values[2];
+    unsigned i;
+    if (my_flash_read(0, 82, uint32) != BALANCE_PARAMS_MAGIC) return;
+    for (i=0; i<2; ++i) {
+        words[i] = my_flash_read(0, 83+i, uint32);
+        if ((words[i] & 0x7f800000u) == 0x7f800000u) return;
+        checksum = (checksum * 16777619u) ^ words[i];
+        memcpy(&values[i], &words[i], sizeof(uint32));
+    }
+    if (my_flash_read(0,85,uint32) != checksum ||
+        values[0]<0.0f || values[0]>100.0f || values[1]<=0.0f || values[1]>100.0f) return;
+    pitch_balance_kp = values[0];
+    pitch_balance_rate_limit = values[1];
+}
+
+/* Independent ground-rate settings, pages 86..90. */
+#define GROUND_PARAMS_MAGIC 0x47525031u
+static void ground_params_write(void)
+{
+    uint32 words[3], checksum = GROUND_PARAMS_MAGIC;
+    unsigned i;
+    memcpy(&words[0], &ground_rate_test_kp, sizeof(uint32));
+    memcpy(&words[1], &ground_rate_test_limit, sizeof(uint32));
+    memcpy(&words[2], &ground_rate_test_sign, sizeof(uint32));
+    for (i = 0; i < 3; ++i) {
+        checksum = (checksum * 16777619u) ^ words[i];
+        eeprom_page_program(0, 87 + i, &words[i]);
+    }
+    eeprom_page_program(0, 90, &checksum);
+    checksum = GROUND_PARAMS_MAGIC;
+    eeprom_page_program(0, 86, &checksum);
+}
+
+static void ground_params_read(void)
+{
+    uint32 words[3], checksum = GROUND_PARAMS_MAGIC;
+    float values[3];
+    unsigned i;
+    /* Legacy settings do not contain this extension. */
+    if (my_flash_read(0, 86, uint32) != GROUND_PARAMS_MAGIC) return;
+    for (i = 0; i < 3; ++i) {
+        words[i] = my_flash_read(0, 87 + i, uint32);
+        if ((words[i] & 0x7f800000u) == 0x7f800000u) return;
+        checksum = (checksum * 16777619u) ^ words[i];
+        memcpy(&values[i], &words[i], sizeof(float));
+    }
+    if (checksum != my_flash_read(0, 90, uint32)) return;
+    if (values[0] < 0.0f || values[0] > 500.0f ||
+        values[1] < 0.0f || values[1] > 4000.0f ||
+        (values[2] != 1.0f && values[2] != -1.0f)) return;
+    ground_rate_test_kp = values[0];
+    ground_rate_test_limit = values[1];
+    ground_rate_test_sign = values[2];
+}
+
+
+/* Ground angle extension, pages 91..94. */
+#define GROUND_ANGLE_MAGIC 0x47414c31u
+static void ground_angle_params_write(void)
+{
+    uint32 words[2], checksum = GROUND_ANGLE_MAGIC;
+    unsigned i;
+    memcpy(&words[0], &ground_angle_kp, sizeof(uint32));
+    memcpy(&words[1], &ground_angle_rate_limit, sizeof(uint32));
+    for (i=0; i<2; ++i) {
+        checksum = (checksum * 16777619u) ^ words[i];
+        eeprom_page_program(0, 92+i, &words[i]);
+    }
+    eeprom_page_program(0, 94, &checksum);
+    checksum = GROUND_ANGLE_MAGIC;
+    eeprom_page_program(0, 91, &checksum);
+}
+static void ground_angle_params_read(void)
+{
+    uint32 words[2], checksum = GROUND_ANGLE_MAGIC;
+    float values[2];
+    unsigned i;
+    if (my_flash_read(0, 91, uint32) != GROUND_ANGLE_MAGIC) return;
+    for (i=0; i<2; ++i) {
+        words[i] = my_flash_read(0, 92+i, uint32);
+        if ((words[i] & 0x7f800000u) == 0x7f800000u) return;
+        checksum = (checksum * 16777619u) ^ words[i];
+        memcpy(&values[i], &words[i], sizeof(uint32));
+    }
+    if (my_flash_read(0,94,uint32) != checksum ||
+        values[0]<0.0f || values[0]>100.0f || values[1]<=0.0f || values[1]>100.0f) return;
+    ground_angle_kp = values[0];
+    ground_angle_rate_limit = values[1];
+}
+
+
+#endif
+
 //-------------------------------------------------------------------------------------------------------------------
 // 检查指定 Flash 页的首个字是否非零。
 // sector_num：需要写入的逻辑扇区编号。
@@ -535,12 +688,28 @@ void write_flash(void)
     img_process_write_eeprom(&imageinfo);
     img_process_write_eeprom_2(&img_process_params);
     tragectory_planning_write_eeprom(&turn_info);
+#if QCAR_FLASH_EXT
+    rate_params_write();
+    balance_params_write();
+    ground_params_write();
+    ground_angle_params_write();
+#endif
     uint32 magic = 0x51434131u;
     eeprom_page_program(0, 0, &magic);
 }
 void get_flash(void)
 {
     param_pid_set();
+    pitch_balance_kp = 50.0f;
+    pitch_balance_rate_limit = 80.0f;
+    roll_rate_test_kp = 35.0f;
+    roll_rate_test_limit = 4000.0f;
+    roll_rate_test_sign = 1.0f;
+    ground_rate_test_kp=100.0f;
+    ground_rate_test_limit=4000.0f;
+    ground_rate_test_sign=1.0f;
+    ground_angle_kp=10.0f;
+    ground_angle_rate_limit=30.0f;
     init_mono_params();
     init_mono_beacon_params();
     init_img_process_params();
@@ -550,6 +719,9 @@ void get_flash(void)
     turn_info.weight_dist = 1.0f;
     turn_info.weight_angle = 1.0f;
     turn_info.weight_first_cx_diff = 1.0f;
+#if QCAR_BOOT_LOAD_FLASH
+    /* A failed/aborted save can leave the DFlash in page mode. */
+    IfxFlash_resetToRead(0);
     if (my_flash_read(0, 0, uint32) != 0x51434131u) return;
     pid_get_eeprom(&cascade_vel_roll ,&cascade_vel_pitch ,&cascade_ang_roll ,&cascade_ang_pitch ,&cascade_ang_vel_roll ,&cascade_ang_vel_pitch,&cascade_vel_yaw,&cascade_ang_yaw,&cascade_ang_vel_yaw);
     mono_params_get_eeprom(&mono_params);
@@ -557,4 +729,14 @@ void get_flash(void)
     img_process_get_eeprom(&imageinfo);
     img_process_get_eeprom_2(&img_process_params);
     tragectory_planning_get_eeprom(&turn_info);
+#if QCAR_FLASH_EXT
+    /* Pages 77..85 (added for the gyro-test gains). Reading page 83
+     * stalled boot on the current board, so this stays off by default
+     * and the compiled-in defaults above are used instead. */
+    rate_params_read();
+    balance_params_read();
+    ground_params_read();
+    ground_angle_params_read();
+#endif
+#endif
 }
