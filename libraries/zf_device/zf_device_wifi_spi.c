@@ -58,9 +58,10 @@
 #include "zf_device_type.h"
 
 #include "zf_device_wifi_spi.h"
+#include "IfxStm.h"
 
 #define WIFI_CONNECT_TIME_OUT       10000       // 单位毫秒
-#define SOCKET_CONNECT_TIME_OUT     50000       // 单位毫秒
+#define SOCKET_CONNECT_TIME_OUT     5000        // 单位毫秒
 #define OTHER_TIME_OUT              1000        // 单位毫秒
 
 #if ((WIFI_SPI_RECVIVE_SIZE < 32) || (WIFI_SPI_RECVIVE_SIZE > 4088))
@@ -92,21 +93,27 @@ static volatile     wifi_spi_state_enum wifi_spi_mutex;
 // 使用示例     内部使用，用户无需关心
 // 备注信息
 //-------------------------------------------------------------------------------------------------------------------
+volatile uint32 wifi_spi_config_error, wifi_spi_config_command;
+volatile uint32 wifi_spi_config_reply, wifi_spi_config_reply_length;
+static void (*wifi_spi_wait_callback)(void);
+static volatile uint8 wifi_spi_wait_cancelled;
+void wifi_spi_set_wait_callback(void (*callback)(void)) { wifi_spi_wait_callback=callback; }
+void wifi_spi_cancel_wait(void) { wifi_spi_wait_cancelled=1; }
+void wifi_spi_clear_cancel_wait(void) { wifi_spi_wait_cancelled=0; }
 static uint8 wifi_spi_wait_idle (uint32 wait_time)
 {
-    uint32 time = 0;
-    
-    wait_time = wait_time*100;
-    while(0 == gpio_get_level(WIFI_SPI_INT_PIN))
-    {
-        system_delay_us(10);
-        time++;
-        if(wait_time <= time)
-        {
-            break;
+    uint32 start=IfxStm_getLower(&MODULE_STM0), last=start;
+    uint32 per_ms=(uint32)(IfxStm_getFrequency(&MODULE_STM0)/1000.0f);
+    if (!per_ms || wait_time>10000u) return 1;
+    while (!gpio_get_level(WIFI_SPI_INT_PIN)) {
+        uint32 now=IfxStm_getLower(&MODULE_STM0);
+        if (wifi_spi_wait_cancelled || (uint32)(now-start)>=per_ms*wait_time) return 1;
+        if (wifi_spi_wait_callback && (uint32)(now-last)>=per_ms*50u) {
+            last=now; wifi_spi_wait_callback();
         }
+        system_delay_us(10);
     }
-    return (wait_time <= time);
+    return wifi_spi_wait_cancelled ? 1 : 0;
 }
 
 //-------------------------------------------------------------------------------------------------------------------
@@ -119,18 +126,14 @@ static uint8 wifi_spi_wait_idle (uint32 wait_time)
 // 使用示例     内部使用，用户无需关心
 // 备注信息
 //-------------------------------------------------------------------------------------------------------------------
-static void wifi_spi_write (const uint8 *buffer1, uint16 length1, const uint8 *buffer2, uint16 length2)
+static uint8 wifi_spi_write (const uint8 *buffer1, uint16 length1, const uint8 *buffer2, uint16 length2)
 {
+    uint8 result=0;
     gpio_low(WIFI_SPI_CS_PIN);
-    if(NULL != buffer1)
-    {
-        spi_write_8bit_array(WIFI_SPI_INDEX, buffer1, length1);
-    }
-    if(NULL != buffer2)
-    {
-        spi_write_8bit_array(WIFI_SPI_INDEX, buffer2, length2);
-    }
+    if (length1) result=spi_transfer_8bit_timeout(WIFI_SPI_INDEX,buffer1,NULL,length1,20);
+    if (!result && length2) result=spi_transfer_8bit_timeout(WIFI_SPI_INDEX,buffer2,NULL,length2,20);
     gpio_high(WIFI_SPI_CS_PIN);
+    return result;
 }
 
 //-------------------------------------------------------------------------------------------------------------------
@@ -141,18 +144,17 @@ static void wifi_spi_write (const uint8 *buffer1, uint16 length1, const uint8 *b
 // 使用示例     内部使用，用户无需关心
 // 备注信息
 //-------------------------------------------------------------------------------------------------------------------
-static void wifi_spi_transfer_command (wifi_spi_packets_struct *packets, uint16 length)
+static uint8 wifi_spi_transfer_command (wifi_spi_packets_struct *packets, uint16 length)
 {
+    uint8 result;
+    if (length>WIFI_SPI_RECVIVE_SIZE) return 1;
+    packets->head.reserve=0;
     gpio_low(WIFI_SPI_CS_PIN);
-    
-    spi_transfer_8bit(WIFI_SPI_INDEX, (uint8 *)&(packets->head), (uint8 *)&(packets->head), sizeof(wifi_spi_head_struct));
-    
-    if(length)
-    {
-        spi_transfer_8bit(WIFI_SPI_INDEX, (const uint8 *)(packets->buffer), packets->buffer, length);
-    }
-    
+    result=spi_transfer_8bit_timeout(WIFI_SPI_INDEX,(uint8 *)&packets->head,(uint8 *)&packets->head,sizeof(wifi_spi_head_struct),20);
+    if (!result && length) result=spi_transfer_8bit_timeout(WIFI_SPI_INDEX,packets->buffer,packets->buffer,length,20);
     gpio_high(WIFI_SPI_CS_PIN);
+    if (packets->head.length>WIFI_SPI_RECVIVE_SIZE) result=1;
+    return result;
 }
 
 //-------------------------------------------------------------------------------------------------------------------
@@ -164,27 +166,25 @@ static void wifi_spi_transfer_command (wifi_spi_packets_struct *packets, uint16 
 // 使用示例     内部使用，用户无需关心
 // 备注信息
 //-------------------------------------------------------------------------------------------------------------------
-static void wifi_spi_transfer_data (const uint8 *write_data, wifi_spi_packets_struct *read_data, uint16 length)
+static uint8 wifi_spi_transfer_data (const uint8 *write_data, wifi_spi_packets_struct *read_data, uint16 length)
 {
+    uint8 result;
+    read_data->head.command=WIFI_SPI_DATA;
+    read_data->head.reserve=0;
+    read_data->head.length=length;
     gpio_low(WIFI_SPI_CS_PIN);
-    
-    read_data->head.command = WIFI_SPI_DATA;
-    read_data->head.length  = length;
-    
-    spi_transfer_8bit(WIFI_SPI_INDEX, (uint8 *)&(read_data->head), (uint8 *)&(read_data->head), sizeof(wifi_spi_head_struct));
-    
-    if(WIFI_SPI_RECVIVE_SIZE < length)
-    {
-        spi_transfer_8bit(WIFI_SPI_INDEX, write_data, read_data->buffer, WIFI_SPI_RECVIVE_SIZE);
-        spi_write_8bit_array(WIFI_SPI_INDEX, &write_data[WIFI_SPI_RECVIVE_SIZE], length - WIFI_SPI_RECVIVE_SIZE);
-    }
-    else
-    {
-        // 将需要发送的数据拷贝到读取缓冲区，避免出现write_data越界访问
-        memcpy(read_data->buffer, write_data, length);
-        spi_transfer_8bit(WIFI_SPI_INDEX, read_data->buffer, read_data->buffer, WIFI_SPI_RECVIVE_SIZE);
+    result=spi_transfer_8bit_timeout(WIFI_SPI_INDEX,(uint8 *)&read_data->head,(uint8 *)&read_data->head,sizeof(wifi_spi_head_struct),20);
+    if (!result && length>WIFI_SPI_RECVIVE_SIZE) {
+        result=spi_transfer_8bit_timeout(WIFI_SPI_INDEX,write_data,read_data->buffer,WIFI_SPI_RECVIVE_SIZE,20);
+        if (!result) result=spi_transfer_8bit_timeout(WIFI_SPI_INDEX,write_data+WIFI_SPI_RECVIVE_SIZE,NULL,length-WIFI_SPI_RECVIVE_SIZE,20);
+    } else if (!result) {
+        memset(read_data->buffer,0,sizeof(read_data->buffer));
+        if (length) memcpy(read_data->buffer,write_data,length);
+        result=spi_transfer_8bit_timeout(WIFI_SPI_INDEX,read_data->buffer,read_data->buffer,WIFI_SPI_RECVIVE_SIZE,20);
     }
     gpio_high(WIFI_SPI_CS_PIN);
+    if (read_data->head.length>WIFI_SPI_RECVIVE_SIZE) result=1;
+    return result;
 }
 
 //-------------------------------------------------------------------------------------------------------------------
@@ -199,37 +199,27 @@ static void wifi_spi_transfer_data (const uint8 *write_data, wifi_spi_packets_st
 //-------------------------------------------------------------------------------------------------------------------
 static uint8 wifi_spi_set_parameter (wifi_spi_packets_command_enum command, uint8 *buffer, uint16 length, uint32 wait_time)
 {
-    uint8 return_state;
+    uint8 return_state=1;
     wifi_spi_head_struct head;
-    return_state = 1;
-    do
-    {
-        head.command = command;
-        head.length  = length;
-        
-        // 等待从机准备就绪
-        if(wifi_spi_wait_idle(wait_time))
-        {
-            break;
+    wifi_spi_config_command=(uint32)command;
+    wifi_spi_config_error=wifi_spi_config_reply=wifi_spi_config_reply_length=0;
+    do {
+        memset(&head,0,sizeof(head));
+        head.command=command; head.length=length;
+        if (wifi_spi_wait_idle(wait_time)) { wifi_spi_config_error=1; break; }
+        if (wifi_spi_write(&head.command,sizeof(head),buffer,length)) {
+            wifi_spi_config_error=2; break;
         }
-
-        wifi_spi_write(&head.command, sizeof(wifi_spi_head_struct), buffer, length);
-        if(wifi_spi_wait_idle(wait_time))
-        {
-            break;
-        }
-        // 接收应答信号
-
-        head.command = WIFI_SPI_DATA;
-        head.length = 0;
-        wifi_spi_transfer_command((wifi_spi_packets_struct *)&head, head.length);
+        if (wifi_spi_wait_idle(wait_time)) { wifi_spi_config_error=3; break; }
+        head.command=WIFI_SPI_DATA; head.length=0;
+        return_state=wifi_spi_transfer_command((wifi_spi_packets_struct *)&head,0);
+        wifi_spi_config_reply=head.command;
+        wifi_spi_config_reply_length=head.length;
+        if (return_state) { wifi_spi_config_error=4; break; }
         system_delay_us(20);
-        if(WIFI_SPI_REPLY_OK == head.command)
-        {
-            return_state = 0;
-        }
-    }while(0);
-    
+        if (head.command==WIFI_SPI_REPLY_OK) return_state=0;
+        else { wifi_spi_config_error=5; return_state=1; }
+    } while (0);
     return return_state;
 }
 
@@ -254,8 +244,9 @@ static uint8 wifi_spi_get_parameter (wifi_spi_packets_command_enum command, wifi
         {
             break;
         }
+        memset(read_data,0,sizeof(*read_data));
         read_data->head.command = command;
-        wifi_spi_write(&(read_data->head.command), WIFI_SPI_RECVIVE_SIZE, NULL, 0);
+        if (wifi_spi_write(&(read_data->head.command), WIFI_SPI_RECVIVE_SIZE, NULL, 0)) break;
 
         if(wifi_spi_wait_idle(wait_time))
         {
@@ -263,7 +254,7 @@ static uint8 wifi_spi_get_parameter (wifi_spi_packets_command_enum command, wifi
         }
         read_data->head.command = WIFI_SPI_DATA;
         read_data->head.length = 0;
-        wifi_spi_transfer_command(read_data, WIFI_SPI_RECVIVE_SIZE);
+        if (wifi_spi_transfer_command(read_data, WIFI_SPI_RECVIVE_SIZE)) break;
         return_state = 0;
     }while(0);
     return return_state;
@@ -279,13 +270,16 @@ static uint8 wifi_spi_get_parameter (wifi_spi_packets_command_enum command, wifi
 static uint8 wifi_spi_get_version (void)
 {
     uint8 return_state;
-    wifi_spi_packets_struct temp_packets;
+    wifi_spi_packets_struct temp_packets = {{0,0,0},{0}};
 
     return_state = wifi_spi_get_parameter(WIFI_SPI_GET_VERSION, &temp_packets, OTHER_TIME_OUT);
-    if((0 == return_state) && (WIFI_SPI_REPLY_VERSION == temp_packets.head.command))
-    {
-        memcpy(wifi_spi_version, temp_packets.buffer, temp_packets.head.length);
-    }
+    if (return_state || temp_packets.head.command != WIFI_SPI_REPLY_VERSION ||
+        !temp_packets.head.length) return 1;
+    /* Module string fields may be padded to their fixed field width. */
+    if (temp_packets.head.length >= sizeof(wifi_spi_version))
+        temp_packets.head.length = sizeof(wifi_spi_version)-1;
+    memcpy(wifi_spi_version, temp_packets.buffer, temp_packets.head.length);
+    wifi_spi_version[temp_packets.head.length]='\0';
     return return_state;
 }
 
@@ -299,13 +293,16 @@ static uint8 wifi_spi_get_version (void)
 static uint8 wifi_spi_get_mac_addr (void)
 {
     uint8 return_state;
-    wifi_spi_packets_struct temp_packets;
+    wifi_spi_packets_struct temp_packets = {{0,0,0},{0}};
 
     return_state = wifi_spi_get_parameter(WIFI_SPI_GET_MAC_ADDR, &temp_packets, OTHER_TIME_OUT);
-    if((0 == return_state) && (WIFI_SPI_REPLY_MAC_ADDR == temp_packets.head.command))
-    {
-        memcpy(wifi_spi_mac_addr, temp_packets.buffer, temp_packets.head.length);
-    }
+    if (return_state || temp_packets.head.command != WIFI_SPI_REPLY_MAC_ADDR ||
+        !temp_packets.head.length) return 1;
+    /* Module string fields may be padded to their fixed field width. */
+    if (temp_packets.head.length >= sizeof(wifi_spi_mac_addr))
+        temp_packets.head.length = sizeof(wifi_spi_mac_addr)-1;
+    memcpy(wifi_spi_mac_addr, temp_packets.buffer, temp_packets.head.length);
+    wifi_spi_mac_addr[temp_packets.head.length]='\0';
     return return_state;
 }
 
@@ -320,13 +317,16 @@ static uint8 wifi_spi_get_mac_addr (void)
 static uint8 wifi_spi_get_ip_addr_port (void)
 {
     uint8 return_state;
-    wifi_spi_packets_struct temp_packets;
+    wifi_spi_packets_struct temp_packets = {{0,0,0},{0}};
 
     return_state = wifi_spi_get_parameter(WIFI_SPI_GET_IP_ADDR, &temp_packets, OTHER_TIME_OUT);
-    if((0 == return_state) && (WIFI_SPI_REPLY_IP_ADDR == temp_packets.head.command))
-    {
-        memcpy(wifi_spi_ip_addr_port, temp_packets.buffer, temp_packets.head.length);
-    }
+    if (return_state || temp_packets.head.command != WIFI_SPI_REPLY_IP_ADDR ||
+        !temp_packets.head.length) return 1;
+    /* Module string fields may be padded to their fixed field width. */
+    if (temp_packets.head.length >= sizeof(wifi_spi_ip_addr_port))
+        temp_packets.head.length = sizeof(wifi_spi_ip_addr_port)-1;
+    memcpy(wifi_spi_ip_addr_port, temp_packets.buffer, temp_packets.head.length);
+    wifi_spi_ip_addr_port[temp_packets.head.length]='\0';
     return return_state;
 }
 
@@ -344,7 +344,7 @@ static uint8 wifi_spi_get_ip_addr_port (void)
 uint8 wifi_spi_get_time (wifi_spi_time_enum time_format, char *buffer, uint8 buffer_size)
 {
     uint8 return_state = 1;
-    wifi_spi_packets_struct temp_packets;
+    wifi_spi_packets_struct temp_packets = {{0,0,0},{0}};
     uint8 send_cmd, receive_cmd;
 
     // 接收时间的数组必须大于30个字节
@@ -470,7 +470,7 @@ uint8 wifi_spi_socket_connect (char *transport_type, char *ip_addr, char *port, 
 //-------------------------------------------------------------------------------------------------------------------
 uint8 wifi_spi_socket_disconnect (void)
 {
-    wifi_spi_packets_struct temp_packets;
+    wifi_spi_packets_struct temp_packets = {{0,0,0},{0}};
 
     return wifi_spi_get_parameter(WIFI_SPI_CLOSE_SOCKET, &temp_packets, OTHER_TIME_OUT);
 }
@@ -496,7 +496,7 @@ uint8 wifi_spi_reset (void)
         {
             break;
         }
-        wifi_spi_write(&head.command, sizeof(wifi_spi_head_struct), NULL, 0);
+        return_state=wifi_spi_write(&head.command, sizeof(wifi_spi_head_struct), NULL, 0);
     }while(0);
     
     return return_state;
@@ -512,7 +512,7 @@ uint8 wifi_spi_reset (void)
 uint8 wifi_spi_udp_send_now (void)
 {
     uint8 return_state = 1;
-    wifi_spi_packets_struct temp_packets;
+    wifi_spi_packets_struct temp_packets = {{0,0,0},{0}};
     
     if(WIFI_SPI_IDLE == wifi_spi_mutex)
     {
@@ -528,7 +528,7 @@ uint8 wifi_spi_udp_send_now (void)
             // 立即开始socket发送
             temp_packets.head.command = WIFI_SPI_UDP_SEND;
             temp_packets.head.length = 0;
-            wifi_spi_transfer_command(&temp_packets, WIFI_SPI_RECVIVE_SIZE);
+            if (wifi_spi_transfer_command(&temp_packets, WIFI_SPI_RECVIVE_SIZE)) break;
             
             // 检查收到的包中是否有数据
             if((WIFI_SPI_REPLY_DATA_START == temp_packets.head.command) || (WIFI_SPI_REPLY_DATA_END == temp_packets.head.command))
@@ -549,7 +549,7 @@ uint8 wifi_spi_udp_send_now (void)
             // 接收应答信号
             temp_packets.head.command = WIFI_SPI_DATA;
             temp_packets.head.length = 0;
-            wifi_spi_transfer_command(&temp_packets, temp_packets.head.length);
+            if (wifi_spi_transfer_command(&temp_packets, temp_packets.head.length)) break;
             
             if(WIFI_SPI_REPLY_OK == temp_packets.head.command)
             {
@@ -575,8 +575,9 @@ uint8 wifi_spi_udp_send_now (void)
 //-------------------------------------------------------------------------------------------------------------------
 uint32 wifi_spi_send_buffer (const uint8 *buffer, uint32 length)
 {
+    uint32 receive_packets=0;
     uint16 send_length;
-    wifi_spi_packets_struct temp_packets;
+    wifi_spi_packets_struct temp_packets = {{0,0,0},{0}};
     
     // 检查WIFI SPI状态，如果在其他中断或者线程中已经发起了通讯，则本次不能发送数据
     if(WIFI_SPI_IDLE == wifi_spi_mutex)
@@ -593,7 +594,7 @@ uint32 wifi_spi_send_buffer (const uint8 *buffer, uint32 length)
                 break;
             }
             
-            wifi_spi_transfer_data(buffer, &temp_packets, send_length);
+            if (wifi_spi_transfer_data(buffer, &temp_packets, send_length)) break;
             
             // 检查收到的包中是否有数据
             if((WIFI_SPI_REPLY_DATA_START == temp_packets.head.command) || (WIFI_SPI_REPLY_DATA_END == temp_packets.head.command))
@@ -610,7 +611,8 @@ uint32 wifi_spi_send_buffer (const uint8 *buffer, uint32 length)
         }
         
         // 检查最后一次的接收是否将所有的数据都接收完毕
-        while(WIFI_SPI_REPLY_DATA_START == temp_packets.head.command)
+        while(WIFI_SPI_REPLY_DATA_START == temp_packets.head.command &&
+              ++receive_packets < WIFI_SPI_RECVIVE_FIFO_SIZE/WIFI_SPI_RECVIVE_SIZE)
         {
             if(wifi_spi_wait_idle(OTHER_TIME_OUT))
             {
@@ -620,7 +622,7 @@ uint32 wifi_spi_send_buffer (const uint8 *buffer, uint32 length)
             // 继续读取模块剩余数据
             temp_packets.head.command = WIFI_SPI_DATA;
             temp_packets.head.length  = 0;
-            wifi_spi_transfer_command(&temp_packets, WIFI_SPI_RECVIVE_SIZE);
+            if (wifi_spi_transfer_command(&temp_packets, WIFI_SPI_RECVIVE_SIZE)) break;
             // 检查收到的包中是否有数据
             if((WIFI_SPI_REPLY_DATA_START == temp_packets.head.command) || (WIFI_SPI_REPLY_DATA_END == temp_packets.head.command))
             {
@@ -658,10 +660,11 @@ void wifi_spi_send_string(const char *string)
 //-------------------------------------------------------------------------------------------------------------------
 uint32 wifi_spi_read_buffer (uint8 *buffer, uint32 length)
 {
+    uint32 receive_packets=0;
     zf_assert(NULL != buffer);
     uint32 fifo_read_length;
     uint32 write_length = 0;
-    wifi_spi_packets_struct temp_packets;
+    wifi_spi_packets_struct temp_packets = {{0,0,0},{0}};
 
     // 首先判断FIFO中是否有数据，如果有则先从FIFO读取
     if(fifo_used(&wifi_spi_fifo))
@@ -691,7 +694,7 @@ uint32 wifi_spi_read_buffer (uint8 *buffer, uint32 length)
 
             temp_packets.head.command = WIFI_SPI_DATA;
             temp_packets.head.length  = 0;
-            wifi_spi_transfer_command(&temp_packets, WIFI_SPI_RECVIVE_SIZE);
+            if (wifi_spi_transfer_command(&temp_packets, WIFI_SPI_RECVIVE_SIZE)) break;
             // 检查收到的包中是否有数据
             if( ((WIFI_SPI_REPLY_DATA_START == temp_packets.head.command) || (WIFI_SPI_REPLY_DATA_END == temp_packets.head.command)) &&
                 (temp_packets.head.length)
@@ -714,7 +717,8 @@ uint32 wifi_spi_read_buffer (uint8 *buffer, uint32 length)
                     fifo_write_buffer(&wifi_spi_fifo, temp_packets.buffer, temp_packets.head.length);
                 }
             }
-        }while(WIFI_SPI_REPLY_DATA_START == temp_packets.head.command);
+        }while(WIFI_SPI_REPLY_DATA_START == temp_packets.head.command &&
+              ++receive_packets < WIFI_SPI_RECVIVE_FIFO_SIZE/WIFI_SPI_RECVIVE_SIZE);
         wifi_spi_mutex = WIFI_SPI_IDLE;
     }
 #endif
@@ -733,6 +737,7 @@ uint32 wifi_spi_read_buffer (uint8 *buffer, uint32 length)
 uint8 wifi_spi_init (char *wifi_ssid, char *pass_word)
 {
     uint8 return_state = 0;
+    wifi_spi_wait_cancelled=0;
     
     fifo_init(&wifi_spi_fifo, FIFO_DATA_8BIT, wifi_spi_buffer, WIFI_SPI_RECVIVE_FIFO_SIZE);
     spi_init(WIFI_SPI_INDEX, SPI_MODE0, WIFI_SPI_SPEED, WIFI_SPI_SCK_PIN, WIFI_SPI_MOSI_PIN, WIFI_SPI_MISO_PIN, SPI_CS_NULL);//硬件SPI初始化

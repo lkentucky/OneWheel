@@ -1,21 +1,6 @@
 #ifndef MCAR_IMU_CONFIG_H
 #define MCAR_IMU_CONFIG_H
 
-/* Six-axis AHRS selection, ported from rt1064_imu_vofa. */
-#define AHRS_METHOD_MAHONY       1
-#define AHRS_METHOD_MADGWICK     2
-#define AHRS_METHOD_EKF          3
-#ifndef AHRS_METHOD
-#define AHRS_METHOD              AHRS_METHOD_EKF
-#endif
-#if AHRS_METHOD != AHRS_METHOD_MAHONY && AHRS_METHOD != AHRS_METHOD_MADGWICK && AHRS_METHOD != AHRS_METHOD_EKF
-#error Invalid AHRS_METHOD
-#endif
-
-#ifndef MADGWICK_BETA
-#define MADGWICK_BETA            0.05f
-#endif
-
 /* EKF noise densities (rad^2/s, rad^2/s^3), normalized gravity variance.
  * Gate uses normalized innovation squared, 3 DOF, 99 percent threshold.
  * No small-gyro deadband: preserve slow real yaw motion. */
@@ -26,18 +11,16 @@
 #define EKF_ACCEL_LPF_TAU_S      0.01f
 #define EKF_BIAS_LIMIT_RADPS     0.08726646f
 
-#define AHRS_KP                  2.0f
-#define AHRS_KI                  0.02f
-#define AHRS_INTEGRAL_LIMIT      0.08726646f
-
 #define ACC_NORM_MIN             0.85f
 #define ACC_NORM_MAX             1.15f
 #define MAX_SAMPLE_DT            0.020f
 
-#define CALIBRATION_SAMPLES      400u
+#define CALIBRATION_SAMPLES      200u
 #define CAL_GYRO_LIMIT_DPS       10.0f
-#define CAL_GYRO_SPAN_DPS        1.5f
-#define CAL_ACCEL_SPAN_G         0.08f
+#define CAL_GYRO_SPAN_DPS        6.0f
+#define CAL_ACCEL_SPAN_G         0.12f
+/* Reject sustained rotation even if its peak-to-peak span is small. */
+#define CAL_GYRO_MEAN_MAX_DPS    3.5f
 #define IMU_TIMEOUT_MS           100u
 
 /* 深度静止时的陀螺 z 零偏自动跟踪（温漂补偿）：六轴 yaw 无绝对基准，

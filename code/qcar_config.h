@@ -11,6 +11,33 @@
 #define QCAR_KEY2 P20_7
 #define QCAR_KEY3 P11_2
 #define QCAR_EC11_KEY P11_3
+/* 1: initialize the IMU and start the 5 ms sampling timer at boot.
+ * 0: leave the IMU off until Start / IMU preview. Use 0 to bisect a
+ *    boot-time menu freeze between the IMU path and the rest. */
+#ifndef QCAR_BOOT_IMU_INIT
+#define QCAR_BOOT_IMU_INIT 1
+#endif
+/* 1: load saved parameters from DFlash at boot. 0: keep the compiled-in
+ * defaults only. Setting 0 isolates the menu from the boot-time flash
+ * read (Storage -> Load also does nothing while this is 0). */
+#ifndef QCAR_BOOT_LOAD_FLASH
+#define QCAR_BOOT_LOAD_FLASH 1
+#endif
+/* 1: read/write the gyro-test extension values in DFlash pages 77..85.
+ * 0 (default): skip them; the five values keep their compiled-in defaults
+ * and the main parameter block (pages 0..76) still works normally.
+ * Reading page 83 stalls the CPU on the current board, so this stays off
+ * until that page/sector is recovered or the values are moved. */
+#ifndef QCAR_FLASH_EXT
+#define QCAR_FLASH_EXT 1
+#endif
+/* 1: automatic IMU+WiFi diagnostic boot, 0: original menu boot. */
+#ifndef QCAR_BOOT_IMU_WIFI
+#define QCAR_BOOT_IMU_WIFI 0
+#endif
+#if QCAR_BOOT_IMU_WIFI != 0 && QCAR_BOOT_IMU_WIFI != 1
+#error QCAR_BOOT_IMU_WIFI must be 0 or 1
+#endif
 /* UDP telemetry owns WiFi-SPI on CPU0. Set 0 to restore the legacy CPU1
  * TCP image preview (cam_flag=0, wifi_spi_flag=1). Never use both owners. */
 #ifndef QCAR_WIFI_ENABLED
@@ -23,10 +50,10 @@
 #define QCAR_WIFI_SSID "HDUASC"
 #endif
 #ifndef QCAR_WIFI_PASSWORD
-#define QCAR_WIFI_PASSWORD "zyzzyz520520"
+#define QCAR_WIFI_PASSWORD "zyz520520"
 #endif
 #ifndef QCAR_WIFI_TARGET_IP
-#define QCAR_WIFI_TARGET_IP "192.168.0.112"
+#define QCAR_WIFI_TARGET_IP "192.168.0.107"
 #endif
 #ifndef QCAR_WIFI_TARGET_PORT
 #define QCAR_WIFI_TARGET_PORT "8081"

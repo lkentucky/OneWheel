@@ -1,5 +1,22 @@
 # 验证记录
 
+## 联网等待期间按键响应（2026-10-23）
+
+- 定位到普通菜单启动的自动联网及 5 秒重连路径同步调用 WiFi 初始化，旧等待回调只检查 K4，K1/K2/K3 的菜单处理要等连接返回。
+- `code/menu.c` 的等待回调改为处理菜单；硬件动作先请求取消网络，再由外层主循环执行。发起动作前消费按键事件，避免等待回调再次读取同一事件；有待执行动作时不抢先重连。
+- 新增 `python tests/check_menu_wifi_responsiveness.py`，在真实菜单函数内注入延迟网络回调，验证等待期间导航、数值编辑、K4 取消、Start/Stop/Flash 延后执行、动作前不重连，以及发起联网的按键不会重复执行。
+- `check_key_debounce.py`、`check_menu_keys.py`、`check_menu_tree.py`、`check_wifi_menu.py`、`check_rate_menu.py`、`check_imu_wifi_boot.py` 通过。`check_wifi_menu.py` 清理了当前界面实现已不使用的两个测试桩变量，保留严格警告检查。输出记录见 `validation/key-responsiveness-host-tests.log`。
+- ADS Debug 增量构建通过：`22:16:47 Build Finished. 0 errors, 0 warnings.` 日志为 `validation/ads-key-wifi-responsive-build.log`；map 中已确认新增延后执行函数和状态被链接。
+- 本次未烧录，未验证实物按键电平、扫描中断及联网等待期间的实际响应延迟。该修复针对已定位的联网阻塞；若无联网操作也失灵，需要结合屏幕是否刷新继续检查硬件和调试暂停状态。
+
+## 仅保留 EKF（2026-10-23）
+
+删除 Mahony、Madgwick 实现和选型宏，以及未使用的旧 `code/icm.c/.h`。运行入口直接使用 `Ekf6` 和 `ekf6_*`；控制输出统一命名为 `attitude_state`。保留当前 IMU660RB 轴映射、标定门限、200 Hz 采样、故障处理和遥测协议值 3。
+
+主机回归通过：`check_imu.py`、`check_calibration.py`、`check_balance_axes.py`、`check_roll_rate_loop.py`、`check_rate_menu.py`、`check_rate_flash.py`、`check_auto_imu_host.py`、`check_imu_display.py`、`check_imu_wifi_boot.py`、`check_menu_keys.py`、`check_wifi_host.py`、`check_wifi.py`、`check_spi_timeout.py`。三轴复合转动改用独立解析轨迹验证，不再依赖另一种姿态滤波算法。
+
+本次未重新生成 ADS 板端固件，以下历史固件的构建记录和哈希不代表本次源码。需要在 ADS 刷新工程后重新编译、烧录。
+
 ## WiFi-SPI UDP 移植（2026-10-21）
 
 - 来源：MCARpreparation 当前工作区 `project/code/wifispi.c/.h` 与网络配置。TC264 保留本项目 SPI3 驱动；CPU0 主循环收发，时间基准改为 STM0，CPU1 TCP 图传与 UDP 遥测按编译开关互斥。

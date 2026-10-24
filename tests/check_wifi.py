@@ -3,6 +3,20 @@ from pathlib import Path
 import shutil
 import subprocess
 import tempfile
+import argparse
+import os
+parser=argparse.ArgumentParser()
+parser.add_argument("--export-fixture")
+parser.add_argument("--export-imu-fixture")
+parser.add_argument("--export-angle-fixture")
+parser.add_argument("--export-dual-fixture")
+parser.add_argument("--export-startup-fixture")
+args=parser.parse_args()
+if args.export_startup_fixture: os.environ["QCAR_WIFI_STARTUP_FIXTURE"]=str(Path(args.export_startup_fixture).resolve())
+if args.export_dual_fixture: os.environ["QCAR_WIFI_DUAL_FIXTURE"]=str(Path(args.export_dual_fixture).resolve())
+if args.export_angle_fixture: os.environ["QCAR_WIFI_ANGLE_FIXTURE"]=str(Path(args.export_angle_fixture).resolve())
+if args.export_fixture: os.environ["QCAR_WIFI_FIXTURE"]=str(Path(args.export_fixture).resolve())
+if args.export_imu_fixture: os.environ["QCAR_WIFI_IMU_FIXTURE"]=str(Path(args.export_imu_fixture).resolve())
 
 root = Path(__file__).resolve().parents[1]
 with tempfile.TemporaryDirectory(prefix='qcar-wifi-') as directory:
@@ -40,6 +54,32 @@ extern pid_param_t cascade_vel_roll, cascade_vel_pitch, cascade_vel_yaw;
 extern pid_param_t cascade_ang_roll, cascade_ang_pitch, cascade_ang_yaw;
 extern pid_param_t cascade_ang_vel_roll, cascade_ang_vel_pitch, cascade_ang_vel_yaw;
 ''')
+    (work/'small_driver_uart_control.h').write_text("""
+#include "zf_common_typedef.h"
+#include "qcar_types.h"
+extern small_device_value_struct motor_value;
+extern volatile uint32 small_driver_speed_frames;
+""")
+    with (work/'pid.h').open('a') as header:
+        header.write("""
+extern volatile uint8 rate_only_test;
+extern volatile int32 control_fault_reason,control_fault_imu_status;
+extern volatile uint32 control_fault_seq;
+extern volatile float control_fault_dt_ms,control_startup_scale;
+extern uint32 control_startup_ramp_ms;
+extern volatile uint8 roll_rate_test_enabled, ground_rate_test_enabled, dual_balance_enabled;
+extern volatile float dual_angle[2],dual_target[2],dual_angle_error[2],dual_rate[2],dual_target_rate[2],dual_rate_error[2],dual_pwm[2];
+extern float ground_rate_test_kp, ground_rate_test_limit, ground_rate_test_sign;
+extern float ground_angle_kp,ground_angle_rate_limit;
+extern volatile uint32 roll_rate_test_sequence;
+extern volatile int32 roll_rate_test_state;
+extern volatile float roll_rate_test_actual, roll_rate_test_error, roll_rate_test_pwm;
+extern volatile float pitch_balance_target_rate, pitch_balance_error;
+extern volatile float pitch_balance_actual_angle, pitch_balance_target_angle;
+extern float pitch_balance_kp, pitch_balance_rate_limit;
+extern float roll_rate_test_kp, roll_rate_test_sign, roll_rate_test_limit;
+extern int16 costrained_flywheel_speed_left, costrained_flywheel_speed_right, costrained_wheel_speed;
+""")
     for enabled in (1, 0):
         exe = work/f'wifi-{enabled}.exe'
         subprocess.run(['gcc', '-x', 'c', '-std=c99', '-O2', '-Wall', '-Wextra', '-Werror',

@@ -13,6 +13,9 @@ prefix = r'''
 #include <string.h>
 #include "imu.h"
 static int imu_ready, running, preview, irq_disabled;
+static int roll_rate_test_enabled;
+static float roll_rate_test_actual, roll_rate_test_pwm;
+static int32 roll_rate_test_state;
 static const char *message = "Ready";
 volatile int32 imu_attitude_status = IMU_ATTITUDE_INIT_FAILED;
 volatile float imu_roll_deg, imu_pitch_deg, imu_calibration_percent, imu_sample_dt_ms;

@@ -39,20 +39,25 @@ int main(void) {
     a[2]=2; assert(ekf6_update(&s,g,a,0.005f) && !s.accel_used);
     before=s; g[0]=NAN; assert(!ekf6_update(&s,g,a,0.005f)); assert(memcmp(&s,&before,sizeof(s))==0);
     g[0]=0; assert(!ekf6_update(&s,g,a,0.1f)); assert(memcmp(&s,&before,sizeof(s))==0);
-    /* Rotating about all axes: synthetic gravity from an independent gyro
-     * propagation oracle; checks multiplication/sign conventions when tilted. */
+    /* Independent analytic ZYX trajectory: body rates from Euler derivatives,
+     * gravity from known tilt, including multi-axis rotation and yaw wraps. */
     {
-        Mahony6 truth; float expected[3];
-        a[0]=a[1]=0; a[2]=1; assert(mahony6_init(&truth,a)); assert(ekf6_init(&s,a));
+        float expected[3]={0},r,p,y;
+        a[0]=a[1]=0; a[2]=1; assert(ekf6_init(&s,a));
         for(i=0;i<4000;++i) {
-            float w,x,y,z,invalid_acc[3]={0,0,0};
-            g[0]=0.2f*sinf(i*0.005f); g[1]=0.15f*cosf(i*0.004f); g[2]=0.4f;
-            assert(mahony6_update(&truth,g,invalid_acc,0.005f));
-            w=truth.q[0]; x=truth.q[1]; y=truth.q[2]; z=truth.q[3];
-            a[0]=2*(x*z-w*y); a[1]=2*(w*x+y*z); a[2]=w*w-x*x-y*y+z*z;
+            float tm=(i+0.5f)*0.005f, te=(i+1)*0.005f;
+            float rd=0.2f*cosf(tm),pd=0.12f*cosf(0.8f*tm),yd=0.4f;
+            r=0.2f*sinf(tm); p=0.15f*sinf(0.8f*tm);
+            g[0]=rd-yd*sinf(p);
+            g[1]=pd*cosf(r)+yd*sinf(r)*cosf(p);
+            g[2]=-pd*sinf(r)+yd*cosf(r)*cosf(p);
+            r=0.2f*sinf(te); p=0.15f*sinf(0.8f*te); y=0.4f*te;
+            a[0]=-sinf(p); a[1]=cosf(p)*sinf(r); a[2]=cosf(p)*cosf(r);
             assert(ekf6_update(&s,g,a,0.005f)); check(&s);
+            expected[0]=r*RAD_TO_DEG; expected[1]=p*RAD_TO_DEG;
+            expected[2]=atan2f(sinf(y),cosf(y))*RAD_TO_DEG;
         }
-        ekf6_euler(&s,e); mahony6_euler(&truth,expected);
+        ekf6_euler(&s,e);
         for(i=0;i<3;++i) assert(fabsf(e[i]-expected[i])<1.0f);
     }
     /* Regression: rotating horizontal linear acceleration is not true yaw.

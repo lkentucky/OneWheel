@@ -164,6 +164,10 @@ void        spi_read_8bit_registers         (spi_index_enum spi_n, const uint8 r
 uint16      spi_read_16bit_register         (spi_index_enum spi_n, const uint16 register_name);
 void        spi_read_16bit_registers        (spi_index_enum spi_n, const uint16 register_name, uint16 *data, uint32 len);
 
+/* Bounded transfer for optional peripherals. 0 success, 1 timeout. */
+uint8 spi_transfer_8bit_timeout(spi_index_enum spi_n, const uint8 *write_buffer,
+                               uint8 *read_buffer, uint32 len, uint32 timeout_ms);
+
 void        spi_transfer_8bit               (spi_index_enum spi_n, const uint8 *write_buffer, uint8 *read_buffer, uint32 len);
 void        spi_transfer_16bit              (spi_index_enum spi_n, const uint16 *write_buffer, uint16 *read_buffer, uint32 len);
 

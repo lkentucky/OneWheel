@@ -30,14 +30,15 @@ extern volatile float imu_gyro_dps[3]; /* 未扣静止零偏的角速度，deg/s
 extern volatile float imu_gyro_bias_z_dps; /* 当前生效的 z 轴零偏（含静止跟踪修正） */
 /* Diagnostics: dt in ms, solve time in us (filter + Euler, excludes SPI).
  * accel_used: -1=no completed update, 0=rejected, 1=fused.
- * EKF NIS: -1=not evaluated/not EKF; bias_xy is residual, not startup bias. */
+ * EKF NIS: -1=not evaluated; bias_xy is residual, not startup bias. */
 extern volatile float imu_sample_dt_ms, imu_solve_us, imu_solve_max_us;
 extern volatile int32 imu_accel_used;
 extern volatile float imu_ekf_nis, imu_ekf_bias_xy_dps[2];
 extern volatile uint32 imu_sample_sequence;
+extern volatile uint32 imu_spi_timeouts,imu_not_ready_samples,imu_last_status_reg;
 /* Unwrapped calibrated sensor-Z rate integral (deg), not full 3D Euler yaw. */
 extern volatile float imu_gyro_z_integral_deg;
-extern const uint8 imu_attitude_method;
+extern const uint8 imu_attitude_method; /* Telemetry protocol ID: always 3 (EKF). */
 
 /* 同一成功采样帧的姿态、加速度和扣零偏角速度，供定位融合使用。
  * 主循环调用 getter 时须短暂关中断；PIT 内可直接读取。 */
@@ -57,6 +58,8 @@ void imu_service(void); /* 主循环处理重标定 */
  * 缓慢跟踪 z 轴陀螺零偏补偿温漂。运动期间 stationary_seconds 清零，
  * 跟踪自动停止，不会吸收真实转动。 */
 void imu_track_gyro_bias(float stationary_seconds, float dt_s);
+/* Reuse a successful calibration at Start; wait for fresh attitude. */
+void imu_prepare_start(void);
 
 #ifdef __cplusplus
 }

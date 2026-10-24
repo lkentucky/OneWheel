@@ -24,9 +24,11 @@ volatile float imu_sample_dt_ms, imu_solve_us, imu_solve_max_us;
 volatile int32 imu_accel_used=-1;
 volatile float imu_ekf_nis=-1.0f, imu_ekf_bias_xy_dps[2];
 volatile uint32 imu_sample_sequence;
+volatile uint32 imu_spi_timeouts,imu_not_ready_samples,imu_last_status_reg;
 volatile float imu_gyro_z_integral_deg;
-const uint8 imu_attitude_method=AHRS_METHOD;
-static Ahrs6 g_attitude;
+/* Stable telemetry protocol value: 3 = EKF. */
+const uint8 imu_attitude_method=3u;
+static Ekf6 g_attitude;
 static ImuCalibration g_calibration;
 static uint32 g_last_sample_ticks, g_last_success_ticks;
 static uint8 g_have_sample, g_calibrated;
@@ -53,14 +55,12 @@ static void imu_publish_navigation(const float gyro_dps[3],const float accel_g[3
     for(i=0u;i<3u;++i) {
         g_navigation_sample.accel_g[i]=accel_g[i];
         g_navigation_sample.gyro_dps[i]=gyro_dps[i]-g_calibration.bias_dps[i];
-#if AHRS_METHOD == AHRS_METHOD_EKF
         if(i<2u) g_navigation_sample.gyro_dps[i]-=g_attitude.bias_xy[i]*RAD_TO_DEG;
-#endif
     }
     ++g_navigation_sample.sequence;
     if(g_navigation_sample.sequence==0u) ++g_navigation_sample.sequence;
     imu_sample_sequence=g_navigation_sample.sequence;
-    attitude_publish_legacy(g_attitude.q, g_navigation_sample.gyro_dps, accel_g);
+    attitude_publish_state(g_attitude.q, g_navigation_sample.gyro_dps, accel_g);
 }
 
 /* uint32 无符号做差处理单次计数回绕；保留原 DWT 时间基准。 */
@@ -73,38 +73,43 @@ static void imu_publish_filter_diagnostics(uint32 started)
     imu_solve_us=imu_seconds((uint32)(imu_ticks()-started))*1000000.0f;
     if(imu_solve_us>imu_solve_max_us) imu_solve_max_us=imu_solve_us;
     imu_accel_used=g_attitude.accel_used;
-#if AHRS_METHOD == AHRS_METHOD_EKF
     imu_ekf_nis=g_attitude.innovation_nis;
     imu_ekf_bias_xy_dps[0]=g_attitude.bias_xy[0]*RAD_TO_DEG;
     imu_ekf_bias_xy_dps[1]=g_attitude.bias_xy[1]*RAD_TO_DEG;
-#endif
 }
 static void imu_reg_write(uint8 reg,uint8 value)
 {
+    uint8 tx[2]={reg|IMU660RB_SPI_W,value};
     IMU660RB_CS(0);
-    spi_write_8bit_register(IMU660RB_SPI,reg|IMU660RB_SPI_W,value);
-    IMU660RB_CS(1);
-    system_delay_ms(1);
+    if(spi_transfer_8bit_timeout(IMU660RB_SPI,tx,NULL,2,1))++imu_spi_timeouts;
+    IMU660RB_CS(1);system_delay_ms(1);
 }
 static uint8 imu_reg_read(uint8 reg)
 {
-    uint8 data;
+    uint8 tx[2]={reg|IMU660RB_SPI_R,0},rx[2];
+    uint8 failed;
     IMU660RB_CS(0);
-    data=spi_read_8bit_register(IMU660RB_SPI,reg|IMU660RB_SPI_R);
+    failed=spi_transfer_8bit_timeout(IMU660RB_SPI,tx,rx,2,1);
     IMU660RB_CS(1);
-    return data;
+    if(failed){++imu_spi_timeouts;return 0xff;}
+    return rx[1];
 }
 /* RB (LSM6DSR): STATUS_REG bits 0/1, gyro then accel, no RA dummy byte.
  * BDU and IF_INC are enabled by CTRL3_C=0x44. One burst owns SPI0. */
 static uint8 imu_read_sample(float gyro_dps[3],float accel_g[3])
 {
     uint8 data[12],i;
+    uint8 tx[13]={0},rx[13];
     float sensor_g[3],sensor_a[3];
     uint8 status=imu_reg_read(IMU_STATUS_REG);
-    if (status==0xFFu || (status&0x03u)!=0x03u) return 0u;
+    imu_last_status_reg=status;
+    if (status==0xFFu || (status&0x03u)!=0x03u) {++imu_not_ready_samples;return 0u;}
+    tx[0]=IMU660RB_OUTX_L_G|IMU660RB_SPI_R;
     IMU660RB_CS(0);
-    spi_read_8bit_registers(IMU660RB_SPI,IMU660RB_OUTX_L_G|IMU660RB_SPI_R,data,12);
+    i=spi_transfer_8bit_timeout(IMU660RB_SPI,tx,rx,13,1);
     IMU660RB_CS(1);
+    if(i){++imu_spi_timeouts;return 0u;}
+    memcpy(data,rx+1,12);
     imu660rb_gyro_x=(int16)((uint16)data[0]|((uint16)data[1]<<8));
     imu660rb_gyro_y=(int16)((uint16)data[2]|((uint16)data[3]<<8));
     imu660rb_gyro_z=(int16)((uint16)data[4]|((uint16)data[5]<<8));
@@ -151,7 +156,7 @@ static void imu_reset_pipeline(void)
     imu_ekf_bias_xy_dps[0]=imu_ekf_bias_xy_dps[1]=0.0f;
     imu_sample_sequence=0u;
     imu_gyro_z_integral_deg=0.0f;
-    attitude_reset_legacy();
+    attitude_reset_state();
     g_last_sample_ticks=imu_ticks();
     g_last_success_ticks=g_last_sample_ticks;
 }
@@ -194,9 +199,9 @@ void imu_update_5ms(void)
     }
     if (!g_calibrated) {
         if (calibration_push(&g_calibration,gyro_dps,accel_g)) {
-            g_calibrated=(uint8)ahrs6_init(&g_attitude,g_calibration.initial_accel);
+            g_calibrated=(uint8)ekf6_init(&g_attitude,g_calibration.initial_accel);
             if (!g_calibrated) { imu_attitude_status=IMU_ATTITUDE_FILTER_ERROR; return; }
-            ahrs6_euler(&g_attitude,euler);
+            ekf6_euler(&g_attitude,euler);
             imu_roll_deg=euler[0]; imu_pitch_deg=euler[1]; imu_yaw_deg=euler[2];
             imu_gyro_bias_z_dps=g_calibration.bias_dps[2];
             imu_attitude_status=IMU_ATTITUDE_RUNNING;
@@ -208,10 +213,10 @@ void imu_update_5ms(void)
     for (i=0u;i<3u;++i)
         gyro_rad_s[i]=(gyro_dps[i]-g_calibration.bias_dps[i])*DEG_TO_RAD;
     solve_started=imu_ticks();
-    if (!ahrs6_update(&g_attitude,gyro_rad_s,accel_g,dt)) {
+    if (!ekf6_update(&g_attitude,gyro_rad_s,accel_g,dt)) {
         imu_attitude_status=IMU_ATTITUDE_FILTER_ERROR; return;
     }
-    ahrs6_euler(&g_attitude,euler);
+    ekf6_euler(&g_attitude,euler);
     imu_publish_filter_diagnostics(solve_started);
     imu_gyro_z_integral_deg += gyro_rad_s[2]*RAD_TO_DEG*dt;
     imu_roll_deg=euler[0]; imu_pitch_deg=euler[1]; imu_yaw_deg=euler[2];
@@ -220,6 +225,22 @@ void imu_update_5ms(void)
     imu_publish_navigation(gyro_dps,accel_g,dt);
 }
 void imu_request_recalibration(void) { g_recalibration_requested=1u; }
+/* Called with control timers stopped. Never reuse a faulted/partial calibration.
+ * Gate motors until the first new fused sample is published. */
+void imu_prepare_start(void)
+{
+    uint32 primask = interrupt_global_disable();
+    uint8 reusable = g_calibrated && !g_recalibration_requested &&
+                     imu_attitude_status == IMU_ATTITUDE_RUNNING;
+    if (reusable) {
+        g_last_sample_ticks = imu_ticks();
+        g_last_success_ticks = g_last_sample_ticks;
+        g_have_sample = 0u;
+        imu_attitude_status = IMU_ATTITUDE_CALIBRATING;
+    } else g_recalibration_requested = 1u;
+    interrupt_global_enable(primask);
+    imu_service();
+}
 /* 10ms 周期由 app_navigation 调用：融合层静止检测（轮速<0.3cm/s、陀螺
  * <1.5dps、加速度<0.25m/s²，连续确认）给出的深度静止秒数达到门槛后，
  * 把 z 轴零偏往当前原始读数缓慢拉（tau=5s，限幅 ±1dps），补偿温漂。

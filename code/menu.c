@@ -2,6 +2,7 @@
 #include "menu.h"
 #include "menu_tree.h"
 #include "wifispi.h"
+#include "IfxStm.h"
 char txt[256];
 volatile uint8 wifi_spi_flag;
 
@@ -54,19 +55,22 @@ void monotroch_init(void)
 static Menu_Item Root;
 static Menu_Item *pointer;
 static float steps[] = {0.01f, 0.1f, 1.0f, 10.0f, 100.0f};
-static uint8 step_index = 2, run_mode = 3, running, preview;
+static uint8 step_index = 2, run_mode = 7, running, preview;
 static uint8 redraw = 1, refresh_divider;
 static bool start_switch, stop_switch, camera_switch, imu_switch, save_switch, load_switch, wheel_switch;
 static int wheel_test_pwm;
 static bool wifi_switch;
 static const char *message = "Ready";
+static bool wifi_connecting;
+static Menu_Item *wifi_deferred_item;
+static bool wifi_deferred_value;
 
 static void stop_car(void)
 {
     /* CCU60 is clock-gated until Start or IMU initializes it. */
     if (control_timers_ready) {
         pit_disable(CCU60_CH0);
-        pit_disable(CCU60_CH1);
+        if (!imu_ready) pit_disable(CCU60_CH1);
     }
     roll_rate_test_stop();
     cam_flag = tele_flag = turn_flag = shacheflag = 0;
@@ -104,19 +108,28 @@ static void start_car(void)
     cam_flag = (run_mode == 1);
     tele_flag = (run_mode == 2);
     running = 1;
-    imu_request_recalibration();
-    imu_service();
+    imu_prepare_start();
     if (run_mode == 3) roll_rate_test_arm();
+    if (run_mode == 4) ground_rate_test_arm();
+    if (run_mode == 5) dual_balance_arm();
+    if (run_mode == 6) roll_rate_only_arm();
+    if (run_mode == 7) ground_rate_only_arm();
+    if (wifispi_is_ready()) {
+        if (run_mode==5) wifispi_telemetry_dual_profile();
+        else wifispi_telemetry_startup_profile();
+    }
     pit_init(CCU60_CH1, 5000);
     pit_init(CCU60_CH0, 1000);
     control_timers_ready = true;
-    message = run_mode == 3 ? "Rate test: Startup/Stop" : "Running: Startup/Stop";
+    message = (run_mode == 3 || run_mode == 4 || run_mode == 5) ? "Rate test: Startup/Stop" : "Running: Startup/Stop";
 }
 
 static void save_params(void)
 {
     if (running || preview) { message = "Stop before saving"; return; }
+    if (imu_ready) pit_disable(CCU60_CH1);
     write_flash();
+    if (imu_ready) { imu_prepare_start(); pit_init(CCU60_CH1,5000); }
     message = "Parameters saved";
 }
 
@@ -171,7 +184,7 @@ void Menu_Create(void)
     Menu_Item *wifi = Create_Menu_Folder_dynamic(&Root, "WiFi");
     Create_Menu_File_dynamic(wifi, "Connect", &wifi_switch, bool_Box);
 #endif
-    Create_Menu_File_dynamic(startup, "Mode 3=gyro", &run_mode, uint8_Box);
+    Create_Menu_File_dynamic(startup, "Mode 3..7", &run_mode, uint8_Box);
     Create_Menu_File_dynamic(startup, "Start", &start_switch, bool_Box);
     Create_Menu_File_dynamic(startup, "Stop", &stop_switch, bool_Box);
     Create_Menu_File_dynamic(startup, "Camera", &camera_switch, bool_Box);
@@ -182,27 +195,40 @@ void Menu_Create(void)
     Create_Menu_File_dynamic(rate_test, "KP", &roll_rate_test_kp, float_Box);
     Create_Menu_File_dynamic(rate_test, "PWM limit", &roll_rate_test_limit, float_Box);
     Create_Menu_File_dynamic(rate_test, "Sign +/-1", &roll_rate_test_sign, float_Box);
-    Menu_Item *pid_vel_roll = Create_Menu_Folder_dynamic(pid, "Roll speed");
+    Create_Menu_File_dynamic(rate_test, "Angle KP", &pitch_balance_kp, float_Box);
+    Create_Menu_File_dynamic(rate_test, "Rate limit", &pitch_balance_rate_limit, float_Box);
+    Create_Menu_File_dynamic(rate_test, "Balance Y", &mono_params.balance_angle_y, float_Box);
+    Create_Menu_File_dynamic(rate_test, "Save to Flash", &save_switch, bool_Box);
+    Create_Menu_File_dynamic(rate_test, "Save to Flash", &save_switch, bool_Box);
+    Menu_Item *ground_test = Create_Menu_Folder_dynamic(pid, "Pitch balance");
+    Create_Menu_File_dynamic(ground_test, "KP", &ground_rate_test_kp, float_Box);
+    Create_Menu_File_dynamic(ground_test, "PWM limit", &ground_rate_test_limit, float_Box);
+    Create_Menu_File_dynamic(ground_test, "Sign +/-1", &ground_rate_test_sign, float_Box);
+    Create_Menu_File_dynamic(ground_test, "Angle KP", &ground_angle_kp, float_Box);
+    Create_Menu_File_dynamic(ground_test, "Rate limit", &ground_angle_rate_limit, float_Box);
+    Create_Menu_File_dynamic(ground_test, "Balance X", &mono_params.balance_angle_x, float_Box);
+    Create_Menu_File_dynamic(ground_test, "Save to Flash", &save_switch, bool_Box);
+    Menu_Item *pid_vel_roll = Create_Menu_Folder_dynamic(pid, "Pitch speed");
     Create_Menu_File_dynamic(pid_vel_roll, "KP", &cascade_vel_roll.kp, float_Box);
     Create_Menu_File_dynamic(pid_vel_roll, "KI", &cascade_vel_roll.ki, float_Box);
     Create_Menu_File_dynamic(pid_vel_roll, "KD", &cascade_vel_roll.kd, float_Box);
-    Menu_Item *pid_ang_roll = Create_Menu_Folder_dynamic(pid, "Roll angle");
+    Menu_Item *pid_ang_roll = Create_Menu_Folder_dynamic(pid, "Pitch angle");
     Create_Menu_File_dynamic(pid_ang_roll, "KP", &cascade_ang_roll.kp, float_Box);
     Create_Menu_File_dynamic(pid_ang_roll, "KI", &cascade_ang_roll.ki, float_Box);
     Create_Menu_File_dynamic(pid_ang_roll, "KD", &cascade_ang_roll.kd, float_Box);
-    Menu_Item *pid_ang_vel_roll = Create_Menu_Folder_dynamic(pid, "Roll gyro");
+    Menu_Item *pid_ang_vel_roll = Create_Menu_Folder_dynamic(pid, "Pitch gyro");
     Create_Menu_File_dynamic(pid_ang_vel_roll, "KP", &cascade_ang_vel_roll.kp, float_Box);
     Create_Menu_File_dynamic(pid_ang_vel_roll, "KI", &cascade_ang_vel_roll.ki, float_Box);
     Create_Menu_File_dynamic(pid_ang_vel_roll, "KD", &cascade_ang_vel_roll.kd, float_Box);
-    Menu_Item *pid_vel_pitch = Create_Menu_Folder_dynamic(pid, "Pitch speed");
+    Menu_Item *pid_vel_pitch = Create_Menu_Folder_dynamic(pid, "Roll speed");
     Create_Menu_File_dynamic(pid_vel_pitch, "KP", &cascade_vel_pitch.kp, float_Box);
     Create_Menu_File_dynamic(pid_vel_pitch, "KI", &cascade_vel_pitch.ki, float_Box);
     Create_Menu_File_dynamic(pid_vel_pitch, "KD", &cascade_vel_pitch.kd, float_Box);
-    Menu_Item *pid_ang_pitch = Create_Menu_Folder_dynamic(pid, "Pitch angle");
+    Menu_Item *pid_ang_pitch = Create_Menu_Folder_dynamic(pid, "Roll angle");
     Create_Menu_File_dynamic(pid_ang_pitch, "KP", &cascade_ang_pitch.kp, float_Box);
     Create_Menu_File_dynamic(pid_ang_pitch, "KI", &cascade_ang_pitch.ki, float_Box);
     Create_Menu_File_dynamic(pid_ang_pitch, "KD", &cascade_ang_pitch.kd, float_Box);
-    Menu_Item *pid_ang_vel_pitch = Create_Menu_Folder_dynamic(pid, "Pitch gyro");
+    Menu_Item *pid_ang_vel_pitch = Create_Menu_Folder_dynamic(pid, "Roll gyro");
     Create_Menu_File_dynamic(pid_ang_vel_pitch, "KP", &cascade_ang_vel_pitch.kp, float_Box);
     Create_Menu_File_dynamic(pid_ang_vel_pitch, "KI", &cascade_ang_vel_pitch.ki, float_Box);
     Create_Menu_File_dynamic(pid_ang_vel_pitch, "KD", &cascade_ang_vel_pitch.kd, float_Box);
@@ -221,8 +247,8 @@ void Menu_Create(void)
     Create_Menu_File_dynamic(vehicle, "Fast speed", &mono_params.fast_speed, float_Box);
     Create_Menu_File_dynamic(vehicle, "Slow speed", &mono_params.slow_speed, float_Box);
     Create_Menu_File_dynamic(vehicle, "Speed mode", &mono_params.speed_flag, float_Box);
-    Create_Menu_File_dynamic(vehicle, "Balance X", &mono_params.balance_angle_x, float_Box);
-    Create_Menu_File_dynamic(vehicle, "Balance Y", &mono_params.balance_angle_y, float_Box);
+    Create_Menu_File_dynamic(vehicle, "Balance X wheel", &mono_params.balance_angle_x, float_Box);
+    Create_Menu_File_dynamic(vehicle, "Balance Y fly", &mono_params.balance_angle_y, float_Box);
     Create_Menu_File_dynamic(vehicle, "Dead zone", &mono_params.dead_zone, float_Box);
     Create_Menu_File_dynamic(vehicle, "Dead zone P", &mono_params.dead_zone_p, float_Box);
     Create_Menu_File_dynamic(vehicle, "Turn K1 L", &mono_params.turn_k1_l, float_Box);
@@ -288,8 +314,108 @@ void Menu_Init(void)
 /* 业务回调对应参考工程的 Menu_Handle_Control_*，菜单创建只使用统一接口。 */
 static void Menu_Request_Redraw(void) { redraw = 1; }
 
+static void wifi_connect_progress(void)
+{
+    /* Navigation and parameter edits remain available during a network wait.
+     * Hardware actions are deferred by Menu_Handle_Control_Bool. */
+    if (key_get_state(KEY_4) == KEY_SHORT_PRESS)
+        wifispi_cancel_init();
+    Menu_Switch();
+    refresh_divider=4;
+    Menu_Show();
+}
+
+/* Runtime waits pump navigation too. Actions are deferred until SPI unwinds;
+ * ordinary K4/back navigation must not cancel a healthy network connection. */
+static void wifi_runtime_progress(void)
+{
+    Menu_Switch();
+    refresh_divider=4;
+    Menu_Show();
+}
+static void menu_wifi_io_begin(void)
+{
+    wifi_connecting=true;
+    wifi_spi_clear_cancel_wait();
+    wifi_spi_set_wait_callback(wifi_runtime_progress);
+}
+static void menu_wifi_io_end(void)
+{
+    wifi_spi_set_wait_callback(NULL);
+    wifi_spi_clear_cancel_wait();
+    wifi_connecting=false;
+}
+static void menu_wifi_poll(void)
+{
+    if (wifi_deferred_item || !wifispi_is_ready() || imu_wifi_status==-4) return;
+    menu_wifi_io_begin();
+    wifispi_telemetry_service();
+    menu_wifi_io_end();
+}
+static void menu_wifi_announce(void)
+{
+    if (wifi_deferred_item || !wifispi_is_ready() || imu_wifi_status==-4) return;
+    menu_wifi_io_begin();
+    wifispi_telemetry_announce();
+    menu_wifi_io_end();
+}
+
+static uint32 auto_wifi_per_ms, auto_wifi_last_announce;
+
+static void menu_wifi_connect(void)
+{
+    message="WiFi connecting; K4 cancels";
+    wifi_connecting=true;
+    wifispi_set_progress_hook(wifi_connect_progress);
+    wifispi_telemetry_init();
+    wifispi_set_progress_hook(NULL);
+    wifi_connecting=false;
+    message=wifispi_is_ready()?"WiFi UDP connected":
+            imu_wifi_status==-6?"WiFi connection cancelled":"WiFi failed; retry Connect";
+    if (wifispi_is_ready() && !wifi_deferred_item) {
+        if (run_mode==5) wifispi_telemetry_dual_profile();
+        else wifispi_telemetry_startup_profile();
+        menu_wifi_announce();
+    }
+    auto_wifi_last_announce=IfxStm_getLower(&MODULE_STM0);
+}
+
+void menu_auto_telemetry_init(void)
+{
+    /* Menu remains available; only an explicit Start enables control. */
+    stop_car();
+    ensure_wheel(); motor_m_ctrl(0);
+    if (!driver_ready) { small_driver_uart_init(); driver_ready=1; }
+    small_driver_set_duty(0,0);
+#if QCAR_BOOT_IMU_INIT
+    if (ensure_imu()) {
+        pit_init(CCU60_CH1,5000);
+        control_timers_ready=true;
+    }
+#endif
+    auto_wifi_per_ms=(uint32)(IfxStm_getFrequency(&MODULE_STM0)/1000.0f);
+    message="Ready; WiFi/Connect when needed";
+}
+
+static void menu_auto_wifi_service(void)
+{
+    uint32 now=IfxStm_getLower(&MODULE_STM0);
+    if (!wifi_deferred_item && wifispi_is_ready() && auto_wifi_per_ms &&
+        (uint32)(now-auto_wifi_last_announce)>=auto_wifi_per_ms*1000u) {
+        menu_wifi_announce(); auto_wifi_last_announce=now;
+    }
+}
+
 static bool Menu_Handle_Control_Bool(Menu_Item *item, bool value)
 {
+    if (wifi_connecting) {
+        /* Unwind the current SPI transaction before starting/stopping a device
+         * or saving Flash. The outer menu loop applies the request once. */
+        wifi_deferred_item=item;
+        wifi_deferred_value=value;
+        wifispi_cancel_init();
+        return true;
+    }
     if (item->data == &start_switch) {
         if (value) start_car(); else stop_car();
         start_switch = running != 0;
@@ -308,8 +434,7 @@ static bool Menu_Handle_Control_Bool(Menu_Item *item, bool value)
     } else if (item->data == &wifi_switch) {
         if (running || preview) message = "Stop before WiFi setup";
         else if (value) {
-            wifispi_telemetry_init();
-            message = wifispi_is_ready() ? "WiFi UDP connected" : "WiFi failed: retry Connect";
+            menu_wifi_connect();
         } else {
             wifispi_telemetry_stop();
             message = "WiFi disconnected";
@@ -325,11 +450,22 @@ static bool Menu_Handle_Control_Bool(Menu_Item *item, bool value)
     return true;
 }
 
+static void menu_apply_deferred_control(void)
+{
+    Menu_Item *item=wifi_deferred_item;
+    bool value=wifi_deferred_value;
+    if (!item || wifi_connecting) return;
+    wifi_deferred_item=NULL;
+    (void)Menu_Handle_Control_Bool(item,value);
+}
+
 static bool Menu_Handle_Control_Uint8(Menu_Item *item, int16 delta)
 {
     if (item->data == &run_mode) {
         int value = run_mode + delta;
-        if (!running) run_mode = (uint8)(value < 0 ? 0 : value > 3 ? 3 : value);
+        if (wifi_connecting) {message="Wait for WiFi then change Mode";return true;}
+        if (running || preview) stop_car();
+        run_mode = (uint8)(value < 0 ? 0 : value > 7 ? 7 : value);
         return true;
     }
     return false;
@@ -338,6 +474,24 @@ static bool Menu_Handle_Control_Uint8(Menu_Item *item, int16 delta)
 /* 与参考工程一致：未选中时导航，选中时加减；重复确认循环减小步进。 */
 
 /* Copy ISR-owned values before formatting; never hold interrupts off for LCD IO. */
+static const char *control_error_text(int32 state,int32 imu_status)
+{
+    if (state==-2) return "ERR -2: Tilt >30; Stop/Start";
+    if (state==-3) return "ERR -3: KP/limit/sign/zero invalid";
+    if (state==-1) {
+        if(control_fault_reason==4)return "ERR -1: IMU stale >25ms";
+        if(control_fault_reason==2)return "ERR -1: IMU no sample";
+        if(control_fault_reason==3)return "ERR -1: IMU invalid data";
+        if(control_fault_imu_status<0)imu_status=control_fault_imu_status;
+        if (imu_status==IMU_ATTITUDE_INIT_FAILED) return "ERR -1: IMU init failed";
+        if (imu_status==IMU_ATTITUDE_TIMEOUT) return "ERR -1: IMU read timeout";
+        if (imu_status==IMU_ATTITUDE_BAD_DT) return "ERR -1: IMU dt too long";
+        if (imu_status==IMU_ATTITUDE_FILTER_ERROR) return "ERR -1: IMU filter failed";
+        return "ERR -1: IMU stale/no sample";
+    }
+    return "Control stopped";
+}
+
 static void Menu_Show_Attitude(void)
 {
     char line[40];
@@ -345,6 +499,26 @@ static void Menu_Show_Attitude(void)
     float roll, pitch, progress, dt;
     int32 status;
     uint32 sequence;
+#if QCAR_WIFI_ENABLED
+    /* Connection failures must remain visible even while the gyro/IMU view
+     * would normally replace the menu's status message. */
+    if (pointer->Father && strcmp(pointer->Father->name, "WiFi") == 0 &&
+        !(roll_rate_test_enabled && roll_rate_test_state<0)) {
+        snprintf(line, sizeof(line), "WiFi:%d Err:%d Try:%lu          ",
+                 imu_wifi_status, imu_wifi_last_error, (unsigned long)imu_wifi_init_attempts);
+        ips200_show_string(0, 152, line);
+        snprintf(line, sizeof(line), "RC:%d FW:%.11s Tx:%lu    ",
+                 imu_wifi_module_result, wifi_spi_version, (unsigned long)imu_wifi_tx_packets);
+        ips200_show_string(0, 172, line);
+        if (imu_wifi_status == -2 || imu_wifi_status == -3) {
+            snprintf(line, sizeof(line), "Cmd:%02lX Fail:%lu Ack:%02lX Len:%lu    ",
+                     (unsigned long)wifi_spi_config_command, (unsigned long)wifi_spi_config_error,
+                     (unsigned long)wifi_spi_config_reply, (unsigned long)wifi_spi_config_reply_length);
+        } else snprintf(line, sizeof(line), "%-39.39s", message);
+        ips200_show_string(0, 192, line);
+        return;
+    }
+#endif
     uint32 irq = interrupt_global_disable();
     roll = imu_roll_deg;
     pitch = imu_pitch_deg;
@@ -354,7 +528,7 @@ static void Menu_Show_Attitude(void)
     sequence = imu_sample_sequence;
     interrupt_global_enable(irq);
 
-    if (imu_ready && (running || preview == 2)) {
+    if (imu_ready) {
         if (status == IMU_ATTITUDE_CALIBRATING)
             imu_message = "IMU init OK - keep still";
         else if (status == IMU_ATTITUDE_RUNNING)
@@ -366,6 +540,25 @@ static void Menu_Show_Attitude(void)
     if (roll_rate_test_enabled) {
         float rate, output;
         int32 rate_state;
+        if (dual_balance_enabled) {
+            float pitch_rate,pitch_pwm;
+            irq=interrupt_global_disable();
+            rate=dual_rate[0];pitch_rate=dual_rate[1];
+            output=dual_pwm[0];pitch_pwm=dual_pwm[1];rate_state=roll_rate_test_state;
+            interrupt_global_enable(irq);
+            snprintf(line,sizeof(line),"Rate R:%6.1f P:%6.1f             ",rate,pitch_rate);
+            ips200_show_string(0,152,line);
+            snprintf(line,sizeof(line),"Roll:%6.1f Pitch:%6.1f           ",pitch,roll);
+            ips200_show_string(0,172,line);
+            if (rate_state<0)
+                snprintf(line,sizeof(line),"%-39.39s",control_error_text(rate_state,status));
+            else if (rate_state==1)
+                snprintf(line,sizeof(line),"CAL %5.1f%%: keep still               ",progress);
+            else
+                snprintf(line,sizeof(line),"PWM R:%5.0f P:%5.0f S:%ld       ",output,pitch_pwm,(long)rate_state);
+            ips200_show_string(0,192,line);
+            return;
+        }
         irq = interrupt_global_disable();
         rate = roll_rate_test_actual;
         output = roll_rate_test_pwm;
@@ -373,17 +566,18 @@ static void Menu_Show_Attitude(void)
         interrupt_global_enable(irq);
         snprintf(line, sizeof(line), "Rate:%7.2f PWM:%6.0f       ", rate, output);
         ips200_show_string(0, 152, line);
-        snprintf(line, sizeof(line), "State:%ld Roll:%6.1f Pitch:%6.1f ", (long)rate_state, roll, pitch);
+        snprintf(line, sizeof(line), "State:%ld Pitch:%6.1f Roll:%6.1f ", (long)rate_state, roll, pitch);
         ips200_show_string(0, 172, line);
-        ips200_show_string(0, 192, "Gyro only: Stop then Start to repeat    ");
+        snprintf(line,sizeof(line),"%-39.39s",rate_state<0 ? control_error_text(rate_state,status) :
+                 rate_only_test ? (ground_rate_test_enabled ? "Pitch RATE ONLY: wheel" : "Roll RATE ONLY: flywheel") :
+                 ground_rate_test_enabled ? "Pitch angle/rate: wheel" : "Roll angle/rate: flywheel");
+        ips200_show_string(0,192,line);
         return;
     }
-    snprintf(line, sizeof(line), "Roll:%7.2f Pitch:%7.2f", roll, pitch);
+    snprintf(line, sizeof(line), "Pitch:%7.2f Roll:%7.2f", roll, pitch);
     ips200_show_string(0, 152, line);
     if (!imu_ready)
         snprintf(line, sizeof(line), "IMU:OFF Enable Startup/IMU");
-    else if (!running && preview != 2)
-        snprintf(line, sizeof(line), "IMU:STOP Seq:%lu", (unsigned long)sequence);
     else if (status == IMU_ATTITUDE_CALIBRATING)
         snprintf(line, sizeof(line), "IMU:CAL %5.1f%% Seq:%lu", progress, (unsigned long)sequence);
     else if (status == IMU_ATTITUDE_RUNNING)
@@ -401,6 +595,15 @@ static void Menu_Show_Attitude(void)
         ips200_show_string(0, 172, padded);
         snprintf(padded, sizeof(padded), "%-39.39s", imu_message);
         ips200_show_string(0, 192, padded);
+    }
+}
+
+static const char *test_mode_name(void)
+{
+    switch(run_mode) {
+    case 3:return "Roll angle: flywheel";case 4:return "Pitch angle: wheel";
+    case 5:return "DUAL angle: both";case 6:return "Roll RATE ONLY: flywheel";
+    case 7:return "Pitch RATE ONLY: wheel";default:return "Legacy full control";
     }
 }
 
@@ -554,10 +757,9 @@ void Menu_Switch(void)
     key_state_enum k4 = key_get_state(KEY_4);
     key_state_enum k2 = key_get_state(KEY_2);
 
-    int consumed = -1;
     if (k1 == KEY_SHORT_PRESS)
     {
-        consumed = KEY_1;
+        key_consume_state(KEY_1, KEY_SHORT_PRESS);
         
         if (pointer->selected == false)
             Key_Up();
@@ -566,7 +768,7 @@ void Menu_Switch(void)
     }
     else if (k2 == KEY_SHORT_PRESS)
     {
-        consumed = KEY_2;
+        key_consume_state(KEY_2, KEY_SHORT_PRESS);
         
         if (pointer->selected == false)
             Key_Down();
@@ -575,7 +777,7 @@ void Menu_Switch(void)
     }
     else if (k3 == KEY_SHORT_PRESS)
     {
-        consumed = KEY_3;
+        key_consume_state(KEY_3, KEY_SHORT_PRESS);
         
 
         
@@ -589,7 +791,7 @@ void Menu_Switch(void)
 
     else if (k4 == KEY_SHORT_PRESS)
     {
-        consumed = KEY_4;
+        key_consume_state(KEY_4, KEY_SHORT_PRESS);
         
         if (pointer->kind != MENU_Folder && pointer->selected == true)
             Key_Deselect();
@@ -597,13 +799,13 @@ void Menu_Switch(void)
             Key_Exit();
     }
 
-    if (consumed >= 0) key_consume_state((key_index_enum)consumed, KEY_SHORT_PRESS);
-    /* ???????????????????????????? */
+    /* Consume before callbacks: a WiFi progress callback may poll keys again. */
     if (k1 == KEY_LONG_PRESS) key_consume_state(KEY_1, KEY_LONG_PRESS);
     if (k2 == KEY_LONG_PRESS) key_consume_state(KEY_2, KEY_LONG_PRESS);
     if (k3 == KEY_LONG_PRESS) key_consume_state(KEY_3, KEY_LONG_PRESS);
     if (k4 == KEY_LONG_PRESS) key_consume_state(KEY_4, KEY_LONG_PRESS);
 }
+
 
 
 void Menu_Show(void)
@@ -636,11 +838,20 @@ void Menu_Show(void)
         }
     Menu_Show_Attitude();
     ips200_show_string(0, 216, "K1:up/+ K2:down/- K3:OK K4:back");
+    snprintf(line,sizeof(line),"WiFi:%d Tx:%lu                  ",imu_wifi_status,(unsigned long)imu_wifi_tx_packets);
+    ips200_show_string(0, 232, line);
+    snprintf(line,sizeof(line),"M%u %-30.30s",(unsigned)run_mode,test_mode_name());
+    ips200_show_string(0,250,line);
+    snprintf(line,sizeof(line),"F:%ld IMU:%ld dt:%6.1f            ",(long)control_fault_reason,(long)control_fault_imu_status,control_fault_dt_ms);
+    ips200_show_string(0,266,line);
+    snprintf(line,sizeof(line),"SPI:%lu NR:%lu Reg:%02lX           ",(unsigned long)imu_spi_timeouts,(unsigned long)imu_not_ready_samples,(unsigned long)imu_last_status_reg);
+    ips200_show_string(0,282,line);
 }
 
 void menu(int menu_key)
 {
     (void)menu_key;
+    menu_apply_deferred_control();
     if (Usart1_Rec_Fini_Flag) { Usart1_Rec_Fini_Flag = 0; Telecontrol(); }
     imu_service();
     start_switch = running != 0;
@@ -652,7 +863,9 @@ void menu(int menu_key)
     if (wheel_test_pwm > (int)PWM_DUTY_MAX) wheel_test_pwm = (int)PWM_DUTY_MAX;
     if (wheel_test_pwm < -(int)PWM_DUTY_MAX) wheel_test_pwm = -(int)PWM_DUTY_MAX;
     if (preview == 3) motor_m_ctrl(wheel_test_pwm);
-    wifispi_telemetry_service();
+    wifi_switch=wifispi_is_ready() && imu_wifi_status!=-4;
+    menu_auto_wifi_service();
+    menu_wifi_poll();
     Menu_Show();
     system_delay_ms(10);
 }

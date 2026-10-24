@@ -184,8 +184,6 @@ void set_parameter(float *variable, int channel)
 void set_parameter_update(void)
 {
     seekfree_assistant_debug_param_analysis(&qcar_debug_params);
-//    set_parameter(&mahony_filter.Kp, 0,0,10);
-//    set_parameter(&mahony_filter.Ki, 1,0,10);
     set_parameter(&cascade_ang_vel_roll.kp, 0);
     set_parameter(&cascade_ang_vel_roll.ki, 1);
     set_parameter(&cascade_ang_roll.kp, 2);
@@ -210,13 +208,13 @@ void oscilloscope_send_update(void)
 {
 //    seekfree_assistant_oscilloscope_config(&qcar_scope, 8, qcar_scope_data);
 //    qcar_scope_data[0]=cascade_vel_out;
-//    qcar_scope_data[1]=mahony_filter.roll;
+//    qcar_scope_data[1]=attitude_state.roll;
 //    qcar_scope_data[2]=cascade_angle_out;
-//    qcar_scope_data[3]=mahony_filter.gyro.x;
+//    qcar_scope_data[3]=attitude_state.gyro.x;
 //    qcar_scope_data[4]=cascade_vel_out_p;
-//    qcar_scope_data[5]=mahony_filter.pitch;
+//    qcar_scope_data[5]=attitude_state.pitch;
 //    qcar_scope_data[6]=cascade_angle_out_p;
-//    qcar_scope_data[7]=mahony_filter.gyro.y;
+//    qcar_scope_data[7]=attitude_state.gyro.y;
 //    seekfree_assistant_oscilloscope_send(&qcar_scope);
 
     seekfree_assistant_oscilloscope_config(&qcar_scope, 6, qcar_scope_data);
@@ -224,7 +222,7 @@ void oscilloscope_send_update(void)
 //    qcar_scope_data[0]=cascade_angle_out_p;
 //    qcar_scope_data[1]=cascade_angle_vel_out_p;
 //    qcar_scope_data[3]=real_mid_speed;
-//    qcar_scope_data[4]=mahony_filter.pitch;
+//    qcar_scope_data[4]=attitude_state.pitch;
     qcar_scope_data[0]=imu660rb_gyro_x;
     qcar_scope_data[1]=imu660rb_acc_y;
     qcar_scope_data[2]=imu660rb_gyro_y;
@@ -239,11 +237,11 @@ void oscilloscope_send_update_y(void)
     seekfree_assistant_oscilloscope_config(&qcar_scope, 8, qcar_scope_data);
     qcar_scope_data[0]=mono_beacon.Yaw_err;
     qcar_scope_data[1]=cascade_angle_out_y;
-    qcar_scope_data[2]=mahony_filter.gyro.z;
+    qcar_scope_data[2]=attitude_state.gyro.z;
     qcar_scope_data[3]=cascade_angle_vel_out_y;
     qcar_scope_data[4]=real_mid_speed*0.001f;
     qcar_scope_data[5]=mono_beacon.dynamic_zero_roll;
-    qcar_scope_data[6]=mahony_filter.roll;
+    qcar_scope_data[6]=attitude_state.roll;
     qcar_scope_data[7]=mono_beacon.dynamic_zero_pitch;
     seekfree_assistant_oscilloscope_send(&qcar_scope);
 }

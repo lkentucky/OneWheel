@@ -55,7 +55,7 @@
 
           
 #define WIFI_SPI_INDEX              (SPI_3             )        // 定义使用的SPI号
-#define WIFI_SPI_SPEED              (30 * 1000 * 1000  )        // 硬件 SPI 速率
+#define WIFI_SPI_SPEED              (10 * 1000 * 1000  )        // 硬件 SPI 速率
 #define WIFI_SPI_SCK_PIN            (SPI3_SCLK_P22_3   )        // 定义SPI_SCK引脚
 #define WIFI_SPI_MOSI_PIN           (SPI3_MOSI_P22_0   )        // 定义SPI_MOSI引脚
 #define WIFI_SPI_MISO_PIN           (SPI3_MISO_P22_1   )        // 定义SPI_MISO引脚  IPS没有MISO引脚，但是这里任然需要定义，在spi的初始化时需要使用
@@ -148,6 +148,15 @@ typedef enum
     WIFI_SPI_GMT,                                               // 世界时间 转换为GMT格式，后缀增加GMT 一般用于对接云端大模型使用
     WIFI_SPI_UTC_8,                                             // 北京时间
 }wifi_spi_time_enum;
+
+/* Optional UI progress pump, used only during explicit connection setup. */
+/* Last SET_WIFI/SET_SOCKET transaction: 1 ready timeout, 2 TX timeout,
+ * 3 reply-ready timeout, 4 reply transfer/malformed packet, 5 module rejection. */
+extern volatile uint32 wifi_spi_config_error, wifi_spi_config_command;
+extern volatile uint32 wifi_spi_config_reply, wifi_spi_config_reply_length;
+void wifi_spi_set_wait_callback(void (*callback)(void));
+void wifi_spi_cancel_wait(void);
+void wifi_spi_clear_cancel_wait(void);
 
 extern char wifi_spi_version[12];                               // 固件版本         字符串
 extern char wifi_spi_mac_addr[20];                              // 模块MAC地址      字符串

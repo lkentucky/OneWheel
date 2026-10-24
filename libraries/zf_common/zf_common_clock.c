@@ -108,6 +108,11 @@ void clock_init (void)
 // 使用示例          cpu_wait_event_ready();
 // 备注信息
 //-------------------------------------------------------------------------------------------------------------------
+void cpu_init_notify(void)
+{
+    cpu_init_finish[IfxCpu_getCoreId()] = 1;
+}
+
 void cpu_wait_event_ready (void)
 {
     uint8 i;
