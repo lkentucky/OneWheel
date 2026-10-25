@@ -77,26 +77,27 @@ int main(void){
     Menu_Item *folder=Root.First_Son;int saw_debug=0;
     for(unsigned n=0;n<Root.sons;++n,folder=folder->Next_Brother){
         if(strcmp(folder->name,"PWM debug")==0){
-            saw_debug=1;assert(folder->sons==2);
-            assert(folder->First_Son->data==(void *)&pwm_debug_fly);
-            assert(folder->First_Son->Next_Brother->data==(void *)&pwm_debug_ground);
+            saw_debug=1;assert(folder->sons==3);
+            assert(folder->First_Son->data==(void *)&pwm_debug_fly_left);
+            assert(folder->First_Son->Next_Brother->data==(void *)&pwm_debug_fly_right);
+            assert(folder->First_Son->Next_Brother->Next_Brother->data==(void *)&pwm_debug_ground);
         }
     }
     assert(saw_debug && !running && !shacheflag);
     Menu_Item mode={0};mode.data=&run_mode;
     Menu_Handle_Control_Uint8(&mode,3);assert(run_mode==8);
-    pwm_debug_fly=900;pwm_debug_ground=-800;start_car();
+    pwm_debug_fly_left=900;pwm_debug_fly_right=450;pwm_debug_ground=-800;start_car();
     assert(running && shacheflag && pwm_debug_enabled && !imu_attempts && !prepares);
-    assert(timers[0] && !timers[1] && profile==2 && !pwm_debug_fly && !pwm_debug_ground);
-    control_startup_ramp_ms=0;pwm_debug_fly=300;pwm_debug_ground=-500;tick();
-    assert(fly_l==300 && fly_r==-300 && ground==-500);
-    start_car();tick();assert(!ground && !fly_l && !pwm_debug_fly && !pwm_debug_ground);
-    pwm_debug_fly=400;pwm_debug_ground=600;tick();assert(ground==600);
+    assert(timers[0] && !timers[1] && profile==2 && !pwm_debug_fly_left && !pwm_debug_fly_right && !pwm_debug_ground);
+    control_startup_ramp_ms=0;pwm_debug_fly_left=300;pwm_debug_fly_right=-700;pwm_debug_ground=-500;tick();
+    assert(fly_l==300 && fly_r==-700 && ground==-500);
+    start_car();tick();assert(!ground && !fly_l && !fly_r && !pwm_debug_fly_left && !pwm_debug_fly_right && !pwm_debug_ground);
+    pwm_debug_fly_left=400;pwm_debug_fly_right=800;pwm_debug_ground=600;tick();assert(ground==600);
     stop_car(); /* Immediate hardware zero, no further ISR required. */
-    assert(!running && !pwm_debug_enabled && !ground && !fly_l && !timers[0]);
-    start_car();pwm_debug_fly=200;pwm_debug_ground=300;tick();
+    assert(!running && !pwm_debug_enabled && !ground && !fly_l && !fly_r && !timers[0]);
+    start_car();pwm_debug_fly_left=200;pwm_debug_fly_right=900;pwm_debug_ground=300;tick();
     Menu_Handle_Control_Uint8(&mode,-3);
-    assert(run_mode==5 && !running && !ground && !fly_l && !pwm_debug_ground);
+    assert(run_mode==5 && !running && !ground && !fly_l && !fly_r && !pwm_debug_ground && !pwm_debug_fly_right);
     start_car();assert(imu_attempts==1 && !running && !pwm_debug_enabled && !ground && !fly_l);
     puts("PASS: default Mode5, Mode8 menu bindings, IMU-independent Start, zero on rearm/Stop/mode change; closed-loop IMU gate retained");
 }

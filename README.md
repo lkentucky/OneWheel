@@ -76,7 +76,7 @@ user/cpu1_main.c        CPU1空闲；不再处理图像或网络
 | 5（默认） | 上述两轴同时启用 | 两组菜单 |
 | 6 | 飞轮角速度环，目标角速度0 | PID / Gyro test |
 | 7 | 行进轮角速度环，目标角速度0 | PID / Pitch balance |
-| 8 | 飞轮与行进轮独立开环PWM，不经过PID | PWM debug / Fly PWM、Wheel PWM |
+| 8 | 左飞轮、右飞轮、行进轮三路独立开环PWM，不经过PID | PWM debug / Fly left PWM、Fly right PWM、Wheel PWM |
 
 只允许3～8。Mode6/7抑制转动，不主动回到机械零点。Mode5没有速度/位置外环，不保证原地不动。默认Mode5仅为上电选择，仍需显式Start。
 
@@ -88,11 +88,11 @@ K1上移/加，K2下移/减，K3进入/选中/切换步进，K4返回/取消选�
 
 ### Mode8 开环调试
 
-先固定或架空车辆，在 Startup 选择8并Start（输出仍为0），再进入 PWM debug 调整 Fly PWM / Wheel PWM。参数范围默认为-4000～4000，0停车，负数反向；10000代表100%占空比，4000为40%指令。飞轮同时发送左右相反指令 `(Fly PWM, -Fly PWM)`，地轮直接使用 Wheel PWM；不乘PID的Sign参数。
+先固定或架空车辆，在 Startup 选择8并Start（输出仍为0），再进入 PWM debug 调整 Fly left PWM / Fly right PWM / Wheel PWM，分别控制左飞轮、右飞轮、行进轮。三路参数范围均默认为-4000～4000，0停车，负数反向；10000代表100%占空比，4000为40%指令。左右飞轮直接使用各自输入，不自动同步或取反，也不乘PID的Sign参数。
 
-Mode8不运行PID、不自动回正，也不要求IMU就绪或执行倾角/采样过期保护。它保留默认1秒启动限幅斜坡、非有限值/越界参数故障锁存、Stop立即硬件归零。上电、每次Start、Stop、切换模式都会清零Mode8设定值；不保存到Flash。斜坡只在启动时放开输出上限，后续手动修改PWM不会逐次缓变。
+Mode8不运行PID、不自动回正，也不要求IMU就绪或执行倾角/采样过期保护。它保留默认1秒启动限幅斜坡、非有限值/越界参数故障锁存、Stop立即硬件归零；任一路参数无效会停掉三路。上电、每次Start、Stop、切换模式都会清零三路Mode8设定值；不保存到Flash。斜坡只在启动时放开输出上限，后续手动修改PWM不会逐次缓变。
 
-WiFi连接应在停车时完成。Mode8 Start后可发送 `[slider,debug_fly_pwm,300]`、`[slider,debug_ground_pwm,-500]`；新增可订阅字段 `pwm_debug_enabled`、`debug_fly_pwm`、`debug_ground_pwm`。默认沿用40通道双轴帧，`dual_roll_pwm` / `dual_pitch_pwm` 是两轴实际下发指令，`dual_enabled=0`表示没有双轴闭环。没有IMU时角度/角速度字段不作为有效测量使用。原上位机若没有对应滑杆，可用指令发送框；远程Start/Stop仍不支持。
+WiFi连接应在停车时完成。Mode8 Start后可发送 `[slider,debug_fly_left_pwm,300]`、`[slider,debug_fly_right_pwm,-700]`、`[slider,debug_ground_pwm,-500]`；可订阅字段为 `pwm_debug_enabled` 以及这三个PWM设定名。旧的 `debug_fly_pwm` 配对指令不再支持。默认沿用40通道双轴帧，其中 `motor_left_pwm` / `motor_right_pwm` / `motor_ground_pwm` 为三路实际下发指令。Mode8的兼容字段 `dual_roll_pwm` 仅表示左飞轮，`dual_pitch_pwm` 表示行进轮，`dual_enabled=0`表示没有双轴闭环。没有IMU时角度/角速度字段不作为有效测量使用。原上位机若没有对应滑杆，可用指令发送框；远程Start/Stop仍不支持。
 
 ## PID与滤波
 

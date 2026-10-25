@@ -171,7 +171,8 @@ void Menu_Create(void)
     Create_Menu_File_dynamic(ground,"Balance X",&mono_params.balance_angle_x,float_Box);
     Create_Menu_File_dynamic(storage,"Save",&save_switch,bool_Box);
     Create_Menu_File_dynamic(storage,"Load",&load_switch,bool_Box);
-    Create_Menu_File_dynamic(debug,"Fly PWM",(void *)&pwm_debug_fly,float_Box);
+    Create_Menu_File_dynamic(debug,"Fly left PWM",(void *)&pwm_debug_fly_left,float_Box);
+    Create_Menu_File_dynamic(debug,"Fly right PWM",(void *)&pwm_debug_fly_right,float_Box);
     Create_Menu_File_dynamic(debug,"Wheel PWM",(void *)&pwm_debug_ground,float_Box);
 }
 
@@ -418,11 +419,13 @@ static void Menu_Show_Attitude(void)
         float rate, output;
         int32 rate_state;
         if (pwm_debug_enabled) {
-            float fly,ground;
+            float left,right,ground;
             irq=interrupt_global_disable();
-            fly=dual_pwm[0];ground=dual_pwm[1];rate_state=roll_rate_test_state;
+            left=(float)costrained_flywheel_speed_left;
+            right=(float)-costrained_flywheel_speed_right;
+            ground=(float)costrained_wheel_speed;rate_state=roll_rate_test_state;
             interrupt_global_enable(irq);
-            snprintf(line,sizeof(line),"Fly PWM:%7.0f Wheel PWM:%7.0f   ",fly,ground);
+            snprintf(line,sizeof(line),"PWM L:%5.0f R:%5.0f W:%5.0f          ",left,right,ground);
             ips200_show_string(0,152,line);
             ips200_show_string(0,172,"Mode8: RAW PWM / no PID                 ");
             snprintf(line,sizeof(line),"%-39.39s",rate_state<0 ? control_error_text(rate_state,status) : "No tilt interlock; Startup/Stop");

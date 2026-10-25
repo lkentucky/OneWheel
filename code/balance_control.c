@@ -48,7 +48,7 @@ volatile uint8 ground_rate_test_enabled;
 volatile uint8 dual_balance_enabled;
 volatile uint8 rate_only_test;
 volatile uint8 pwm_debug_enabled;
-volatile float pwm_debug_fly, pwm_debug_ground;
+volatile float pwm_debug_fly_left, pwm_debug_fly_right, pwm_debug_ground;
 volatile int32 control_fault_reason,control_fault_imu_status;
 volatile uint32 control_fault_seq;
 volatile float control_fault_dt_ms,control_startup_scale;
@@ -96,7 +96,7 @@ void roll_rate_test_stop(void)
     ground_rate_test_enabled = 0;
     dual_balance_enabled=0;rate_only_test=0;
     pwm_debug_enabled=0;
-    pwm_debug_fly=pwm_debug_ground=0.0f;
+    pwm_debug_fly_left=pwm_debug_fly_right=pwm_debug_ground=0.0f;
     control_fault_reason=control_fault_imu_status=0;control_fault_seq=0;
     control_fault_dt_ms=control_startup_scale=0;control_startup_elapsed_ms=0;
     for (unsigned i=0;i<2;i++) {
@@ -157,7 +157,7 @@ void dual_balance_arm(void)
 }
 
 /* Bench mode: direct signed PWM, no attitude controller or IMU interlock.
- * Arm/Stop zero both commands. Only the control ISR owns active outputs. */
+ * Arm/Stop zero all three commands. Only the control ISR owns active outputs. */
 void pwm_debug_arm(void)
 {
     roll_rate_test_stop();
@@ -168,39 +168,45 @@ void pwm_debug_arm(void)
 
 static void pwm_debug_update(void)
 {
-    float fly,ground;
-    int output[2]={0,0};
+    float left,right,ground;
+    int output[3]={0,0,0};
     uint32 irq=interrupt_global_disable();
-    fly=pwm_debug_fly;ground=pwm_debug_ground;
+    left=pwm_debug_fly_left;right=pwm_debug_fly_right;ground=pwm_debug_ground;
     interrupt_global_enable(irq);
     if (roll_rate_test_state==2) {
         if (!shacheflag) roll_rate_test_state=0;
-        else if (!isfinite(fly) || !isfinite(ground) ||
+        else if (!isfinite(left) || !isfinite(right) || !isfinite(ground) ||
                  !isfinite(DEBUG_PWM_LIMIT) || DEBUG_PWM_LIMIT<0.0f || DEBUG_PWM_LIMIT>4000.0f ||
-                 fabsf(fly)>DEBUG_PWM_LIMIT || fabsf(ground)>DEBUG_PWM_LIMIT || control_startup_ramp_ms>5000u)
+                 fabsf(left)>DEBUG_PWM_LIMIT || fabsf(right)>DEBUG_PWM_LIMIT ||
+                 fabsf(ground)>DEBUG_PWM_LIMIT || control_startup_ramp_ms>5000u)
             control_latch_fault(-3,6);
         else {
             control_startup_advance();
             float limit=DEBUG_PWM_LIMIT*control_startup_scale;
-            output[0]=(int)roundf(constrain_float(fly,-limit,limit));
-            output[1]=(int)roundf(constrain_float(ground,-limit,limit));
+            output[0]=(int)roundf(constrain_float(left,-limit,limit));
+            output[1]=(int)roundf(constrain_float(right,-limit,limit));
+            output[2]=(int)roundf(constrain_float(ground,-limit,limit));
         }
     }
     for(unsigned i=0;i<2;i++) {
         dual_target[i]=dual_angle_error[i]=0.0f;
         dual_target_rate[i]=dual_rate_error[i]=0.0f;
-        dual_pwm[i]=(float)output[i];
     }
+    /* Compatibility channels: Roll PWM is LEFT only in Mode8, Pitch is ground.
+     * motor_left_pwm/motor_right_pwm expose the actual independent commands. */
+    dual_pwm[0]=(float)output[0];dual_pwm[1]=(float)output[2];
     /* Optional measurements remain visible; they never gate raw PWM. */
     dual_angle[0]=imu_pitch_deg;dual_angle[1]=imu_roll_deg;
     dual_rate[0]=attitude_state.gyro.y;dual_rate[1]=attitude_state.gyro.x;
-    roll_rate_test_pwm=(float)output[1];
+    roll_rate_test_pwm=(float)output[2];
     cascade_angle_out=cascade_angle_out_p=0.0f;
-    cascade_angle_vel_out=(float)output[0];cascade_angle_vel_out_p=(float)output[1];
-    costrained_flywheel_speed_left=costrained_flywheel_speed_right=(int16)output[0];
-    costrained_wheel_speed=(int16)output[1];
-    small_driver_set_duty((int16)output[0],(int16)-output[0]);
-    motor_m_ctrl(output[1]);
+    cascade_angle_vel_out=(float)output[0];cascade_angle_vel_out_p=(float)output[2];
+    costrained_flywheel_speed_left=(int16)output[0];
+    /* Preserve the legacy internal right-sign convention used by telemetry. */
+    costrained_flywheel_speed_right=(int16)-output[1];
+    costrained_wheel_speed=(int16)output[2];
+    small_driver_set_duty((int16)output[0],(int16)output[1]);
+    motor_m_ctrl(output[2]);
 }
 
 typedef struct {

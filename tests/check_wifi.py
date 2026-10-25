@@ -62,7 +62,7 @@ extern volatile float small_driver_test_left,small_driver_test_right;
         header.write("""
 extern volatile uint8 rate_only_test;
 extern volatile uint8 pwm_debug_enabled;
-extern volatile float pwm_debug_fly,pwm_debug_ground;
+extern volatile float pwm_debug_fly_left,pwm_debug_fly_right,pwm_debug_ground;
 extern volatile int32 control_fault_reason,control_fault_imu_status;
 extern volatile uint32 control_fault_seq;
 extern volatile float control_fault_dt_ms,control_startup_scale;

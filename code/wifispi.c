@@ -122,7 +122,8 @@ static float g_telemetry_ms;
     X(imu_spi_timeouts, imu_spi_timeouts) X(imu_not_ready, imu_not_ready_samples) X(imu_status_reg, imu_last_status_reg) \
     X(imu_bad_bursts, imu_bad_bursts) \
     X(pwm_debug_enabled, pwm_debug_enabled) \
-    X(debug_fly_pwm, pwm_debug_fly) X(debug_ground_pwm, pwm_debug_ground)
+    X(debug_fly_left_pwm, pwm_debug_fly_left) X(debug_fly_right_pwm, pwm_debug_fly_right) \
+    X(debug_ground_pwm, pwm_debug_ground)
 
 #define VARIABLE_ID(name, expr) TV_##name,
 enum { TELEMETRY_VARIABLES(VARIABLE_ID) TV_COUNT };
@@ -162,7 +163,8 @@ static const slider_parameter_t g_slider_parameters[] = {
     {"fly_test_left", &small_driver_test_left, -4000.0f, 4000.0f},
     {"fly_test_right", &small_driver_test_right, -4000.0f, 4000.0f},
     /* Mode8 raw commands, reset by Start/Stop; not saved to Flash. */
-    {"debug_fly_pwm", &pwm_debug_fly, -DEBUG_PWM_LIMIT, DEBUG_PWM_LIMIT},
+    {"debug_fly_left_pwm", &pwm_debug_fly_left, -DEBUG_PWM_LIMIT, DEBUG_PWM_LIMIT},
+    {"debug_fly_right_pwm", &pwm_debug_fly_right, -DEBUG_PWM_LIMIT, DEBUG_PWM_LIMIT},
     {"debug_ground_pwm", &pwm_debug_ground, -DEBUG_PWM_LIMIT, DEBUG_PWM_LIMIT},
     {"ground_rate_limit_dps", &ground_angle_rate_limit, 0.1f, 100.0f},
     {"balance_angle_x", &mono_params.balance_angle_x, -20.0f, 20.0f},

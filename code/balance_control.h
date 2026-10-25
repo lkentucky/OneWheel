@@ -27,7 +27,7 @@ extern volatile float dual_angle[2],dual_target[2],dual_angle_error[2];
 extern volatile float dual_rate[2],dual_target_rate[2],dual_rate_error[2],dual_pwm[2];
 extern volatile uint8 rate_only_test;
 extern volatile uint8 pwm_debug_enabled;
-extern volatile float pwm_debug_fly, pwm_debug_ground;
+extern volatile float pwm_debug_fly_left, pwm_debug_fly_right, pwm_debug_ground;
 void pwm_debug_arm(void);
 extern volatile int32 control_fault_reason,control_fault_imu_status;
 extern volatile uint32 control_fault_seq;
