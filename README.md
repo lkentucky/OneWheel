@@ -2,11 +2,11 @@
 
 基于上游 `7a053b2` 精简，只保留直立控制、IMU、驱动、IPS200 菜单、参数保存和 WiFi-SPI 遥测。应用中的信标/视觉识别、轨迹规划、遥控、旧 Mode0～2、旧速度级联及未使用的 MAF/Kalman/模糊/LQR 算法已经移除。逐飞/Infineon 通用 SDK 仍保留，避免破坏底层依赖；它们的摄像头接口不再从应用初始化或中断调用。
 
-当前版本已通过 ADS 1.10.10 / TASKING 全量构建（0错误、0警告）及13组主机回归，尚未烧录或实车验证。完整验证范围见 [VALIDATION.md](VALIDATION.md)。
+编译与主机回归的验证记录见 [VALIDATION.md](VALIDATION.md)，尚未烧录或实车验证。
 
 ## 快速使用
 
-1. 在 `code/config.h` 核对接线、WiFi、PC地址和控制参数；默认启动模式为 Mode7（仅行进轮角速度环）。
+1. 在 `code/config.h` 核对接线、WiFi、PC地址和控制参数；默认选择 Mode5（双轴直立），上电不自动运行。
 2. 用 ADS 导入本目录的 `OneWheelUpright` 工程，选择 TASKING Debug 构建，烧录本次生成的 HEX。
 3. 上电后等待 IMU 标定完成，通过 Startup 菜单选择模式；联网需单独选择 `WiFi connect`。
 4. 单轴检查后，双轴直立选择 Mode5，再执行 Startup / Start；停车选择 Startup / Stop。Mode5没有速度/位置外环。
@@ -20,7 +20,7 @@
 user/cpu0_main.c         app_init(); while(1) app_poll();
 code/app.c              系统初始化、应用轮询入口
 code/config.h           唯一应用配置入口：参数、引脚、网络、周期、滤波、IRQ
-code/balance_control.c  Mode3～7、控制状态、保护、限幅、启动斜坡
+code/balance_control.c  Mode3～8、控制状态、保护、限幅、启动斜坡
 code/pid.c/.h           通用位置式 / 增量式 PID，不依赖 TC264 SDK
 code/imu.c              SPI采样、静止标定、有效性检查、状态发布
 code/attitude.c         EKF姿态解算、加速度低通、创新门限
@@ -63,6 +63,7 @@ user/cpu1_main.c        CPU1空闲；不再处理图像或网络
 | `BALANCE_ANGLE_LPF_TAU_S` | 0.06秒 | 沿用上游角度低通；0关闭；改变会影响相位和稳定性 |
 | `BALANCE_STARTUP_RAMP_MS` | 1000ms | 启动PWM上限逐渐放开 |
 | `BALANCE_TILT_LIMIT_DEG` / `BALANCE_IMU_STALE_MS` | 30° / 25ms | 原始角度倾倒保护 / 控制采样过期保护 |
+| `APP_DEFAULT_MODE` / `DEBUG_PWM_LIMIT` | 5 / 4000 | 上电选中模式 / Mode8有符号PWM绝对上限 |
 
 菜单和上位机修改的是 RAM 值。`QCAR_BOOT_LOAD_FLASH=1` 时，有效的新格式 Flash 记录会覆盖对应默认值；需要固定使用 config 默认值时设置为0。改 config 不会自动更新芯片里的保存记录。
 
@@ -72,17 +73,26 @@ user/cpu1_main.c        CPU1空闲；不再处理图像或网络
 |---|---|---|
 | 3 | 飞轮：角度环→角速度环 | PID / Gyro test |
 | 4 | 行进轮：角度环→角速度环 | PID / Pitch balance |
-| 5 | 上述两轴同时启用 | 两组菜单 |
+| 5（默认） | 上述两轴同时启用 | 两组菜单 |
 | 6 | 飞轮角速度环，目标角速度0 | PID / Gyro test |
-| 7（默认） | 行进轮角速度环，目标角速度0 | PID / Pitch balance |
+| 7 | 行进轮角速度环，目标角速度0 | PID / Pitch balance |
+| 8 | 飞轮与行进轮独立开环PWM，不经过PID | PWM debug / Fly PWM、Wheel PWM |
 
-只允许3～7。Mode6/7抑制转动，不主动回到机械零点。Mode5没有速度/位置外环，不保证原地不动。
+只允许3～8。Mode6/7抑制转动，不主动回到机械零点。Mode5没有速度/位置外环，不保证原地不动。默认Mode5仅为上电选择，仍需显式Start。
 
 注意沿用上游的轴命名：屏幕 Roll / 飞轮使用 `imu_pitch_deg` 与 `gyro.y`，机械零点是 Balance Y；屏幕 Pitch / 行进轮使用 `imu_roll_deg` 与 `gyro.x`，机械零点是 Balance X。上位机 `roll_deg` 对应 Balance X，`pitch_deg` 对应 Balance Y。
 
-菜单只剩 Startup、PID、Storage。WiFi连接移到 **Startup / WiFi connect**，不再有独立 WiFi、Vision、Vehicle、Trajectory 页面。Startup保留 Start/Stop、IMU重新标定预览、行进轮Open loop和Wheel PWM。
+菜单为 Startup、PID、Storage、PWM debug。WiFi连接位于 **Startup / WiFi connect**；Startup保留 Start/Stop、IMU重新标定预览、旧行进轮Open loop和Wheel PWM（与Mode8参数独立）。
 
 K1上移/加，K2下移/减，K3进入/选中/切换步进，K4返回/取消选中。K4不是停车键；停车使用 Startup / Stop。改变Mode会先停车；保存和加载要求停车且退出预览。
+
+### Mode8 开环调试
+
+先固定或架空车辆，在 Startup 选择8并Start（输出仍为0），再进入 PWM debug 调整 Fly PWM / Wheel PWM。参数范围默认为-4000～4000，0停车，负数反向；10000代表100%占空比，4000为40%指令。飞轮同时发送左右相反指令 `(Fly PWM, -Fly PWM)`，地轮直接使用 Wheel PWM；不乘PID的Sign参数。
+
+Mode8不运行PID、不自动回正，也不要求IMU就绪或执行倾角/采样过期保护。它保留默认1秒启动限幅斜坡、非有限值/越界参数故障锁存、Stop立即硬件归零。上电、每次Start、Stop、切换模式都会清零Mode8设定值；不保存到Flash。斜坡只在启动时放开输出上限，后续手动修改PWM不会逐次缓变。
+
+WiFi连接应在停车时完成。Mode8 Start后可发送 `[slider,debug_fly_pwm,300]`、`[slider,debug_ground_pwm,-500]`；新增可订阅字段 `pwm_debug_enabled`、`debug_fly_pwm`、`debug_ground_pwm`。默认沿用40通道双轴帧，`dual_roll_pwm` / `dual_pitch_pwm` 是两轴实际下发指令，`dual_enabled=0`表示没有双轴闭环。没有IMU时角度/角速度字段不作为有效测量使用。原上位机若没有对应滑杆，可用指令发送框；远程Start/Stop仍不支持。
 
 ## PID与滤波
 

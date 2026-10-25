@@ -43,6 +43,8 @@ volatile float imu_ekf_nis=0.25f, imu_ekf_bias_xy_dps[2]={0.1f,-0.2f};
 volatile uint32 imu_sample_sequence=1234;
 volatile uint32 imu_spi_timeouts,imu_not_ready_samples,imu_last_status_reg,imu_bad_bursts;
 volatile uint8 rate_only_test;
+volatile uint8 pwm_debug_enabled;
+volatile float pwm_debug_fly,pwm_debug_ground;
 volatile int32 control_fault_reason,control_fault_imu_status;
 volatile uint32 control_fault_seq;
 volatile float control_fault_dt_ms,control_startup_scale=1;
@@ -173,6 +175,10 @@ static void test_transport(void)
     command("[slider,ground_angle_kp,");
     command("3.0][slider,pitch_balance_kp,0.5]RATE 20\n");
     assert(ground_angle_kp==3 && pitch_balance_kp==0.5f && wifi_telemetry_period_ms==20);
+    command("[slider,debug_fly_pwm,300][slider,debug_ground_pwm,-500]");
+    assert(pwm_debug_fly==300 && pwm_debug_ground==-500);
+    command("[slider,debug_fly_pwm,4001][slider,debug_ground_pwm,NaN]");
+    assert(pwm_debug_fly==300 && pwm_debug_ground==-500);
     const char *bad_slider[]={
         "[slider,ground_angle_kp,NaN]", "[slider,ground_angle_kp,1e100]",
         "[slider,ground_angle_kp,0x1p0]", "[slider,ground_angle_kp,1,2]",
@@ -193,6 +199,12 @@ static void test_transport(void)
     const char binary[]={0,'7',']'}; queue(binary,sizeof(binary)); command("\n");
     assert(ground_angle_kp==3 && has_reply("MCAR ERR invalid or oversized line\n"));
     command("RATE 10\n"); packet_count=0;
+    pwm_debug_enabled=1;
+    command("SUB pwm_debug_enabled,debug_fly_pwm,debug_ground_pwm\n");
+    assert(last_value(0,3)==1 && last_value(1,3)==300 && last_value(2,3)==-500);
+    pwm_debug_enabled=0;
+    command("SUB roll_deg,pitch_deg,yaw_deg\n");
+    packet_count=0;
     ticks=UINT32_MAX-500000u; wifispi_telemetry_service(); packet_count=0;
     advance(10); assert(last_value(0,3)==12); /* STM wrap-around. */
     uint32 sent=imu_wifi_tx_packets;

@@ -2,10 +2,11 @@
 
 参数值集中在 `code/config.h`，菜单绑定相应RAM变量。
 
-- Startup：Mode3～7、Start、Stop、IMU、Open loop、Wheel PWM、WiFi connect。
+- Startup：Mode3～8、Start、Stop、IMU、Open loop、Wheel PWM、WiFi connect；上电默认Mode5但不自动Start。
 - PID / Gyro test：飞轮KP、PWM limit、Sign、Angle KP、Rate limit、Balance Y。
 - PID / Pitch balance：行进轮同类参数、Balance X。
 - Storage：Save、Load；要求停车并退出预览。
+- PWM debug：Fly PWM、Wheel PWM，分别控制Mode8飞轮和行进轮，默认±4000。先在Startup选择8并Start，再设置PWM；每次Start/Stop/切换模式都会清零。不依赖IMU，无PID/倾角保护，需架空调试。
 
 独立WiFi页面、Vehicle、Vision、Trajectory及旧速度级联PID页面已移除。WiFi连接功能仍在Startup中。
 

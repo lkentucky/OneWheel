@@ -78,25 +78,26 @@ static void stop_car(void)
 static void start_car(void)
 {
     stop_car();
-    if (!ensure_imu()) { message = "IMU init failed"; return; }
+    if (run_mode != 8 && !ensure_imu()) { message = "IMU init failed"; return; }
     ensure_wheel();
     if (!driver_ready) { small_driver_uart_init(); driver_ready = 1; }
     shacheflag = 1;
     running = 1;
-    imu_prepare_start();
+    if (run_mode != 8) imu_prepare_start();
     if (run_mode == 3) roll_rate_test_arm();
     if (run_mode == 4) ground_rate_test_arm();
     if (run_mode == 5) dual_balance_arm();
     if (run_mode == 6) roll_rate_only_arm();
     if (run_mode == 7) ground_rate_only_arm();
+    if (run_mode == 8) pwm_debug_arm();
     if (wifispi_is_ready()) {
-        if (run_mode==5) wifispi_telemetry_dual_profile();
+        if (run_mode==5 || run_mode==8) wifispi_telemetry_dual_profile();
         else wifispi_telemetry_startup_profile();
     }
-    pit_init(CCU60_CH1, APP_IMU_PERIOD_US);
+    if (imu_ready) pit_init(CCU60_CH1, APP_IMU_PERIOD_US);
     pit_init(CCU60_CH0, APP_CONTROL_TICK_US);
     control_timers_ready = true;
-    message = (run_mode == 3 || run_mode == 4 || run_mode == 5) ? "Rate test: Startup/Stop" : "Running: Startup/Stop";
+    message = run_mode==8 ? "PWM debug: no tilt protection" : "Running: Startup/Stop";
 }
 
 static void save_params(void)
@@ -144,7 +145,8 @@ void Menu_Create(void)
     Menu_Item *startup=Create_Menu_Folder_dynamic(&Root,"Startup");
     Menu_Item *pid=Create_Menu_Folder_dynamic(&Root,"PID");
     Menu_Item *storage=Create_Menu_Folder_dynamic(&Root,"Storage");
-    Create_Menu_File_dynamic(startup,"Mode 3..7",&run_mode,uint8_Box);
+    Menu_Item *debug=Create_Menu_Folder_dynamic(&Root,"PWM debug");
+    Create_Menu_File_dynamic(startup,"Mode 3..8",&run_mode,uint8_Box);
     Create_Menu_File_dynamic(startup,"Start",&start_switch,bool_Box);
     Create_Menu_File_dynamic(startup,"Stop",&stop_switch,bool_Box);
     Create_Menu_File_dynamic(startup,"IMU",&imu_switch,bool_Box);
@@ -169,6 +171,8 @@ void Menu_Create(void)
     Create_Menu_File_dynamic(ground,"Balance X",&mono_params.balance_angle_x,float_Box);
     Create_Menu_File_dynamic(storage,"Save",&save_switch,bool_Box);
     Create_Menu_File_dynamic(storage,"Load",&load_switch,bool_Box);
+    Create_Menu_File_dynamic(debug,"Fly PWM",(void *)&pwm_debug_fly,float_Box);
+    Create_Menu_File_dynamic(debug,"Wheel PWM",(void *)&pwm_debug_ground,float_Box);
 }
 
 void Menu_Init(void)
@@ -249,7 +253,7 @@ static void menu_wifi_connect(void)
     message=wifispi_is_ready()?"WiFi UDP connected":
             imu_wifi_status==-6?"WiFi connection cancelled":"WiFi failed; retry Connect";
     if (wifispi_is_ready() && !wifi_deferred_item) {
-        if (run_mode==5) wifispi_telemetry_dual_profile();
+        if (run_mode==5 || run_mode==8) wifispi_telemetry_dual_profile();
         else wifispi_telemetry_startup_profile();
         menu_wifi_announce();
     }
@@ -338,7 +342,7 @@ static bool Menu_Handle_Control_Uint8(Menu_Item *item, int16 delta)
         int value = run_mode + delta;
         if (wifi_connecting) {message="Wait for WiFi then change Mode";return true;}
         if (running || preview) stop_car();
-        run_mode = (uint8)(value < 3 ? 3 : value > 7 ? 7 : value);
+        run_mode = (uint8)(value < 3 ? 3 : value > 8 ? 8 : value);
         return true;
     }
     return false;
@@ -350,7 +354,7 @@ static bool Menu_Handle_Control_Uint8(Menu_Item *item, int16 delta)
 static const char *control_error_text(int32 state,int32 imu_status)
 {
     if (state==-2) return "ERR -2: Tilt >30; Stop/Start";
-    if (state==-3) return "ERR -3: KP/limit/sign/zero invalid";
+    if (state==-3) return "ERR -3: invalid parameter/PWM";
     if (state==-1) {
         if(control_fault_reason==4)return "ERR -1: IMU stale >25ms";
         if(control_fault_reason==2)return "ERR -1: IMU no sample";
@@ -413,6 +417,18 @@ static void Menu_Show_Attitude(void)
     if (roll_rate_test_enabled) {
         float rate, output;
         int32 rate_state;
+        if (pwm_debug_enabled) {
+            float fly,ground;
+            irq=interrupt_global_disable();
+            fly=dual_pwm[0];ground=dual_pwm[1];rate_state=roll_rate_test_state;
+            interrupt_global_enable(irq);
+            snprintf(line,sizeof(line),"Fly PWM:%7.0f Wheel PWM:%7.0f   ",fly,ground);
+            ips200_show_string(0,152,line);
+            ips200_show_string(0,172,"Mode8: RAW PWM / no PID                 ");
+            snprintf(line,sizeof(line),"%-39.39s",rate_state<0 ? control_error_text(rate_state,status) : "No tilt interlock; Startup/Stop");
+            ips200_show_string(0,192,line);
+            return;
+        }
         if (dual_balance_enabled) {
             float pitch_rate,pitch_pwm;
             irq=interrupt_global_disable();
@@ -476,7 +492,8 @@ static const char *test_mode_name(void)
     switch(run_mode) {
     case 3:return "Roll angle: flywheel";case 4:return "Pitch angle: wheel";
     case 5:return "DUAL angle: both";case 6:return "Roll RATE ONLY: flywheel";
-    case 7:return "Pitch RATE ONLY: wheel";default:return "Invalid mode";
+    case 7:return "Pitch RATE ONLY: wheel";case 8:return "PWM DEBUG: fly + wheel";
+    default:return "Invalid mode";
     }
 }
 

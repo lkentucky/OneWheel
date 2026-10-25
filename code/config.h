@@ -177,7 +177,10 @@
 #define BALANCE_TILT_LIMIT_DEG       30.0f
 #define BALANCE_IMU_STALE_MS         25u
 #define BALANCE_STARTUP_RAMP_MS    1000u
-#define APP_DEFAULT_MODE               7u /* 3/4/5 angle; 6/7 rate-only */
+#define APP_DEFAULT_MODE               5u /* 3/4/5 angle; 6/7 rate-only; 8 PWM debug */
+/* Mode8 signed raw duty commands; 10000 means 100% duty. Starts at zero.
+ * No PID, IMU readiness or tilt interlock in this bench-test mode. */
+#define DEBUG_PWM_LIMIT             4000.0f
 #define APP_CONTROL_TICK_US         1000u
 #define APP_CONTROL_DIVIDER            5u
 #define APP_IMU_PERIOD_US           5000u
@@ -196,8 +199,8 @@
 #define APP_MENU_CAPACITY             64u
 #define APP_MENU_STEPS {0.01f,0.1f,1.0f,10.0f,100.0f}
 
-#if APP_DEFAULT_MODE < 3 || APP_DEFAULT_MODE > 7
-#error APP_DEFAULT_MODE must be 3..7
+#if APP_DEFAULT_MODE < 3 || APP_DEFAULT_MODE > 8
+#error APP_DEFAULT_MODE must be 3..8
 #endif
 #if APP_CONTROL_TICK_US * APP_CONTROL_DIVIDER != APP_IMU_PERIOD_US
 #error Control and IMU update periods must match

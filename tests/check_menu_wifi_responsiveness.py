@@ -162,7 +162,9 @@ int main(void) {
     Menu_Handle_Control_Uint8(&mode_item,1);
     assert(run_mode==6 && !running && stops==prior_stops+1);
     Menu_Handle_Control_Uint8(&mode_item,1);assert(run_mode==7);
-    wifi_connecting=true;Menu_Handle_Control_Uint8(&mode_item,-1);assert(run_mode==7);wifi_connecting=false;
+    Menu_Handle_Control_Uint8(&mode_item,1);assert(run_mode==8);
+    Menu_Handle_Control_Uint8(&mode_item,1);assert(run_mode==8);
+    wifi_connecting=true;Menu_Handle_Control_Uint8(&mode_item,-1);assert(run_mode==8);wifi_connecting=false;
     puts("PASS: navigation/editing during WiFi wait; deferred Start/Stop/Flash; cancel; no retry before action; initiating key consumed before callbacks");
 }
 '''

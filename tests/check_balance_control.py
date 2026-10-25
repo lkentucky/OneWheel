@@ -86,6 +86,25 @@ int main(void){
     arm(5);attitude_state.gyro.x=4;tick(1);assert(ground!=0);shacheflag=0;tick(1);assert(!ground && !fly_l);
     arm(7);control_startup_ramp_ms=1000;attitude_state.gyro.x=100;tick(1);assert(control_startup_scale>0 && control_startup_scale<0.01f && ground==-20);
     roll_rate_test_stop();balance_control_tick_1ms();assert(!ground && !fly_l && !roll_rate_test_enabled);
+    /* Mode8 owns both raw outputs independently of all IMU state and PID gains. */
+    pwm_debug_arm();shacheflag=1;control_startup_ramp_ms=0;
+    imu_sample_sequence=0;imu_attitude_status=-1;imu_roll_deg=90;imu_pitch_deg=NAN;
+    pwm_debug_fly=300;pwm_debug_ground=-500;tick(0);
+    assert(pwm_debug_enabled && roll_rate_test_state==2 && fly_l==300 && fly_r==-300 && ground==-500);
+    assert(dual_pwm[0]==300 && dual_pwm[1]==-500 && control_fault_reason==0);
+    pwm_debug_fly=-4000;pwm_debug_ground=4000;tick(0);
+    assert(fly_l==-4000 && fly_r==4000 && ground==4000);
+    pwm_debug_ground=4001;tick(0);
+    assert(roll_rate_test_state==-3 && control_fault_reason==6 && !fly_l && !ground);
+    pwm_debug_ground=0;tick(0);assert(roll_rate_test_state==-3 && !fly_l && !ground);
+    pwm_debug_arm();assert(pwm_debug_fly==0 && pwm_debug_ground==0);
+    pwm_debug_fly=NAN;tick(0);assert(roll_rate_test_state==-3 && !fly_l && !ground);
+    pwm_debug_arm();control_startup_ramp_ms=1000;
+    pwm_debug_fly=4000;pwm_debug_ground=-4000;tick(0);assert(fly_l==20 && ground==-20);
+    shacheflag=0;tick(0);assert(!fly_l && !ground && roll_rate_test_state==0);
+    roll_rate_test_stop();assert(!pwm_debug_enabled && !pwm_debug_fly && !pwm_debug_ground);
+    balance_control_tick_1ms();assert(!fly_l && !ground);
+    arm(5);tick(1);assert(!pwm_debug_enabled && roll_rate_test_state==2 && !ground && !fly_l);
     puts("balance control: axes, reference output, LPF, limits, ramp, stop and faults PASS");
     return 0;
 }
