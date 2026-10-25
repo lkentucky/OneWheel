@@ -190,10 +190,10 @@
 #define APP_WIFI_ANNOUNCE_MS        1000u
 #define APP_TELEMETRY_PROFILE_MS      20u
 #define MOTOR_PWM_HZ               17000u
-/* Current upstream wiring, not an automatic wiring change. */
-#define MOTOR_ENCODER_TIM           TIM6_ENCODER
-#define MOTOR_ENCODER_COUNT_PIN     TIM6_ENCODER_CH1_P20_3
-#define MOTOR_ENCODER_DIR_PIN       TIM6_ENCODER_CH2_P20_0
+/* Actual drive encoder wiring: count P33.7, direction P33.6. */
+#define MOTOR_ENCODER_TIM           TIM2_ENCODER
+#define MOTOR_ENCODER_COUNT_PIN     TIM2_ENCODER_CH1_P33_7
+#define MOTOR_ENCODER_DIR_PIN       TIM2_ENCODER_CH2_P33_6
 #define APP_KEY_DEBOUNCE_MS            10u
 #define APP_KEY_LONG_PRESS_MS        1000u
 #define APP_MENU_CAPACITY             64u
