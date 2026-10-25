@@ -3,8 +3,8 @@
 volatile uint32 small_driver_rx_bytes;
 volatile uint32 small_driver_speed_frames;
 /* 停车状态下的左右无刷开环诊断值（主循环下发，滑杆可写）。 */
-volatile float small_driver_test_left;
-volatile float small_driver_test_right;
+float small_driver_test_left;
+float small_driver_test_right;
 
 small_device_value_struct motor_value;      // 定义通讯参数结构体
 
