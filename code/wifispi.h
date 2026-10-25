@@ -2,7 +2,7 @@
  */
 #ifndef QCAR_WIFISPI_H
 #define QCAR_WIFISPI_H
-#include "qcar_config.h"
+#include "config.h"
 #include <stddef.h>
 #include <stdint.h>
 #ifdef __cplusplus

@@ -1,0 +1,40 @@
+#ifndef BALANCE_CONTROL_H
+#define BALANCE_CONTROL_H
+#include "zf_common_headfile.h"
+extern uint8_t shacheflag;
+extern Mono_params mono_params;
+extern int16 costrained_flywheel_speed_left,costrained_flywheel_speed_right,costrained_wheel_speed;
+extern float cascade_angle_out,cascade_angle_out_p,cascade_angle_vel_out,cascade_angle_vel_out_p;
+float constrain_float(float v,float lo,float hi);
+void balance_control_defaults(void);
+void balance_control_tick_1ms(void);
+void clear_all_cascade_out(void);
+/* Flywheel Pitch/Y angle P -> rate P, 5ms update; angle KP=0 gives rate-only.
+ * roll_rate_test_* names retained for Flash/host compatibility. */
+extern volatile uint8 roll_rate_test_enabled;
+extern volatile uint32 roll_rate_test_sequence;
+extern volatile int32 roll_rate_test_state;
+extern volatile float roll_rate_test_actual, roll_rate_test_error, roll_rate_test_pwm;
+extern volatile float pitch_balance_target_rate, pitch_balance_error;
+extern volatile float pitch_balance_actual_angle, pitch_balance_target_angle;
+extern float pitch_balance_kp, pitch_balance_rate_limit;
+extern float roll_rate_test_kp, roll_rate_test_limit, roll_rate_test_sign;
+extern volatile uint8 ground_rate_test_enabled;
+extern float ground_rate_test_kp, ground_rate_test_limit, ground_rate_test_sign;
+extern float ground_angle_kp, ground_angle_rate_limit;
+extern volatile uint8 dual_balance_enabled;
+extern volatile float dual_angle[2],dual_target[2],dual_angle_error[2];
+extern volatile float dual_rate[2],dual_target_rate[2],dual_rate_error[2],dual_pwm[2];
+extern volatile uint8 rate_only_test;
+extern volatile int32 control_fault_reason,control_fault_imu_status;
+extern volatile uint32 control_fault_seq;
+extern volatile float control_fault_dt_ms,control_startup_scale;
+extern uint32 control_startup_ramp_ms;
+void roll_rate_only_arm(void);
+void ground_rate_only_arm(void);
+void dual_balance_arm(void);
+void ground_rate_test_arm(void);
+void roll_rate_test_arm(void);
+void roll_rate_test_stop(void);
+
+#endif

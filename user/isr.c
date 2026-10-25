@@ -44,7 +44,7 @@ IFX_INTERRUPT(cc60_pit_ch0_isr, 0, CCU6_0_CH0_ISR_PRIORITY)
 {
     interrupt_global_enable(0);
     pit_clear_flag(CCU60_CH0);
-    cascade_ctrl();
+    balance_control_tick_1ms();
 }
 
 IFX_INTERRUPT(cc60_pit_ch1_isr, 0, CCU6_0_CH1_ISR_PRIORITY)
@@ -88,8 +88,8 @@ IFX_INTERRUPT(exti_ch0_ch4_isr, 0, EXTI_CH0_CH4_INT_PRIO)
     if(exti_flag_get(ERU_CH0_REQ0_P15_4))           // 通道0中断
     {
         exti_flag_clear(ERU_CH0_REQ0_P15_4);
-		
-        imu660rc_callback(); 	//			660RC 模块 INT 更新中断
+
+        /* Unused application callback removed. */ 	//			660RC 模块 INT 更新中断
     }
 
     if(exti_flag_get(ERU_CH4_REQ13_P15_5))          // 通道4中断
@@ -110,7 +110,7 @@ IFX_INTERRUPT(exti_ch1_ch5_isr, 0, EXTI_CH1_CH5_INT_PRIO)
     {
         exti_flag_clear(ERU_CH1_REQ10_P14_3);
 
-        tof_module_exti_handler();                  // ToF 模块 INT 更新中断
+        /* Unused application callback removed. */                  // ToF 模块 INT 更新中断
 
     }
 
@@ -141,7 +141,7 @@ IFX_INTERRUPT(exti_ch3_ch7_isr, 0, EXTI_CH3_CH7_INT_PRIO)
     if(exti_flag_get(ERU_CH3_REQ6_P02_0))           // 通道3中断
     {
         exti_flag_clear(ERU_CH3_REQ6_P02_0);
-        camera_vsync_handler();                     // 摄像头触发采集统一回调函数
+        /* Unused application callback removed. */                     // 摄像头触发采集统一回调函数
     }
     if(exti_flag_get(ERU_CH7_REQ16_P15_1))          // 通道7中断
     {
@@ -159,7 +159,7 @@ IFX_INTERRUPT(exti_ch3_ch7_isr, 0, EXTI_CH3_CH7_INT_PRIO)
 IFX_INTERRUPT(dma_ch5_isr, 0, DMA_INT_PRIO)
 {
     interrupt_global_enable(0);                     // 开启中断嵌套
-    camera_dma_handler();                           // 摄像头采集完成统一回调函数
+    /* Unused application callback removed. */                           // 摄像头采集完成统一回调函数
 }
 // **************************** DMA中断函数 ****************************
 
@@ -195,7 +195,7 @@ IFX_INTERRUPT(uart1_tx_isr, 0, UART1_TX_INT_PRIO)
 IFX_INTERRUPT(uart1_rx_isr, 0, UART1_RX_INT_PRIO)
 {
     interrupt_global_enable(0);                     // 开启中断嵌套
-    camera_uart_handler();                          // 摄像头参数配置统一回调函数
+    /* Unused application callback removed. */                          // 摄像头参数配置统一回调函数
 }
 
 // 串口2默认连接到无线转串口模块
@@ -228,7 +228,7 @@ IFX_INTERRUPT(uart3_rx_isr, 0, UART3_RX_INT_PRIO)
 {
     interrupt_global_enable(0);                     // 开启中断嵌套
     if (QCAR_DRIVER_UART == UART_3) uart_control_callback();
-    else Uart_Read();
+
 
 
 

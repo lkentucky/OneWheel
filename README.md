@@ -1,79 +1,132 @@
-# Qcar — TC264 独轮信标工程
+# OneWheelUpright — TC264 直立调试工程
 
-IMU 姿态解算现已移植自 MCARpreparation，默认 EKF，硬件为逐飞 IMU660RB。使用方法、轴映射、控制接口单位及验证说明见 [IMU.md](IMU.md)。
+基于上游 `7a053b2` 精简，只保留直立控制、IMU、驱动、IPS200 菜单、参数保存和 WiFi-SPI 遥测。应用中的信标/视觉识别、轨迹规划、遥控、旧 Mode0～2、旧速度级联及未使用的 MAF/Kalman/模糊/LQR 算法已经移除。逐飞/Infineon 通用 SDK 仍保留，避免破坏底层依赖；它们的摄像头接口不再从应用初始化或中断调用。
 
-MCARpreparation 的 WiFi-SPI UDP/JustFloat 传输已移植，支持通道订阅和 PID 滑块下发。从 **WiFi → Connect** 显式连接，接线、网络配置与命令见 [WIFI.md](WIFI.md)。
+当前版本已通过 ADS 1.10.10 / TASKING 全量构建（0错误、0警告）及13组主机回归，尚未烧录或实车验证。完整验证范围见 [VALIDATION.md](VALIDATION.md)。
 
-基于逐飞 `E13_dual_core_demo` 示例，将 [feng0511/monotroch](https://github.com/feng0511/monotroch) 的 TC377 应用移植到 TC264D。底层驱动、启动文件、TC26B iLLD 和链接脚本来自当前目录旁的 `TC264_Library`，应用算法来自 monotroch。
+## 快速使用
 
-## 中文编码
+1. 在 `code/config.h` 核对接线、WiFi、PC地址和控制参数；默认启动模式为 Mode7（仅行进轮角速度环）。
+2. 用 ADS 导入本目录的 `OneWheelUpright` 工程，选择 TASKING Debug 构建，烧录本次生成的 HEX。
+3. 上电后等待 IMU 标定完成，通过 Startup 菜单选择模式；联网需单独选择 `WiFi connect`。
+4. 单轴检查后，双轴直立选择 Mode5，再执行 Startup / Start；停车选择 Startup / Stop。Mode5没有速度/位置外环。
+5. 参数可从 PID 菜单或已支持的上位机命令调整；停车后用 Storage / Save 保存。新格式不读取旧版 Flash 参数。
 
-源码及文档统一使用 UTF-8。VS Code 直接打开 **Qcar 文件夹**，会自动应用 `.vscode/settings.json`；ADS 使用 `.settings/org.eclipse.core.resources.prefs` 中的工程级 UTF-8 设置。已打开的旧标签页需关闭后重新打开，ADS 可先选中工程按 F5 刷新。
+构建产物、IDE工作区和本地测试缓存不上传 Git；克隆后需在本机重新构建。
 
-已从原始副本恢复可逆的错误转码注释；原文已丢失的注释已结合函数、变量和算法重新写成中文说明。重写说明用于解释现有实现，不代表逐字还原原作者文字。已核对 C/H 文件的非注释内容未改变，字符串和算法保持原样。
+## 从哪里读代码
 
-## 导入与编译
+```text
+user/cpu0_main.c         app_init(); while(1) app_poll();
+code/app.c              系统初始化、应用轮询入口
+code/config.h           唯一应用配置入口：参数、引脚、网络、周期、滤波、IRQ
+code/balance_control.c  Mode3～7、控制状态、保护、限幅、启动斜坡
+code/pid.c/.h           通用位置式 / 增量式 PID，不依赖 TC264 SDK
+code/imu.c              SPI采样、静止标定、有效性检查、状态发布
+code/attitude.c         EKF姿态解算、加速度低通、创新门限
+code/attitude_algorithm.c  向控制层发布机体角速度和姿态
+code/menu.c             菜单、显式启停、参数编辑、联网、屏幕显示
+code/menu_tree.c        通用菜单树和静态节点池
+code/motor.c            行进轮 PWM+DIR
+code/small_driver_uart_control.c  无刷驱动7字节串口协议和转速反馈
+code/wifispi.c          JustFloat遥测、订阅、RAM参数写入
+code/flash.c            仅直立参数的保存、校验和恢复
+user/isr.c              1ms控制入口、5ms采样、1ms按键、串口反馈中断
+user/cpu1_main.c        CPU1空闲；不再处理图像或网络
+```
 
-1. 打开 AURIX Development Studio，选择 **File → Import → General → Existing Projects into Workspace**。
-2. 选择本目录，导入项目 **Qcar**。保持工程名为 Qcar。
-3. 选中工程，按 F5 刷新，选择 **Project → Build Project**，配置为 **Debug**。
-4. 产物位于 `Debug/Qcar.elf`、`Debug/Qcar.hex`，内存分配见 `Debug/Qcar.map`。
+`app_init()` 按顺序初始化时钟、调试口、IPS200、菜单/默认与保存参数，通知 CPU1，然后初始化零输出和 IMU。上电不自动启动电机、不自动联网。`app_poll()` 服务按键、IMU请求、开环测试、WiFi和显示；控制计算继续在中断中运行。
 
-验证环境：ADS 1.10.10，内置 TASKING 1.1r8 Build 22011964，处理器 `tc26xb`。内置非商业 TASKING 授权要求从 ADS 内编译；独立调用编译器会返回 F104，不能用普通终端脚本代替 IDE 构建。
+| 任务 | 默认周期 / 所在核 |
+|---|---|
+| 控制中断入口 CCU60_CH0 | 1ms / CPU0；每5次执行一次控制，即200Hz |
+| IMU CCU60_CH1 | 5ms / CPU0 |
+| 按键 CCU61_CH1 | 1ms / CPU0 |
+| 主循环 | 每轮末尾等待10ms；同步网络/屏幕操作会延长一轮 |
+| 屏幕 | 每5轮轮询刷新 |
+| 遥测 | Start/Connect选定配置时20ms；允许命令调整 |
 
-软件编译和链接通过不等于实车调试完成。本工程尚未连接开发板、烧录或验证运行周期。首次使用前需核对下表接线、IMU 坐标映射、编码器方向和电机极性；PID、相机标定及阈值保留上游参数，需要按车重新调试。
+## 一处调参数
 
-## 移植内容
+直接修改 `code/config.h`，重新编译、烧录。`qcar_config.h`、`imu_config.h` 已删除；驱动可调引脚/速率也引用此文件。`user/isr_config.h` 仅为 SDK 保留的包含入口，没有第二份参数值。
 
-| 内容 | TC264 实现 |
-| --- | --- |
-| CPU0 | 菜单、初始化、WiFi-SPI UDP 遥测、UART 接收中断、1 ms 级联控制中断、5 ms 姿态更新中断 |
-| CPU1 | 视觉识别、轨迹规划；编译关闭 UDP 遥测后可使用原 TCP 图传预览 |
-| CPU2 | TC264 不存在该核，已合并任务，无 CPU2 启动入口 |
-| 无刷驱动 | 原 UART4 改为 UART2，460800 波特，保留上游 7 字节协议 |
-| 逐飞助手 | 适配本地 TC264 库新版相机、示波器及参数解析接口；调试通信使用 UART0 |
-| 屏幕 | IPS200 SPI 横屏，补入上游目标框、轮廓和轨迹叠加显示 |
-| 视觉容量 | 原 200 项缓存统一改为 32 项；保留 188 × 120 分辨率和 40 帧历史窗口 |
-| 内存 | 连通域标签工作区放 CPU0 DSPR；其余视觉状态放 CPU1 DSPR；两核用户栈各 8 KiB |
-| 图像共享 | CPU1 在处理前复制一帧到工作缓存，识别与图传共用缓存，只有 CPU1 消费完成标志 |
-| 参数保存 | 使用 TC26B Flash 定义，参数页保持上游布局；新增版本标记，空 Flash 使用默认参数 |
+| 参数组 | 当前编译默认值 | 含义 |
+|---|---|---|
+| `BALANCE_ZERO_X_DEG` / `BALANCE_ZERO_Y_DEG` | 3.9° / -0.3° | 行进轮 / 飞轮机械目标角 |
+| `GROUND_RATE_KP` / `GROUND_ANGLE_KP` | 30 / 40 | 行进轮内环 / 外环增益 |
+| `FLY_RATE_KP` / `FLY_ANGLE_KP` | 35 / 50 | 飞轮内环 / 外环增益 |
+| `GROUND_RATE_LIMIT_DPS` / `FLY_RATE_LIMIT_DPS` | 100 / 80 °/s | 外环目标角速度限幅 |
+| `GROUND_PWM_LIMIT` / `FLY_PWM_LIMIT` | 4000 / 4000 | 输出指令限幅；不是电流限制 |
+| `*_OUTPUT_SIGN` | +1 / +1 | 已验证的纠偏方向，保持不变 |
+| `*_KI` / `*_KD` | 全部0 | 当前保持原 P/P 控制；启用积分还要设置相应 `*_I_LIMIT_*` |
+| `BALANCE_*_PID_INCREMENTAL` | 全部0 | 0位置式，1增量式；分别选择角度环和角速度环 |
+| `BALANCE_ANGLE_LPF_TAU_S` | 0.06秒 | 沿用上游角度低通；0关闭；改变会影响相位和稳定性 |
+| `BALANCE_STARTUP_RAMP_MS` | 1000ms | 启动PWM上限逐渐放开 |
+| `BALANCE_TILT_LIMIT_DEG` / `BALANCE_IMU_STALE_MS` | 30° / 25ms | 原始角度倾倒保护 / 控制采样过期保护 |
 
-连通域最多使用 31 个非零临时标签（32 项中第 0 项保留为背景）；容量用尽时跳过新增区域，防止访问数组边界之外。此限制也可能漏掉噪声很多的图像中的后续目标，应通过阈值和光学条件控制噪声。不要只增大 `QCAR_MAX_CONTOURS`，还要重新检查 map 的 RAM 余量。
+菜单和上位机修改的是 RAM 值。`QCAR_BOOT_LOAD_FLASH=1` 时，有效的新格式 Flash 记录会覆盖对应默认值；需要固定使用 config 默认值时设置为0。改 config 不会自动更新芯片里的保存记录。
 
-## 默认接线
+## 模式与菜单
 
-这些是工程采用的默认映射，尚未获得实际主板引脚表。应用侧配置集中于 `code/qcar_config.h`；摄像头、IMU、屏幕和 Wi-Fi 的完整配置仍位于各自的 `libraries/zf_device/zf_device_*.h`。
+| Mode | 控制内容 | 参数菜单 |
+|---|---|---|
+| 3 | 飞轮：角度环→角速度环 | PID / Gyro test |
+| 4 | 行进轮：角度环→角速度环 | PID / Pitch balance |
+| 5 | 上述两轴同时启用 | 两组菜单 |
+| 6 | 飞轮角速度环，目标角速度0 | PID / Gyro test |
+| 7（默认） | 行进轮角速度环，目标角速度0 | PID / Pitch balance |
 
-| 设备/用途 | TC264 引脚及配置 |
-| --- | --- |
-| 调试/逐飞助手 | UART0 TX=P14.0、RX=P14.1，波特率见 `zf_common_debug.h`；不再占用 UART2 无线串口模块 |
-| 无刷驱动 | UART2 TX=P33.9、RX=P33.8，460800；需与驱动的 RX/TX 交叉连接 |
-| 遥控接收 | UART3 TX=P15.6、RX=P15.7，115200 |
-| MT9V03X 配置 | UART1 TX=P02.2、RX=P02.3，9600 |
-| MT9V03X 图像 | D0～D7=P00.0～P00.7，PCLK=P02.1，VSYNC=P02.0，DMA5 |
+只允许3～7。Mode6/7抑制转动，不主动回到机械零点。Mode5没有速度/位置外环，不保证原地不动。
+
+注意沿用上游的轴命名：屏幕 Roll / 飞轮使用 `imu_pitch_deg` 与 `gyro.y`，机械零点是 Balance Y；屏幕 Pitch / 行进轮使用 `imu_roll_deg` 与 `gyro.x`，机械零点是 Balance X。上位机 `roll_deg` 对应 Balance X，`pitch_deg` 对应 Balance Y。
+
+菜单只剩 Startup、PID、Storage。WiFi连接移到 **Startup / WiFi connect**，不再有独立 WiFi、Vision、Vehicle、Trajectory 页面。Startup保留 Start/Stop、IMU重新标定预览、行进轮Open loop和Wheel PWM。
+
+K1上移/加，K2下移/减，K3进入/选中/切换步进，K4返回/取消选中。K4不是停车键；停车使用 Startup / Stop。改变Mode会先停车；保存和加载要求停车且退出预览。
+
+## PID与滤波
+
+`pid_position_update()` 计算绝对输出；`pid_incremental_update()` 累加输出增量。两个函数都接受独立状态、目标、反馈、秒为单位的 dt，带输出/积分限幅、条件抗积分饱和、首帧微分抑制和无效数值检查。
+
+每轴的角度环、角速度环各自拥有状态，停车/重启清空历史。默认 I/D=0、位置式，数值上保持原来的 P/P 路径：
+
+```text
+目标角速度 = clamp(Angle_KP × (机械零点 - 滤波角度), ±Rate_limit)
+输出 = round(clamp(Sign × Rate_KP × (目标角速度 - 机体角速度), ±PWM_limit×启动比例))
+```
+
+增量式与位置式在未饱和、固定增益时等价；饱和后增量式从上次限幅输出继续累加，不能假设两种形式表现相同。运行中切换算法应先停车并重新启动。
+
+保留的滤波只有正在使用的 EKF、其加速度低通/门限，以及控制外环角度一阶低通。当前没有新增角速度软件低通。倾倒和非有限值检查使用原始姿态，避免被角度低通延迟或掩盖。
+
+## 接线与网络
+
+| 用途 | 当前配置 |
+|---|---|
+| 行进轮 | P21.5，17kHz PWM；P21.4 DIR，正指令低 |
+| 无刷驱动 | UART3 TX=P15.6、RX=P15.7，460800，7字节A5协议 |
 | IMU660RB | SPI0 SCK=P20.11、MOSI=P20.14、MISO=P20.12、CS=P20.13 |
-| IPS200 SPI | SCK=P15.3、MOSI=P15.5、DC=P15.0、CS=P15.2、RST=P15.1、背光=P15.4 |
-| 中轮驱动 | PWM=ATOM0_CH5/P02.5，方向=P02.4，20 kHz |
-| 中轮编码器 | TIM6 CH1=P20.3、CH2=P20.0 |
-| EC11 编码器 | TIM5 CH1=P10.3、CH2=P10.1 |
-| 按键 | KEY1=P20.8、KEY2=P20.6、KEY3=P20.7、EC11 按键=P20.9 |
-| 可选 Wi-Fi SPI | SPI3 SCK=P22.3、MOSI=P22.0、MISO=P22.1、CS=P22.2、INT=P15.8、RST=P23.1 |
+| IPS200 SPI | SPI2 SCK=P15.3、MOSI=P15.5、DC=P15.0、CS=P15.2、RST=P15.1、背光=P15.4 |
+| WiFi-SPI | SPI3 SCK=P22.3、MOSI=P22.0、MISO=P22.1、CS=P22.2、INT=P15.8、RST=P23.1 |
+| K1/K2/K3/K4 | P20.6 / P20.7 / P11.2 / P11.3 |
+| 编码器初始化 | 仍沿用上游TIM6：计数P20.3、方向P20.0；当前Mode3～7未使用速度外环 |
 
-IMU 保留原车安装映射：车体 X/Y/Z 分别取传感器 Y/Z/X。不同安装方向必须调整 `code/attitude_algorithm.c` 中的 `imu660rb_GetData()`。
+如果实车编码器仍接 P33.7/P33.6，需要相应改 `MOTOR_ENCODER_*` 为 TIM2 映射并单独验证；本轮没有更改接线。屏幕、网络及电机配置保持已有数值。
 
-Wi-Fi UDP 功能默认编译启用，开机不自动联网；网络配置集中在 `code/qcar_config.h`，沿用 MCARpreparation 的当前配置。停车并退出预览后，从 WiFi → Connect 连接，随后可开启 IMU 预览或控制运行并持续遥测。原 CPU1 TCP 图传可在 `QCAR_WIFI_ENABLED=0` 时恢复，与 UDP 遥测互斥，详见 [WIFI.md](WIFI.md)。
+PC目标IP保持本地 **192.168.0.112**，接收端口 **8081**；模块命令端口 **5001**。WiFi名和密码仍在config中，未改动。上位机采用N个小端float32加尾标 `00 00 80 7F`，文本回执仍以MCAR开头。
 
-Flash 使用逻辑扇区 0、物理页 0～76；第 0 页保存移植版标记 `0x51434131`。不读取 TC377 设备的旧 Flash 数据。写入通过菜单 KEY3 触发，首次空片不会自动写入。标记用于区分版本，不包含校验和或掉电恢复。
+支持 LIST?、GET?、SUB、RATE、STREAM 和 `[slider,名称,值]`；STREAM 0只停遥测，不停电机。当前单轴34通道、双轴40通道、三轴姿态3通道及28通道诊断配置保持兼容。旧速度环遥测和旧cascade_* PID写入名已移除，不能再用于当前直立控制。保留的可写名见 `wifispi.c` 的 `g_slider_parameters`。
 
-## 主要文件
+## 参数保存
 
-菜单已替换为 mcar-mailun 的树形节点结构，操作与目录见 [MENU.md](MENU.md)。
+Storage / Save保存两轴KP、角度KP、输出限幅、目标角速度限幅、方向、机械零点和启动斜坡。使用新的直立专用格式，包含校验和、最后写入的提交标记及写后回读；不再读取视觉参数或旧PID记录。旧格式/损坏记录使用config默认值。I/D及算法选择是编译配置，不在这份RAM参数记录中。
 
-- `user/cpu0_main.c`、`user/cpu1_main.c`：双核入口。
-- `user/isr.c`：控制、姿态、相机 DMA/场中断及 UART 接收。
-- `code/pid.c`、`attitude_algorithm.c`：平衡、运动控制与姿态算法。
-- `code/image_process.c`、`component.c`、`target_classifier.c`：信标识别与跟踪。
-- `code/tragectory_planning.c`、`pixel2world.c`：轨迹规划及原车相机标定。
-- `code/menu.c`、`tune.c`、`flash.c`：调参、菜单与参数保存。
-- `THIRD_PARTY.md`：来源、版本及版权说明。
-- `VALIDATION.md`：编译验证记录。
+Flash写入和恢复采样必须停车执行。主机测试验证序列化和错误拒绝，不代表已验证实车DFlash硬件。
+
+## 编译、验证
+
+在 ADS 1.10.10 中使用 File → Import → General → Existing Projects into Workspace 导入本目录的 **OneWheelUpright**，选Debug，刷新后构建。工程元数据、TC26B链接脚本和逐飞配置静态库已随仓库保留；内置TASKING需要通过ADS调用。
+
+产物是 `Debug/OneWheelUpright.elf`、`.hex`、`.map`。烧录选本次HEX，芯片和下载接口仍按实物；本轮没有烧录或实车验证。
+
+主机回归：`python tests/run_all.py`（需要GCC）；也可 `python tests/run_all.py --compiler <zig.exe路径>`。测试会显式开启assert，覆盖真实C实现的PID、双轴控制、保护、IMU/EKF、Flash、按键、菜单、SPI及WiFi。验收边界见 [VALIDATION.md](VALIDATION.md)。来源与版权见 [THIRD_PARTY.md](THIRD_PARTY.md)。

@@ -81,6 +81,6 @@ with tempfile.TemporaryDirectory(prefix='qcar-debounce-') as directory:
         (work/name).write_text(stub,encoding='utf-8')
     (work/'test.c').write_text(test,encoding='utf-8')
     exe=work/'test.exe'
-    subprocess.run(['gcc','-std=c99','-I'+str(work),str(work/'zf_device_key.c'),
+    subprocess.run(['gcc','-std=c99','-I'+str(work),'-I'+str(root/'code'),str(work/'zf_device_key.c'),
                     str(work/'test.c'),'-o',str(exe)],check=True)
     subprocess.run([str(exe)],check=True,timeout=5)

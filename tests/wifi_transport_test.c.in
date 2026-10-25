@@ -1,7 +1,7 @@
 /* Actual transport, simulated hardware. Kept out of ADS firmware scanning. */
 #include "wifispi.h"
 #include "imu.h"
-#include "pid.h"
+#include "balance_control.h"
 #include <assert.h>
 #include <math.h>
 #include <stdio.h>
@@ -41,7 +41,7 @@ volatile float imu_accel_norm_g=1.0f, imu_calibration_percent=100, imu_gyro_bias
 volatile float imu_sample_dt_ms=5, imu_solve_us=21, imu_solve_max_us=35;
 volatile float imu_ekf_nis=0.25f, imu_ekf_bias_xy_dps[2]={0.1f,-0.2f};
 volatile uint32 imu_sample_sequence=1234;
-volatile uint32 imu_spi_timeouts,imu_not_ready_samples,imu_last_status_reg;
+volatile uint32 imu_spi_timeouts,imu_not_ready_samples,imu_last_status_reg,imu_bad_bursts;
 volatile uint8 rate_only_test;
 volatile int32 control_fault_reason,control_fault_imu_status;
 volatile uint32 control_fault_seq;
@@ -63,15 +63,13 @@ float pitch_balance_kp=0.5f, pitch_balance_rate_limit=20;
 float roll_rate_test_kp=20, roll_rate_test_sign=1, roll_rate_test_limit=1000;
 int16 costrained_flywheel_speed_left=250, costrained_flywheel_speed_right=250;
 small_device_value_struct motor_value;
+volatile float small_driver_test_left,small_driver_test_right;
 volatile uint32 small_driver_speed_frames=123;
 int16_t real_speed=88;
 Mono_params mono_params;
 float cascade_vel_out, cascade_vel_out_p, cascade_vel_out_y;
 float cascade_angle_out, cascade_angle_out_p, cascade_angle_out_y;
 float cascade_angle_vel_out, cascade_angle_vel_out_p, cascade_angle_vel_out_y;
-pid_param_t cascade_vel_roll, cascade_vel_pitch, cascade_vel_yaw;
-pid_param_t cascade_ang_roll, cascade_ang_pitch, cascade_ang_yaw;
-pid_param_t cascade_ang_vel_roll, cascade_ang_vel_pitch, cascade_ang_vel_yaw;
 uint32 IfxStm_getLower(int *stm) { assert(stm==&host_stm); return ticks; }
 float IfxStm_getFrequency(int *stm) { assert(stm==&host_stm); return 100000000.0f; }
 uint32 interrupt_global_disable(void) { assert(!irq_disabled); irq_disabled=1; return 7; }
@@ -154,12 +152,12 @@ static void test_transport(void)
         assert(fclose(file)==0);
     }
 
-    command(" SUB wheel_speed,gyro_z_dps,imu_seq,ekf_nis \r\n");
-    assert(has_reply("MCAR SUB wheel_speed,gyro_z_dps,imu_seq,ekf_nis\n"));
-    assert(last_value(0,4)==88 && last_value(1,4)==3 && last_value(2,4)==1234);
-    const char *bad[]={"SUB wheel_speed,bad\n", "SUB wheel_speed,wheel_speed\n", "SUB wheel_speed,\n", "SUB \n"};
+    command(" SUB imu_cal_percent,gyro_z_dps,imu_seq,ekf_nis \r\n");
+    assert(has_reply("MCAR SUB imu_cal_percent,gyro_z_dps,imu_seq,ekf_nis\n"));
+    assert(last_value(0,4)==100 && last_value(1,4)==3 && last_value(2,4)==1234);
+    const char *bad[]={"SUB imu_cal_percent,bad\n", "SUB imu_cal_percent,imu_cal_percent\n", "SUB imu_cal_percent,\n", "SUB \n"};
     for(unsigned i=0;i<sizeof(bad)/sizeof(bad[0]);++i) {
-        command(bad[i]); assert(wifi_telemetry_channel_count==4 && last_value(0,4)==88);
+        command(bad[i]); assert(wifi_telemetry_channel_count==4 && last_value(0,4)==100);
     }
     command("RATE 0\nRATE -1\nRATE 1001\nRATE 2x\nRATE 99999999999999999999999\n");
     assert(wifi_telemetry_period_ms==10);
@@ -168,32 +166,32 @@ static void test_transport(void)
     assert(has_reply("MCAR RATE 10\n") && has_reply("MCAR STREAM 0\n"));
     assert(has_reply("MCAR RATE 1000\n") && rx_calls>0);
     command("STREAM 1\nRATE 2\n"); assert(wifi_telemetry_stream_enabled && wifi_telemetry_period_ms==2);
-    command("[slider,cascade_ang_roll.kp,2.5]");
-    assert(cascade_ang_roll.kp==2.5f && has_reply("MCAR SLIDER cascade_ang_roll.kp 2.5\n"));
+    command("[slider,ground_angle_kp,2.5]");
+    assert(ground_angle_kp==2.5f && has_reply("MCAR SLIDER ground_angle_kp 2.5\n"));
     command("[\"slider\",\"balance_angle_x\",-1.25e1]\n");
     assert(mono_params.balance_angle_x==-12.5f);
-    command("[slider,cascade_ang_roll.kp,");
-    command("3.0][slider,cascade_ang_roll.ki,0.5]RATE 20\n");
-    assert(cascade_ang_roll.kp==3 && cascade_ang_roll.ki==0.5f && wifi_telemetry_period_ms==20);
+    command("[slider,ground_angle_kp,");
+    command("3.0][slider,pitch_balance_kp,0.5]RATE 20\n");
+    assert(ground_angle_kp==3 && pitch_balance_kp==0.5f && wifi_telemetry_period_ms==20);
     const char *bad_slider[]={
-        "[slider,cascade_ang_roll.kp,NaN]", "[slider,cascade_ang_roll.kp,1e100]",
-        "[slider,cascade_ang_roll.kp,0x1p0]", "[slider,cascade_ang_roll.kp,1,2]",
-        "[slider,cascade_ang_roll.kp,-1]", "[slider,cascade_ang_roll.kp,1001]",
+        "[slider,ground_angle_kp,NaN]", "[slider,ground_angle_kp,1e100]",
+        "[slider,ground_angle_kp,0x1p0]", "[slider,ground_angle_kp,1,2]",
+        "[slider,ground_angle_kp,-1]", "[slider,ground_angle_kp,1001]",
         "[slider,run,1]", "[slider,balance_angle_x,46]", "GOTO 1 20 20 0\n", "STOP 2\n",
-        "[slider,cascade_ang_roll.kp,[slider,cascade_ang_roll.kp,9]]\n"
+        "[slider,ground_angle_kp,[slider,ground_angle_kp,9]]\n"
     };
     for(unsigned i=0;i<sizeof(bad_slider)/sizeof(bad_slider[0]);++i) {
         uint32 errors=wifi_telemetry_command_errors;
         command(bad_slider[i]);
-        assert(wifi_telemetry_command_errors>errors && cascade_ang_roll.kp==3);
+        assert(wifi_telemetry_command_errors>errors && ground_angle_kp==3);
         assert(mono_params.balance_angle_x==-12.5f);
     }
     char huge[1100]; memset(huge,'x',sizeof(huge)); queue(huge,sizeof(huge));
     command("\nSUB roll_deg,pitch_deg,yaw_deg\n");
     assert(has_reply("MCAR ERR invalid or oversized line\n") && wifi_telemetry_channel_count==3);
-    command("[slider,cascade_ang_roll.kp,");
+    command("[slider,ground_angle_kp,");
     const char binary[]={0,'7',']'}; queue(binary,sizeof(binary)); command("\n");
-    assert(cascade_ang_roll.kp==3 && has_reply("MCAR ERR invalid or oversized line\n"));
+    assert(ground_angle_kp==3 && has_reply("MCAR ERR invalid or oversized line\n"));
     command("RATE 10\n"); packet_count=0;
     ticks=UINT32_MAX-500000u; wifispi_telemetry_service(); packet_count=0;
     advance(10); assert(last_value(0,3)==12); /* STM wrap-around. */
@@ -244,7 +242,7 @@ static void test_transport(void)
         FILE *file=fopen(getenv("QCAR_WIFI_ANGLE_FIXTURE"),"wb");assert(file);
         assert(fwrite(datagrams[packet_count-1],1,sizes[packet_count-1],file)==116);assert(fclose(file)==0);
     }
-    pitch_balance_target_rate=0;
+    pitch_balance_target_rate=0;ground_angle_kp=0;
     ground_rate_test_enabled=1;ground_rate_test_kp=25;ground_rate_test_limit=1000;ground_rate_test_sign=-1;
     costrained_wheel_speed=321;roll_rate_test_pwm=1000;
     command("SUB rate_axis,motor_ground_pwm,rate_kp,rate_sign,rate_pwm_limit,balance_kp,balance_rate_limit_dps,balance_rate_saturated,balance_pwm_saturated\n");

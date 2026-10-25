@@ -124,33 +124,12 @@
 
 
 #include <stdlib.h>
-#include "qcar_config.h"
+#include "config.h"
 #include "qcar_types.h"
-#include "LQ_telecontrol.h"
 #include "attitude_algorithm.h"
-#include "key_state_update.h"
-#include "pid.h"
+#include "balance_control.h"
 #include "motor.h"
 #include "menu.h"
-#include "image_process.h"
 #include "flash.h"
-#include "fuzzy_control.h"
-#include "tune.h"
-#include "LQR.h"
 #include "small_driver_uart_control.h"
-#include "MAF.h"
-#include "tragectory_planning.h"
-#include "findcontours.h"
-#include "component.h"
-#include "contourfilter.h"
-#include "morphology.h"
-#include "otus.h"
-#include "mlp.h"
-#include "pixel2world.h"
-#include "target_classifier.h"
-#include "qcar_display.h"
-//#include "sobel.h"
-// 用户应用头文件。
-
-
 #endif

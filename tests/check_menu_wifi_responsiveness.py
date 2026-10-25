@@ -29,7 +29,7 @@ static uint8_t step_index=2;
 static bool wifi_connecting;
 static Menu_Item *wifi_deferred_item;
 static bool wifi_deferred_value;
-static bool start_switch,stop_switch,camera_switch,imu_switch,wheel_switch,wifi_switch,save_switch,load_switch;
+static bool start_switch,stop_switch,imu_switch,wheel_switch,wifi_switch,save_switch,load_switch;
 static int running,preview,refresh_divider,run_mode;
 static int imu_wifi_status,ready,in_driver,scenario,cancels,starts,stops,saves,network_calls,draws;
 static int MODULE_STM0;
@@ -47,7 +47,6 @@ static void key_consume_state(key_index_enum key,key_state_enum event) {
 }
 static void start_car(void) {assert(!in_driver && !wifi_connecting);++starts;running=1;}
 static void stop_car(void) {assert(!in_driver && !wifi_connecting);++stops;running=preview=0;}
-static void camera_preview(void) {assert(!in_driver);preview=1;}
 static void imu_preview(void) {assert(!in_driver);preview=2;}
 static void wheel_pwm_test(void) {assert(!in_driver);preview=3;}
 static void save_params(void) {assert(!in_driver && !wifi_connecting);++saves;}

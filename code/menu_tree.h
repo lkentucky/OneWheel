@@ -5,8 +5,9 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <stdbool.h>
+#include "config.h"
 
-#define MENU_MAX_SIZE 128        //菜单项最大数量
+#define MENU_MAX_SIZE APP_MENU_CAPACITY        //菜单项最大数量
 
 //菜单项类型
 typedef enum Menu_Kind
@@ -37,11 +38,11 @@ typedef struct Menu_Item
     struct Menu_Item *First_Son;        //第一个子文件/子文件夹节点
     struct Menu_Item *Next_Brother;     //下一个文件/文件夹节点
     struct Menu_Item *Last_Brother;     //上一个文件/文件夹节点
-    
+
 } Menu_Item;
 
 //使链表节点首尾相连循环实现文件夹内文件的循环切换
-void All_Folder_Menu_Init(Menu_Item *Menu);    
+void All_Folder_Menu_Init(Menu_Item *Menu);
 
 //创建文件夹     参数：(父文件夹地址，新建文件夹地址，文件夹名称)
 void Create_Menu_Folder(Menu_Item *Father, Menu_Item *me, const char name[]);

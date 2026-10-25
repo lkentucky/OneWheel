@@ -1,5 +1,5 @@
 #include "imu.h"
-#include "imu_config.h"
+#include "config.h"
 #include "attitude_algorithm.h"
 #include "zf_device_imu660rb.h"
 #include <assert.h>
@@ -84,6 +84,8 @@ int main(void) {
     /* Unwrapped yaw must cross +/-180 without a 360-degree discontinuity. */
     raw_g[0]+=1430;
     for(unsigned i=0;i<800;++i) tick();
+    if(fabsf(attitude_state.True_yaw-400)>=.1f)
+        fprintf(stderr,"yaw=%f rate=%f seq=%lu state=%ld dt=%f\n",attitude_state.True_yaw,attitude_state.gyro.z,(unsigned long)imu_sample_sequence,(long)imu_attitude_status,imu_sample_dt_ms);
     assert(fabsf(attitude_state.True_yaw-400)<.1f);
     /* Check side-tilt rate feeds roll and fore/aft rate feeds pitch. */
     raw_g[0]=14;raw_g[1]=-28;raw_g[2]=42;

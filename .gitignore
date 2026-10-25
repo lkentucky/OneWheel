@@ -17,3 +17,12 @@
 /Release/
 /Build/
 /.ads/
+
+# Required ADS project/linker metadata and vendor configuration archive
+!/.project
+!/.cproject
+!/*.lsl
+!/libraries/zf_device/zf_device_config.a
+
+!/.settings/com.infineon.aurix.buildsystem.prefs
+!/.settings/org.eclipse.core.resources.prefs

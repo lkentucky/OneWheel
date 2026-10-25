@@ -9,7 +9,7 @@
 #include "zf_common_interrupt.h"
 #include "zf_device_wifi_spi.h"
 #include "zf_driver_delay.h"
-#include "pid.h"
+#include "balance_control.h"
 #include "small_driver_uart_control.h"
 #include <errno.h>
 #include <math.h>
@@ -70,12 +70,6 @@ static float g_telemetry_ms;
     X(ekf_bias_x_dps, imu_ekf_bias_xy_dps[0]) X(ekf_bias_y_dps, imu_ekf_bias_xy_dps[1]) \
     X(imu_seq, imu_sample_sequence) X(imu_method, imu_attitude_method) \
     X(accel_norm_g, imu_accel_norm_g) X(gyro_z_integral_deg, imu_gyro_z_integral_deg) \
-    X(wheel_speed, real_speed) X(target_speed, mono_params.setspeed) \
-    X(pitch_speed_out, cascade_vel_out) X(roll_speed_out, cascade_vel_out_p) \
-    X(yaw_speed_out, cascade_vel_out_y) X(pitch_angle_out, cascade_angle_out) \
-    X(roll_angle_out, cascade_angle_out_p) X(yaw_angle_out, cascade_angle_out_y) \
-    X(pitch_gyro_out, cascade_angle_vel_out) X(roll_gyro_out, cascade_angle_vel_out_p) \
-    X(yaw_gyro_out, cascade_angle_vel_out_y) \
     X(telemetry_ms, g_telemetry_ms) X(rate_seq, roll_rate_test_sequence) \
     X(rate_target_dps, pitch_balance_target_rate) X(rate_actual_dps, roll_rate_test_actual) \
     X(rate_error_dps, roll_rate_test_error) X(rate_pwm, roll_rate_test_pwm) \
@@ -145,15 +139,10 @@ static int g_slider_receiving;
  * when another application variable should be editable from the host. */
 typedef struct {
     const char *name;
-    float *value;
+    volatile float *value;
     float minimum, maximum;
 } slider_parameter_t;
-#define SLIDER_PID(pid, term) {#pid "." #term, &pid.term, 0.0f, 1000.0f}
-#define SLIDER_GAINS(pid) SLIDER_PID(pid, kp), SLIDER_PID(pid, ki), SLIDER_PID(pid, kd)
 static const slider_parameter_t g_slider_parameters[] = {
-    SLIDER_GAINS(cascade_vel_roll), SLIDER_GAINS(cascade_vel_pitch), SLIDER_GAINS(cascade_vel_yaw),
-    SLIDER_GAINS(cascade_ang_roll), SLIDER_GAINS(cascade_ang_pitch), SLIDER_GAINS(cascade_ang_yaw),
-    SLIDER_GAINS(cascade_ang_vel_roll), SLIDER_GAINS(cascade_ang_vel_pitch), SLIDER_GAINS(cascade_ang_vel_yaw),
     /* 单轴环在线调参（Mode 7 地轮）。范围与 pid.c 的运行期校验一致：
      * Kp>500、limit>4000、Sign 不是 ±1 都会锁存 F=6，所以不要用 0 做 Sign。 */
     {"rate_kp", &ground_rate_test_kp, 0.0f, 500.0f},
@@ -171,11 +160,9 @@ static const slider_parameter_t g_slider_parameters[] = {
     {"fly_test_left", &small_driver_test_left, -4000.0f, 4000.0f},
     {"fly_test_right", &small_driver_test_right, -4000.0f, 4000.0f},
     {"ground_rate_limit_dps", &ground_angle_rate_limit, 0.1f, 100.0f},
-    {"balance_angle_x", &mono_params.balance_angle_x, -45.0f, 45.0f},
-    {"balance_angle_y", &mono_params.balance_angle_y, -45.0f, 45.0f}
+    {"balance_angle_x", &mono_params.balance_angle_x, -20.0f, 20.0f},
+    {"balance_angle_y", &mono_params.balance_angle_y, -20.0f, 20.0f}
 };
-#undef SLIDER_GAINS
-#undef SLIDER_PID
 
 static void telemetry_reset(void)
 {
@@ -534,7 +521,7 @@ void wifispi_telemetry_angle_profile(void)
     static const uint8_t channels[]={TV_telemetry_ms,TV_rate_seq,TV_imu_seq,TV_imu_status,TV_rate_state,TV_rate_enabled,TV_balance_target_deg,TV_balance_actual_deg,TV_balance_error_deg,TV_rate_target_dps,TV_rate_actual_dps,TV_rate_error_dps,TV_rate_pwm,TV_motor_left_pwm,TV_motor_right_pwm,TV_balance_kp,TV_rate_kp,TV_rate_sign,TV_balance_rate_limit_dps,TV_rate_pwm_limit,TV_balance_rate_saturated,TV_balance_pwm_saturated,TV_flywheel_left_speed_raw,TV_flywheel_right_speed_raw,TV_driver_speed_frames,TV_imu_dt_ms,TV_roll_deg,TV_pitch_deg};
     memcpy(g_channels,channels,sizeof(channels));
     wifi_telemetry_channel_count=sizeof(channels)/sizeof(channels[0]);
-    wifi_telemetry_period_ms=20;
+    wifi_telemetry_period_ms=APP_TELEMETRY_PROFILE_MS;
     wifi_telemetry_stream_enabled=1;
     g_announce_pending=1;
 #endif
@@ -545,7 +532,7 @@ void wifispi_telemetry_startup_profile(void)
 #if QCAR_WIFI_ENABLED
     static const uint8_t channels[]={TV_telemetry_ms,TV_rate_seq,TV_imu_seq,TV_imu_status,TV_rate_state,TV_rate_enabled,TV_balance_target_deg,TV_balance_actual_deg,TV_balance_error_deg,TV_rate_target_dps,TV_rate_actual_dps,TV_rate_error_dps,TV_rate_pwm,TV_motor_left_pwm,TV_motor_right_pwm,TV_balance_kp,TV_rate_kp,TV_rate_sign,TV_balance_rate_limit_dps,TV_rate_pwm_limit,TV_balance_rate_saturated,TV_balance_pwm_saturated,TV_imu_dt_ms,TV_rate_axis,TV_rate_only,TV_startup_scale,TV_startup_ramp_ms,TV_fault_reason,TV_fault_imu_status,TV_fault_imu_seq,TV_fault_imu_dt_ms,TV_imu_spi_timeouts,TV_imu_not_ready,TV_imu_status_reg};
     memcpy(g_channels,channels,sizeof(channels));
-    wifi_telemetry_channel_count=sizeof(channels);wifi_telemetry_period_ms=20;
+    wifi_telemetry_channel_count=sizeof(channels);wifi_telemetry_period_ms=APP_TELEMETRY_PROFILE_MS;
     wifi_telemetry_stream_enabled=1;g_announce_pending=1;
 #endif
 }
@@ -555,7 +542,7 @@ void wifispi_telemetry_dual_profile(void)
 #if QCAR_WIFI_ENABLED
     static const uint8_t channels[]={TV_telemetry_ms,TV_rate_seq,TV_imu_seq,TV_imu_status,TV_rate_state,TV_dual_enabled,TV_dual_roll_actual_deg,TV_dual_roll_target_deg,TV_dual_roll_error_deg,TV_dual_roll_target_rate_dps,TV_dual_roll_rate_dps,TV_dual_roll_rate_error_dps,TV_dual_roll_pwm,TV_dual_pitch_actual_deg,TV_dual_pitch_target_deg,TV_dual_pitch_error_deg,TV_dual_pitch_target_rate_dps,TV_dual_pitch_rate_dps,TV_dual_pitch_rate_error_dps,TV_dual_pitch_pwm,TV_fly_angle_kp,TV_fly_rate_kp,TV_fly_sign,TV_fly_rate_limit_dps,TV_fly_pwm_limit,TV_ground_angle_kp,TV_ground_rate_kp,TV_ground_sign,TV_ground_rate_limit_dps,TV_ground_pwm_limit,TV_motor_left_pwm,TV_motor_right_pwm,TV_motor_ground_pwm,TV_imu_dt_ms,TV_fault_reason,TV_fault_imu_status,TV_fault_imu_dt_ms,TV_imu_spi_timeouts,TV_imu_not_ready,TV_startup_scale};
     memcpy(g_channels,channels,sizeof(channels));
-    wifi_telemetry_channel_count=40;wifi_telemetry_period_ms=20;
+    wifi_telemetry_channel_count=40;wifi_telemetry_period_ms=APP_TELEMETRY_PROFILE_MS;
     wifi_telemetry_stream_enabled=1;g_announce_pending=1;
 #endif
 }

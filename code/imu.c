@@ -2,7 +2,7 @@
  * TC264 STM0 clock, +/-8g and +/-2000dps. */
 #include "imu.h"
 #include "attitude.h"
-#include "imu_config.h"
+#include "config.h"
 #include "IfxStm.h"
 #include "attitude_algorithm.h"
 #include "zf_common_interrupt.h"
@@ -248,21 +248,6 @@ void imu_prepare_start(void)
     interrupt_global_enable(primask);
     imu_service();
 }
-/* 10ms 周期由 app_navigation 调用：融合层静止检测（轮速<0.3cm/s、陀螺
- * <1.5dps、加速度<0.25m/s²，连续确认）给出的深度静止秒数达到门槛后，
- * 把 z 轴零偏往当前原始读数缓慢拉（tau=5s，限幅 ±1dps），补偿温漂。
- * 零偏是速率级修正，姿态/航向输出连续无跳变。 */
-void imu_track_gyro_bias(float stationary_seconds, float dt_s)
-{
-    if (!g_update_enabled || !g_calibrated || g_recalibration_requested) return;
-    if (imu_attitude_status!=IMU_ATTITUDE_RUNNING) return;
-    if (!(stationary_seconds>=IMU_BIAS_TRACK_MIN_STILL_S)) return;
-    if (calibration_track_gyro_z(&g_calibration, imu_gyro_dps[2], dt_s))
-        imu_gyro_bias_z_dps=g_calibration.bias_dps[2];
-}
-/* Flash 擦写等长时间关中断会让采样间隔超过 MAX_SAMPLE_DT，锁止到 BAD_DT。
- * 在干扰源结束后调用：清除锁止、重建采样时间基准，保留已有标定与姿态，
- * 不递增 generation，导航无需重新 Zero。 */
 void imu_recover_after_stall(void)
 {
     uint32 primask;

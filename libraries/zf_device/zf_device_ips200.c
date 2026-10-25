@@ -335,11 +335,11 @@ static void ips200_set_region (uint16 x1, uint16 y1, uint16 x2, uint16 y2)
     ips200_write_command(0x2a);
     ips200_write_16bit_data(x1);
     ips200_write_16bit_data(x2);
-    
+
     ips200_write_command(0x2b);
     ips200_write_16bit_data(y1);
     ips200_write_16bit_data(y2);
-    
+
     ips200_write_command(0x2c);
 }
 
@@ -378,7 +378,7 @@ static void ips200_debug_init (void)
     }
     info.output_screen = ips200_show_string;
     info.output_screen_clear = ips200_clear;
-        
+
     debug_output_init(&info);
 }
 
@@ -698,7 +698,7 @@ void ips200_show_string (uint16 x, uint16 y, const char dat[])
     // 那么一般是屏幕显示的时候超过屏幕分辨率范围了
     zf_assert(x < ips200_width_max);
     zf_assert(y < ips200_height_max);
-    
+
     uint16 j = 0;
     while('\0' != dat[j])
     {
@@ -1047,7 +1047,7 @@ void ips200_show_wave (uint16 x, uint16 y, const uint16 *wave, uint16 width, uin
     {
         for(i = 0; i < dis_width; i ++)
         {
-            data_buffer[i] = (ips200_bgcolor); 
+            data_buffer[i] = (ips200_bgcolor);
         }
         ips200_write_16bit_data_array(data_buffer, dis_width);
     }
@@ -1084,18 +1084,18 @@ void ips200_show_chinese (uint16 x, uint16 y, uint8 size, const uint8 *chinese_b
     zf_assert(y < ips200_height_max);
     zf_assert(NULL != chinese_buffer);
 
-    int i = 0, j = 0, k = 0; 
+    int i = 0, j = 0, k = 0;
     uint8 temp = 0, temp1 = 0, temp2 = 0;
     const uint8 *p_data = chinese_buffer;
-    
+
     temp2 = size / 8;
-    
+
     if(IPS200_TYPE_SPI == ips200_display_type)
     {
         IPS200_CS(0);
     }
     ips200_set_region(x, y, number * size - 1 + x, y + size - 1);
-    
+
     for(i = 0; i < size; i ++)
     {
         temp1 = number;
@@ -1119,7 +1119,7 @@ void ips200_show_chinese (uint16 x, uint16 y, uint8 size, const uint8 *chinese_b
                 p_data ++;
             }
             p_data = p_data - temp2 + temp2 * size;
-        }   
+        }
     }
     if(IPS200_TYPE_SPI == ips200_display_type)
     {
@@ -1182,13 +1182,13 @@ void ips200_init (ips200_type_enum type_select)
 
     ips200_set_dir(ips200_display_dir);
     ips200_set_color(ips200_pencolor, ips200_bgcolor);
-    
+
     IPS200_BL(1);
-    IPS200_RST(0);  
+    IPS200_RST(0);
     system_delay_ms(5);
-    IPS200_RST(1);      
+    IPS200_RST(1);
     system_delay_ms(120);
-    
+
     if(IPS200_TYPE_SPI == ips200_display_type)
     {
         IPS200_CS(0);
@@ -1207,7 +1207,7 @@ void ips200_init (ips200_type_enum type_select)
 
     ips200_write_command(0x3A);
     ips200_write_8bit_data(0x05);
-    
+
     ips200_write_command(0xB2);
     ips200_write_8bit_data(0x0C);
     ips200_write_8bit_data(0x0C);
@@ -1225,7 +1225,7 @@ void ips200_init (ips200_type_enum type_select)
     ips200_write_8bit_data(0x01);
 
     ips200_write_command(0xC3);
-    ips200_write_8bit_data(0x19);                                               // GVDD=4.8V 
+    ips200_write_8bit_data(0x19);                                               // GVDD=4.8V
 
     ips200_write_command(0xC4);
     ips200_write_8bit_data(0x20);                                               // VDV, 0x20:0v
@@ -1239,7 +1239,7 @@ void ips200_init (ips200_type_enum type_select)
     ips200_write_command(0xD0);
     ips200_write_8bit_data(0xA4);
     ips200_write_8bit_data(0xA1);
-                
+
     ips200_write_command(0xE0);
     ips200_write_8bit_data(0xD0);
     ips200_write_8bit_data(0x08);
@@ -1256,7 +1256,7 @@ void ips200_init (ips200_type_enum type_select)
     ips200_write_8bit_data(0x31);
     ips200_write_8bit_data(0x34);
 
-    ips200_write_command(0xE1);  
+    ips200_write_command(0xE1);
     ips200_write_8bit_data(0xD0);
     ips200_write_8bit_data(0x08);
     ips200_write_8bit_data(0x0E);
@@ -1273,7 +1273,7 @@ void ips200_init (ips200_type_enum type_select)
     ips200_write_8bit_data(0x34);
 
     ips200_write_command(0x21);
-    
+
     ips200_write_command(0x29);
     if(IPS200_TYPE_SPI == ips200_display_type)
     {
@@ -1286,525 +1286,3 @@ void ips200_init (ips200_type_enum type_select)
 
 
 #include "zf_common_headfile.h"
-void ips200_show_gray_image_with_highlight(
-    uint16 x, uint16 y, const uint8 *image, uint16 width, uint16 height,
-    uint16 dis_width, uint16 dis_height, uint8 threshold,
-    int16_t highlight_row, int16_t highlight_col)  
-{
-    
-    
-    zf_assert(x < ips200_width_max);
-    zf_assert(y < ips200_height_max);
-    zf_assert(NULL != image);
-
-    uint32 i = 0, j = 0;
-    uint16 color = 0, temp = 0;
-    uint16 data_buffer[dis_width];
-    const uint8 *image_temp;
-
-    if (IPS200_TYPE_SPI == ips200_display_type) {
-        IPS200_CS(0);
-    }
-
-    ips200_set_region(x, y, x + dis_width - 1, y + dis_height - 1);  
-
-    for (j = 0; j < dis_height; j++) {
-        image_temp = image + j * height / dis_height * width;  
-
-        for (i = 0; i < dis_width; i++) {
-            temp = *(image_temp + i * width / dis_width);  
-
-            
-            if (j == highlight_row || i == highlight_col) {
-                data_buffer[i] = RGB565_WHITE;  
-            } else {
-                if (threshold == 0) {
-                    color = (0x001f & ((temp) >> 3)) << 11;
-                    color = color | (((0x003f) & ((temp) >> 2)) << 5);
-                    color = color | (0x001f & ((temp) >> 3));
-                    data_buffer[i] = (color);
-                } else if (temp < threshold) {
-                    data_buffer[i] = (RGB565_BLACK);
-                } else {
-                    data_buffer[i] = (RGB565_WHITE);
-                }
-            }
-        }
-        ips200_write_16bit_data_array(data_buffer, dis_width);
-    }
-
-    if (IPS200_TYPE_SPI == ips200_display_type) {
-        IPS200_CS(1);
-    }
-}
-
-void ips200_show_gray_image_with_multi_highlight(
-    uint16 x, uint16 y, ImageInfo* imageinfo,
-    uint16 dis_width, uint16 dis_height,uint8_t threshold)
-{
-    zf_assert(x < ips200_width_max);
-    zf_assert(y < ips200_height_max);
-    zf_assert(NULL != imageinfo->binaryimage[0]);
-
-    
-    int highlightCount = imageinfo->numContours > 3 ? 3 : imageinfo->numContours;
-    
-    
-    uint16 highlight_colors[5] = { RGB565_RED, RGB565_YELLOW, RGB565_GREEN, RGB565_BLUE, RGB565_PURPLE };
-
-    int highlight_rows[5] = {0};
-    int highlight_cols[5] = {0};
-    for (int k = 0; k < highlightCount; k++) {
-        highlight_cols[k] = (int)((imageinfo->contour_filter[k].cx * dis_width) / imageinfo->width + 0.5);
-        highlight_rows[k] = (int)((imageinfo->contour_filter[k].cy * dis_height) / imageinfo->height + 0.5);
-    }
-
-    uint32 i = 0, j = 0;
-    uint16 color = 0;
-    uint16 data_buffer[dis_width];
-    const uint8 *image_temp;
-    int cross_half = 5;
-
-    if (IPS200_TYPE_SPI == ips200_display_type) {
-        IPS200_CS(0);
-    }
-
-    ips200_set_region(x, y, x + dis_width - 1, y + dis_height - 1);
-
-    for (j = 0; j < dis_height; j++) {
-        image_temp = imageinfo->binaryimage[0] + (j * imageinfo->height / dis_height) * imageinfo->width;
-
-        for (i = 0; i < dis_width; i++) {
-            uint8 pixel = *(image_temp + i * imageinfo->width / dis_width);
-
-            
-            if (pixel == 0) {
-                color = RGB565_BLACK;
-            } else {
-                color = RGB565_WHITE;
-            }
-
-
-            
-            for (int k = 0; k < highlightCount; k++) {
-                if ((j == highlight_rows[k] && abs((int)i - highlight_cols[k]) <= cross_half) ||
-                    (i == highlight_cols[k] && abs((int)j - highlight_rows[k]) <= cross_half)) {
-                    color = highlight_colors[k];
-                    break;
-                }
-            }
-
-            data_buffer[i] = color;
-        }
-
-        ips200_write_16bit_data_array(data_buffer, dis_width);
-    }
-
-    if (IPS200_TYPE_SPI == ips200_display_type) {
-        IPS200_CS(1);
-    }
-}
-
-void ips200_show_gray_image_with_multi_highlight_track(
-    uint16 x, uint16 y, ImageInfo* imageinfo,
-    uint16 dis_width, uint16 dis_height, uint8_t threshold,
-    Turn_info *marker,Path *optimized_path)  
-{
-    zf_assert(x < ips200_width_max);
-    zf_assert(y < ips200_height_max);
-    zf_assert(NULL != imageinfo->binaryimage[0]);
-
-    
-    int highlightCount = imageinfo->numContours;
-    uint16 highlight_colors[5] = { RGB565_RED, RGB565_YELLOW, RGB565_GREEN, RGB565_BLUE, RGB565_PURPLE };
-
-    
-    int highlight_rows[5] = {0};
-    int highlight_cols[5] = {0};
-    for (int k = 0; k < highlightCount; k++) {
-        highlight_cols[k] = (int)((imageinfo->contour_filter[optimized_path->order[k]-1].cx * dis_width) / imageinfo->width + 0.5);
-        highlight_rows[k] = (int)((imageinfo->contour_filter[optimized_path->order[k]-1].cy * dis_height) / imageinfo->height + 0.5);
-    }
-
-    
-    int marker_col = (int)((marker->cx * dis_width) / imageinfo->width + 0.5);
-    int marker_row = (int)((marker->cy * dis_height) / imageinfo->height + 0.5);
-
-    uint32 i = 0, j = 0;
-    uint16 color = 0;
-    uint16 data_buffer[dis_width];
-    const uint8 *image_temp;
-    int cross_half = 10;  
-    int x_half = 15;      
-
-    if (IPS200_TYPE_SPI == ips200_display_type) {
-        IPS200_CS(0);
-    }
-
-    ips200_set_region(x, y, x + dis_width - 1, y + dis_height - 1);
-
-    for (j = 0; j < dis_height; j++) {
-        image_temp = imageinfo->binaryimage[0] + (j * imageinfo->height / dis_height) * imageinfo->width;
-
-        for (i = 0; i < dis_width; i++) {
-            uint8 pixel = *(image_temp + i * imageinfo->width / dis_width);
-
-            
-            if (pixel == 0) {
-                color = RGB565_BLACK;
-            } else {
-                color = RGB565_WHITE;
-            }
-
-            
-            for (int k = 0; k < highlightCount; k++) {
-                if ((j == highlight_rows[k] && abs((int)i - highlight_cols[k]) <= cross_half) ||
-                    (i == highlight_cols[k] && abs((int)j - highlight_rows[k]) <= cross_half)) {
-                    color = highlight_colors[k];
-                    break;
-                }
-            }
-
-            
-            if ((marker_col != 0 || marker_row != 0)&&(abs((int)i - marker_col) == abs((int)j - marker_row)) &&
-                (abs((int)i - marker_col) <= x_half)&&highlightCount) {
-                color = RGB565_RED;
-            }
-
-            data_buffer[i] = color;
-        }
-
-        ips200_write_16bit_data_array(data_buffer, dis_width);
-    }
-
-    if (IPS200_TYPE_SPI == ips200_display_type) {
-        IPS200_CS(1);
-    }
-}
-
-void ips200_show_gray_image_with_filterContours(
-    uint16 x, uint16 y, ImageInfo* imageinfo,
-    uint16 dis_width, uint16 dis_height)
-{
-    zf_assert(x < ips200_width_max);
-    zf_assert(y < ips200_height_max);
-    zf_assert(NULL != imageinfo->binaryimage[0]);
-
-    
-    int rect_left[QCAR_MAX_CONTOURS];
-    int rect_right[QCAR_MAX_CONTOURS];
-    int rect_top[QCAR_MAX_CONTOURS];
-    int rect_bottom[QCAR_MAX_CONTOURS];
-
-    if (imageinfo->filterContours > 0) {
-        for (int k = 0; k < imageinfo->filterContours; k++) {
-            ContourInfo* contour = &imageinfo->contour_filter_sort[k];
-            int center_x = (int)((contour->cx * dis_width) / imageinfo->width + 0.5);
-            int center_y = (int)((contour->cy * dis_height) / imageinfo->height + 0.5);
-            int half_w = (int)((contour->w * dis_width) / imageinfo->width / 2 + 0.5);
-            int half_h = (int)((contour->w * dis_height) / imageinfo->height / 2 + 0.5);
-
-            
-            rect_left[k] = (center_x - half_w) < 0 ? 0 : (center_x - half_w);
-            rect_right[k] = (center_x + half_w) >= dis_width ? (dis_width - 1) : (center_x + half_w);
-            rect_top[k] = (center_y - half_h) < 0 ? 0 : (center_y - half_h);
-            rect_bottom[k] = (center_y + half_h) >= dis_height ? (dis_height - 1) : (center_y + half_h);
-        }
-    }
-
-    uint32 i = 0, j = 0;
-    uint16 color = 0;
-    uint16 data_buffer[dis_width];
-    const uint8 *image_temp;
-
-    if (IPS200_TYPE_SPI == ips200_display_type) {
-        IPS200_CS(0);
-    }
-
-    ips200_set_region(x, y, x + dis_width - 1, y + dis_height - 1);
-
-    for (j = 0; j < dis_height; j++) {
-        image_temp = imageinfo->binaryimage[0] + (j * imageinfo->height / dis_height) * imageinfo->width;
-
-        for (i = 0; i < dis_width; i++) {
-            uint8 pixel = *(image_temp + i * imageinfo->width / dis_width);
-
-            
-            color = (pixel == 0) ? RGB565_BLACK : RGB565_WHITE;
-
-            
-            if (imageinfo->filterContours > 0) {
-                for (int k = 0; k < imageinfo->filterContours; k++) {
-                    
-                    bool is_border = false;
-                    is_border |= (i == rect_left[k] || i == rect_right[k]) && (j >= rect_top[k] && j <= rect_bottom[k]);
-                    is_border |= (j == rect_top[k] || j == rect_bottom[k]) && (i >= rect_left[k] && i <= rect_right[k]);
-
-                    if (is_border) {
-                        color = RGB565_RED;
-                        break; 
-                    }
-                }
-            }
-
-            data_buffer[i] = color;
-        }
-
-        ips200_write_16bit_data_array(data_buffer, dis_width);
-    }
-
-    if (IPS200_TYPE_SPI == ips200_display_type) {
-        IPS200_CS(1);
-    }
-}
-
-void ips200_show_gray_image_with_filterContours_sort(
-    uint16 x, uint16 y, ImageInfo* imageinfo,
-    uint16 dis_width, uint16 dis_height)
-{
-    zf_assert(x < ips200_width_max);
-    zf_assert(y < ips200_height_max);
-    zf_assert(NULL != imageinfo->binaryimage[0]);
-
-    
-    int rect_left[QCAR_MAX_CONTOURS];
-    int rect_right[QCAR_MAX_CONTOURS];
-    int rect_top[QCAR_MAX_CONTOURS];
-    int rect_bottom[QCAR_MAX_CONTOURS];
-
-    if (imageinfo->filterContours > 0) {
-        for (int k = 0; k < imageinfo->filterContours; k++) {
-            ContourInfo* contour = &imageinfo->contour_filter_sort[k];
-            int center_x = (int)((contour->cx * dis_width) / imageinfo->width + 0.5);
-            int center_y = (int)((contour->cy * dis_height) / imageinfo->height + 0.5);
-            int half_w = (int)((contour->bbox.w * dis_width) / imageinfo->width / 2 + 0.5);
-            int half_h = (int)((contour->bbox.w * dis_height) / imageinfo->height / 2 + 0.5);
-
-            
-            rect_left[k] = (center_x - half_w) < 0 ? 0 : (center_x - half_w);
-            rect_right[k] = (center_x + half_w) >= dis_width ? (dis_width - 1) : (center_x + half_w);
-            rect_top[k] = (center_y - half_h) < 0 ? 0 : (center_y - half_h);
-            rect_bottom[k] = (center_y + half_h) >= dis_height ? (dis_height - 1) : (center_y + half_h);
-        }
-    }
-
-    uint32 i = 0, j = 0;
-    uint16 color = 0;
-    uint16 data_buffer[dis_width];
-    const uint8 *image_temp;
-
-    if (IPS200_TYPE_SPI == ips200_display_type) {
-        IPS200_CS(0);
-    }
-
-    ips200_set_region(x, y, x + dis_width - 1, y + dis_height - 1);
-
-    for (j = 0; j < dis_height; j++) {
-        image_temp = imageinfo->binaryimage[0] + (j * imageinfo->height / dis_height) * imageinfo->width;
-
-        for (i = 0; i < dis_width; i++) {
-            uint8 pixel = *(image_temp + i * imageinfo->width / dis_width);
-
-            
-            color = (pixel == 0) ? RGB565_BLACK : RGB565_WHITE;
-
-            
-            if (imageinfo->filterContours > 0) {
-                for (int k = 0; k < imageinfo->filterContours; k++) {
-                    
-                    bool is_border = false;
-                    is_border |= (i == rect_left[k] || i == rect_right[k]) && (j >= rect_top[k] && j <= rect_bottom[k]);
-                    is_border |= (j == rect_top[k] || j == rect_bottom[k]) && (i >= rect_left[k] && i <= rect_right[k]);
-
-                    if (is_border) {
-                        color = RGB565_RED;
-                        break; 
-                    }
-                }
-            }
-
-            data_buffer[i] = color;
-        }
-
-        ips200_write_16bit_data_array(data_buffer, dis_width);
-    }
-
-    if (IPS200_TYPE_SPI == ips200_display_type) {
-        IPS200_CS(1);
-    }
-}
-
-void ips200_show_gray_image_with_contourinfo(
-    uint16 x, uint16 y, ImageInfo* imageinfo,
-    uint16 dis_width, uint16 dis_height)
-{
-    zf_assert(x < ips200_width_max);
-    zf_assert(y < ips200_height_max);
-    zf_assert(NULL != imageinfo->binaryimage[0]);
-
-    
-    int rect_left[QCAR_MAX_CONTOURS];
-    int rect_right[QCAR_MAX_CONTOURS];
-    int rect_top[QCAR_MAX_CONTOURS];
-    int rect_bottom[QCAR_MAX_CONTOURS];
-
-    if (imageinfo->totalContours > 0) {
-        for (int k = 0; k < imageinfo->totalContours; k++) {
-            ContourInfo* contour = &imageinfo->contourinfo[k];
-            int center_x = (int)((contour->cx * dis_width) / imageinfo->width + 0.5);
-            int center_y = (int)((contour->cy * dis_height) / imageinfo->height + 0.5);
-            int half_w = (int)((contour->bbox.w * dis_width) / imageinfo->width / 2 + 0.5);
-            int half_h = (int)((contour->bbox.h * dis_height) / imageinfo->height / 2 + 0.5);
-
-            
-            rect_left[k] = (center_x - half_w) < 0 ? 0 : (center_x - half_w);
-            rect_right[k] = (center_x + half_w) >= dis_width ? (dis_width - 1) : (center_x + half_w);
-            rect_top[k] = (center_y - half_h) < 0 ? 0 : (center_y - half_h);
-            rect_bottom[k] = (center_y + half_h) >= dis_height ? (dis_height - 1) : (center_y + half_h);
-        }
-    }
-
-    uint32 i = 0, j = 0;
-    uint16 color = 0;
-    uint16 data_buffer[dis_width];
-    const uint8 *image_temp;
-
-    if (IPS200_TYPE_SPI == ips200_display_type) {
-        IPS200_CS(0);
-    }
-
-    ips200_set_region(x, y, x + dis_width - 1, y + dis_height - 1);
-
-    for (j = 0; j < dis_height; j++) {
-        image_temp = imageinfo->binaryimage[0] + (j * imageinfo->height / dis_height) * imageinfo->width;
-
-        for (i = 0; i < dis_width; i++) {
-            uint8 pixel = *(image_temp + i * imageinfo->width / dis_width);
-
-            
-            color = (pixel == 0) ? RGB565_BLACK : RGB565_WHITE;
-
-            
-            if (imageinfo->totalContours > 0) {
-                for (int k = 0; k < imageinfo->totalContours; k++) {
-                    
-                    bool is_border = false;
-                    is_border |= (i == rect_left[k] || i == rect_right[k]) && (j >= rect_top[k] && j <= rect_bottom[k]);
-                    is_border |= (j == rect_top[k] || j == rect_bottom[k]) && (i >= rect_left[k] && i <= rect_right[k]);
-
-                    if (is_border) {
-                        color = RGB565_RED;
-                        break; 
-                    }
-                }
-            }
-
-            data_buffer[i] = color;
-        }
-
-        ips200_write_16bit_data_array(data_buffer, dis_width);
-    }
-
-    if (IPS200_TYPE_SPI == ips200_display_type) {
-        IPS200_CS(1);
-    }
-}
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-void ips200_show_dilated_image(uint16 x, uint16 y, const uint8 *image, uint16 width, uint16 height, uint16 dis_width, uint16 dis_height)
-{
-    
-    zf_assert(x < ips200_width_max);
-    zf_assert(y < ips200_height_max);
-    zf_assert(NULL != image);
-
-    uint32 i = 0, j = 0;
-    uint16 data_buffer[dis_width];
-
-    if(IPS200_TYPE_SPI == ips200_display_type)
-    {
-        IPS200_CS(0);
-    }
-    ips200_set_region(x, y, x + dis_width - 1, y + dis_height - 1);  
-
-    for(j = 0; j < dis_height; j++)
-    {
-        for(i = 0; i < dis_width; i++)
-        {
-            
-            uint32 src_y = j * height / dis_height;
-            uint32 src_x = i * width / dis_width;
-            uint8 pixel = image[src_y * width + src_x];  
-
-            
-            data_buffer[i] = (pixel == 0) ? RGB565_BLACK : RGB565_WHITE;
-        }
-        ips200_write_16bit_data_array(data_buffer, dis_width);
-    }
-
-    if(IPS200_TYPE_SPI == ips200_display_type)
-    {
-        IPS200_CS(1);
-    }
-}

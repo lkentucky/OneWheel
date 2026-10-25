@@ -113,5 +113,5 @@ int main(void) {
 with tempfile.TemporaryDirectory(prefix="qcar-wifi-driver-") as directory:
     p=Path(directory);(p/"zf_common_typedef.h").write_text("#include <stdint.h>\ntypedef uint8_t uint8; typedef uint16_t uint16; typedef uint32_t uint32;\n")
     test=p/"test.c";exe=p/"test.exe";test.write_text(prefix+parts+main,encoding="utf-8")
-    subprocess.run(["gcc","-std=c99","-Wall","-Wextra","-Werror","-I"+str(p),"-I"+str(root/"libraries/zf_device"),str(test),"-o",str(exe)],check=True)
+    subprocess.run(["gcc","-std=c99","-Wall","-Wextra","-Werror","-I"+str(p),"-I"+str(root/"libraries/zf_device"),"-I"+str(root/"code"),str(test),"-o",str(exe)],check=True)
     subprocess.run([str(exe)],check=True,timeout=5)

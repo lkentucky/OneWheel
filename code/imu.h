@@ -54,10 +54,6 @@ void imu_update_5ms(void); /* 5ms 周期入口 */
 void imu_request_recalibration(void); /* 只置请求标志 */
 void imu_recover_after_stall(void); /* 长时间关中断（如 Flash 擦写）后恢复采样 */
 void imu_service(void); /* 主循环处理重标定 */
-/* 10ms 周期调用：融合层确认深度静止（stationary_seconds 达门槛）时，
- * 缓慢跟踪 z 轴陀螺零偏补偿温漂。运动期间 stationary_seconds 清零，
- * 跟踪自动停止，不会吸收真实转动。 */
-void imu_track_gyro_bias(float stationary_seconds, float dt_s);
 /* Reuse a successful calibration at Start; wait for fresh attitude. */
 void imu_prepare_start(void);
 

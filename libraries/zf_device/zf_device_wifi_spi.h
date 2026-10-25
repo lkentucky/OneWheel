@@ -52,30 +52,20 @@
 #define _zf_device_wifi_spi_h
 
 #include "zf_common_typedef.h"
+#include "config.h"
 
           
-#define WIFI_SPI_INDEX              (SPI_3             )        // 定义使用的SPI号
-#define WIFI_SPI_SPEED              (10 * 1000 * 1000  )        // 硬件 SPI 速率
-#define WIFI_SPI_SCK_PIN            (SPI3_SCLK_P22_3   )        // 定义SPI_SCK引脚
-#define WIFI_SPI_MOSI_PIN           (SPI3_MOSI_P22_0   )        // 定义SPI_MOSI引脚
-#define WIFI_SPI_MISO_PIN           (SPI3_MISO_P22_1   )        // 定义SPI_MISO引脚  IPS没有MISO引脚，但是这里任然需要定义，在spi的初始化时需要使用
-#define WIFI_SPI_CS_PIN             (P22_2             )        // 定义SPI_CS引脚 采用软件CS引脚
-#define WIFI_SPI_INT_PIN            (P15_8             )        // 定义握手引脚
-#define WIFI_SPI_RST_PIN            (P23_1             )        // 定义复位引脚
 
 
-#define WIFI_SPI_RECVIVE_FIFO_SIZE  (1024)                      // 接收FIFO大小
-#define WIFI_SPI_READ_TRANSFER      (1)                         // 在调用wifi_spi_read_buffer 是否尝试发起SPI通讯来检测模块内是否有数据需要读取 1：发起SPI通讯 0：不发起SPI通讯，仅读取FIFO
                                                                 // 如果应用程序中没有任何的地方调用发送函数，则WIFI_SPI_READ_TRANSFER必须设置为1
                                                                 
-#define WIFI_SPI_AUTO_CONNECT       (0)                         // 定义是否初始化时建立TCP或者UDP连接    0-不自动连接  1-自动连接TCP服务器  2-自动连接UDP
 
 #if     (WIFI_SPI_AUTO_CONNECT > 2)    
 #error "WIFI_SPI_AUTO_CONNECT 的值只能为 [0,1,2]"
 #else   
-#define WIFI_SPI_TARGET_IP          "192.168.2.37"              // 连接目标的 IP
-#define WIFI_SPI_TARGET_PORT        "8080"                      // 连接目标的端口
-#define WIFI_SPI_LOCAL_PORT         "6666"                      // 本机的端口 0：随机  可设置范围2048-65535  默认 6666
+#define WIFI_SPI_TARGET_IP QCAR_WIFI_TARGET_IP
+#define WIFI_SPI_TARGET_PORT QCAR_WIFI_TARGET_PORT
+#define WIFI_SPI_LOCAL_PORT QCAR_WIFI_LOCAL_PORT
 #endif
 
 

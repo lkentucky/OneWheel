@@ -42,7 +42,7 @@ uint32 IfxStm_getLower(int *stm); float IfxStm_getFrequency(int *stm);
 uint32 interrupt_global_disable(void); void interrupt_global_enable(uint32);
 ''')
     (work/'zf_driver_delay.h').write_text('#include "zf_common_typedef.h"\nvoid system_delay_ms(uint32);\n')
-    (work/'pid.h').write_text('''
+    (work/'balance_control.h').write_text('''
 #include "zf_common_typedef.h"
 #include "qcar_types.h"
 extern int16_t real_speed;
@@ -50,17 +50,15 @@ extern Mono_params mono_params;
 extern float cascade_vel_out, cascade_vel_out_p, cascade_vel_out_y;
 extern float cascade_angle_out, cascade_angle_out_p, cascade_angle_out_y;
 extern float cascade_angle_vel_out, cascade_angle_vel_out_p, cascade_angle_vel_out_y;
-extern pid_param_t cascade_vel_roll, cascade_vel_pitch, cascade_vel_yaw;
-extern pid_param_t cascade_ang_roll, cascade_ang_pitch, cascade_ang_yaw;
-extern pid_param_t cascade_ang_vel_roll, cascade_ang_vel_pitch, cascade_ang_vel_yaw;
 ''')
     (work/'small_driver_uart_control.h').write_text("""
 #include "zf_common_typedef.h"
 #include "qcar_types.h"
 extern small_device_value_struct motor_value;
 extern volatile uint32 small_driver_speed_frames;
+extern volatile float small_driver_test_left,small_driver_test_right;
 """)
-    with (work/'pid.h').open('a') as header:
+    with (work/'balance_control.h').open('a') as header:
         header.write("""
 extern volatile uint8 rate_only_test;
 extern volatile int32 control_fault_reason,control_fault_imu_status;

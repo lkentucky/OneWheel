@@ -1,5 +1,5 @@
 #ifndef SMALL_DRIVER_UART_CONTROL_H_
-#define SMALL_DRIVER_UART QCAR_DRIVER_UART
+#define SMALL_DRIVER_UART_CONTROL_H_
 
 #include "zf_common_headfile.h"
 

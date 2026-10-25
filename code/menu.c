@@ -4,9 +4,9 @@
 #include "wifispi.h"
 #include "IfxStm.h"
 char txt[256];
-volatile uint8 wifi_spi_flag;
 
-static uint8 wheel_ready, driver_ready, imu_ready, camera_ready, remote_ready;
+
+static uint8 wheel_ready, driver_ready, imu_ready;
 static bool control_timers_ready;
 static void ensure_wheel(void)
 {
@@ -23,16 +23,9 @@ static uint8 ensure_imu(void)
     return 1;
 }
 
-static uint8 ensure_camera(void)
-{
-    if (!camera_ready) {
-        if (mt9v03x_init()) return 0;
-        camera_ready = 1;
-    }
-    return 1;
-}
 
-void monotroch_init(void)
+
+void menu_init(void)
 {
     /* Up to 39 characters fit the demo's 240-pixel portrait width. */
     ips200_set_font(IPS200_6X8_FONT);
@@ -41,8 +34,6 @@ void monotroch_init(void)
     gpio_init(QCAR_KEY1, GPI, 1, GPI_PULL_UP);
     gpio_init(QCAR_EC11_KEY, GPI, 1, GPI_PULL_UP);
 
-    initImageInfo(&imageinfo, MT9V03X_W, MT9V03X_H);
-    imageinfo.image = (uint8_t *)mt9v03x_image;
     Menu_Init();
     Menu_Show();
     /* Load local settings only after the first menu frame is visible. */
@@ -54,10 +45,10 @@ void monotroch_init(void)
  * 运行业务接入 Qcar；菜单轮询不再进入阻塞调参循环。 */
 static Menu_Item Root;
 static Menu_Item *pointer;
-static float steps[] = {0.01f, 0.1f, 1.0f, 10.0f, 100.0f};
-static uint8 step_index = 2, run_mode = 7, running, preview;
+static float steps[] = APP_MENU_STEPS;
+static uint8 step_index = 2, run_mode = APP_DEFAULT_MODE, running, preview;
 static uint8 redraw = 1, refresh_divider;
-static bool start_switch, stop_switch, camera_switch, imu_switch, save_switch, load_switch, wheel_switch;
+static bool start_switch, stop_switch, imu_switch, save_switch, load_switch, wheel_switch;
 static int wheel_test_pwm;
 static bool wifi_switch;
 static const char *message = "Ready";
@@ -73,10 +64,9 @@ static void stop_car(void)
         if (!imu_ready) pit_disable(CCU60_CH1);
     }
     roll_rate_test_stop();
-    cam_flag = tele_flag = turn_flag = shacheflag = 0;
-    wifi_spi_flag = 0;
+    shacheflag = 0;
     running = preview = 0;
-    mono_params.setspeed = 0;
+    small_driver_test_left = small_driver_test_right = 0;
     wheel_switch = false;
     if (wheel_ready) motor_m_ctrl(0);
     if (driver_ready) small_driver_set_duty(0, 0);
@@ -88,25 +78,10 @@ static void stop_car(void)
 static void start_car(void)
 {
     stop_car();
-    /* UART3 is shared with the remote receiver on P15.6/P15.7. */
-    if (run_mode == 2 && QCAR_DRIVER_UART == UART_3) {
-        message = "Remote UART used by motor";
-        return;
-    }
     if (!ensure_imu()) { message = "IMU init failed"; return; }
-    if (run_mode == 1 && !ensure_camera()) { message = "Camera init failed"; return; }
     ensure_wheel();
     if (!driver_ready) { small_driver_uart_init(); driver_ready = 1; }
-    if (run_mode == 2 && !remote_ready) {
-        uart_init(UART_3, 115200, UART3_TX_P15_6, UART3_RX_P15_7);
-        uart_rx_interrupt(UART_3, 1);
-        remote_ready = 1;
-    }
-    turn_info_init();
     shacheflag = 1;
-    turn_flag = (run_mode == 1 || run_mode == 2);
-    cam_flag = (run_mode == 1);
-    tele_flag = (run_mode == 2);
     running = 1;
     imu_prepare_start();
     if (run_mode == 3) roll_rate_test_arm();
@@ -118,8 +93,8 @@ static void start_car(void)
         if (run_mode==5) wifispi_telemetry_dual_profile();
         else wifispi_telemetry_startup_profile();
     }
-    pit_init(CCU60_CH1, 5000);
-    pit_init(CCU60_CH0, 1000);
+    pit_init(CCU60_CH1, APP_IMU_PERIOD_US);
+    pit_init(CCU60_CH0, APP_CONTROL_TICK_US);
     control_timers_ready = true;
     message = (run_mode == 3 || run_mode == 4 || run_mode == 5) ? "Rate test: Startup/Stop" : "Running: Startup/Stop";
 }
@@ -128,9 +103,9 @@ static void save_params(void)
 {
     if (running || preview) { message = "Stop before saving"; return; }
     if (imu_ready) pit_disable(CCU60_CH1);
-    write_flash();
-    if (imu_ready) { imu_prepare_start(); pit_init(CCU60_CH1,5000); }
-    message = "Parameters saved";
+    int saved=write_flash();
+    if (imu_ready) { imu_prepare_start(); pit_init(CCU60_CH1,APP_IMU_PERIOD_US); }
+    message = saved ? "Parameters saved/verified" : "Save failed/invalid params";
 }
 
 static void load_params(void)
@@ -140,14 +115,7 @@ static void load_params(void)
     message = "Parameters loaded";
 }
 
-static void camera_preview(void)
-{
-    stop_car();
-    if (!ensure_camera()) { message = "Camera init failed"; return; }
-    cam_flag = 1;
-    preview = 1;
-    message = "Camera active";
-}
+
 
 static void imu_preview(void)
 {
@@ -155,7 +123,7 @@ static void imu_preview(void)
     if (!ensure_imu()) { message = "IMU init failed"; return; }
     imu_request_recalibration();
     imu_service();
-    pit_init(CCU60_CH1, 5000);
+    pit_init(CCU60_CH1, APP_IMU_PERIOD_US);
     control_timers_ready = true;
     preview = 2;
     message = "IMU active";
@@ -173,126 +141,34 @@ static void wheel_pwm_test(void)
 
 void Menu_Create(void)
 {
-    Menu_Item *startup, *pid, *vehicle, *vision, *track, *storage;
-    startup = Create_Menu_Folder_dynamic(&Root, "Startup");
-    pid = Create_Menu_Folder_dynamic(&Root, "PID");
-    vehicle = Create_Menu_Folder_dynamic(&Root, "Vehicle");
-    vision = Create_Menu_Folder_dynamic(&Root, "Vision");
-    track = Create_Menu_Folder_dynamic(&Root, "Trajectory");
-    storage = Create_Menu_Folder_dynamic(&Root, "Storage");
+    Menu_Item *startup=Create_Menu_Folder_dynamic(&Root,"Startup");
+    Menu_Item *pid=Create_Menu_Folder_dynamic(&Root,"PID");
+    Menu_Item *storage=Create_Menu_Folder_dynamic(&Root,"Storage");
+    Create_Menu_File_dynamic(startup,"Mode 3..7",&run_mode,uint8_Box);
+    Create_Menu_File_dynamic(startup,"Start",&start_switch,bool_Box);
+    Create_Menu_File_dynamic(startup,"Stop",&stop_switch,bool_Box);
+    Create_Menu_File_dynamic(startup,"IMU",&imu_switch,bool_Box);
+    Create_Menu_File_dynamic(startup,"Open loop",&wheel_switch,bool_Box);
+    Create_Menu_File_dynamic(startup,"Wheel PWM",&wheel_test_pwm,int32_Box);
 #if QCAR_WIFI_ENABLED
-    Menu_Item *wifi = Create_Menu_Folder_dynamic(&Root, "WiFi");
-    Create_Menu_File_dynamic(wifi, "Connect", &wifi_switch, bool_Box);
+    Create_Menu_File_dynamic(startup,"WiFi connect",&wifi_switch,bool_Box);
 #endif
-    Create_Menu_File_dynamic(startup, "Mode 3..7", &run_mode, uint8_Box);
-    Create_Menu_File_dynamic(startup, "Start", &start_switch, bool_Box);
-    Create_Menu_File_dynamic(startup, "Stop", &stop_switch, bool_Box);
-    Create_Menu_File_dynamic(startup, "Camera", &camera_switch, bool_Box);
-    Create_Menu_File_dynamic(startup, "IMU", &imu_switch, bool_Box);
-    Create_Menu_File_dynamic(startup, "Open loop", &wheel_switch, bool_Box);
-    Create_Menu_File_dynamic(startup, "Wheel PWM", &wheel_test_pwm, int32_Box);
-    Menu_Item *rate_test = Create_Menu_Folder_dynamic(pid, "Gyro test");
-    Create_Menu_File_dynamic(rate_test, "KP", &roll_rate_test_kp, float_Box);
-    Create_Menu_File_dynamic(rate_test, "PWM limit", &roll_rate_test_limit, float_Box);
-    Create_Menu_File_dynamic(rate_test, "Sign +/-1", &roll_rate_test_sign, float_Box);
-    Create_Menu_File_dynamic(rate_test, "Angle KP", &pitch_balance_kp, float_Box);
-    Create_Menu_File_dynamic(rate_test, "Rate limit", &pitch_balance_rate_limit, float_Box);
-    Create_Menu_File_dynamic(rate_test, "Balance Y", &mono_params.balance_angle_y, float_Box);
-    Create_Menu_File_dynamic(rate_test, "Save to Flash", &save_switch, bool_Box);
-    Create_Menu_File_dynamic(rate_test, "Save to Flash", &save_switch, bool_Box);
-    Menu_Item *ground_test = Create_Menu_Folder_dynamic(pid, "Pitch balance");
-    Create_Menu_File_dynamic(ground_test, "KP", &ground_rate_test_kp, float_Box);
-    Create_Menu_File_dynamic(ground_test, "PWM limit", &ground_rate_test_limit, float_Box);
-    Create_Menu_File_dynamic(ground_test, "Sign +/-1", &ground_rate_test_sign, float_Box);
-    Create_Menu_File_dynamic(ground_test, "Angle KP", &ground_angle_kp, float_Box);
-    Create_Menu_File_dynamic(ground_test, "Rate limit", &ground_angle_rate_limit, float_Box);
-    Create_Menu_File_dynamic(ground_test, "Balance X", &mono_params.balance_angle_x, float_Box);
-    Create_Menu_File_dynamic(ground_test, "Save to Flash", &save_switch, bool_Box);
-    Menu_Item *pid_vel_roll = Create_Menu_Folder_dynamic(pid, "Pitch speed");
-    Create_Menu_File_dynamic(pid_vel_roll, "KP", &cascade_vel_roll.kp, float_Box);
-    Create_Menu_File_dynamic(pid_vel_roll, "KI", &cascade_vel_roll.ki, float_Box);
-    Create_Menu_File_dynamic(pid_vel_roll, "KD", &cascade_vel_roll.kd, float_Box);
-    Menu_Item *pid_ang_roll = Create_Menu_Folder_dynamic(pid, "Pitch angle");
-    Create_Menu_File_dynamic(pid_ang_roll, "KP", &cascade_ang_roll.kp, float_Box);
-    Create_Menu_File_dynamic(pid_ang_roll, "KI", &cascade_ang_roll.ki, float_Box);
-    Create_Menu_File_dynamic(pid_ang_roll, "KD", &cascade_ang_roll.kd, float_Box);
-    Menu_Item *pid_ang_vel_roll = Create_Menu_Folder_dynamic(pid, "Pitch gyro");
-    Create_Menu_File_dynamic(pid_ang_vel_roll, "KP", &cascade_ang_vel_roll.kp, float_Box);
-    Create_Menu_File_dynamic(pid_ang_vel_roll, "KI", &cascade_ang_vel_roll.ki, float_Box);
-    Create_Menu_File_dynamic(pid_ang_vel_roll, "KD", &cascade_ang_vel_roll.kd, float_Box);
-    Menu_Item *pid_vel_pitch = Create_Menu_Folder_dynamic(pid, "Roll speed");
-    Create_Menu_File_dynamic(pid_vel_pitch, "KP", &cascade_vel_pitch.kp, float_Box);
-    Create_Menu_File_dynamic(pid_vel_pitch, "KI", &cascade_vel_pitch.ki, float_Box);
-    Create_Menu_File_dynamic(pid_vel_pitch, "KD", &cascade_vel_pitch.kd, float_Box);
-    Menu_Item *pid_ang_pitch = Create_Menu_Folder_dynamic(pid, "Roll angle");
-    Create_Menu_File_dynamic(pid_ang_pitch, "KP", &cascade_ang_pitch.kp, float_Box);
-    Create_Menu_File_dynamic(pid_ang_pitch, "KI", &cascade_ang_pitch.ki, float_Box);
-    Create_Menu_File_dynamic(pid_ang_pitch, "KD", &cascade_ang_pitch.kd, float_Box);
-    Menu_Item *pid_ang_vel_pitch = Create_Menu_Folder_dynamic(pid, "Roll gyro");
-    Create_Menu_File_dynamic(pid_ang_vel_pitch, "KP", &cascade_ang_vel_pitch.kp, float_Box);
-    Create_Menu_File_dynamic(pid_ang_vel_pitch, "KI", &cascade_ang_vel_pitch.ki, float_Box);
-    Create_Menu_File_dynamic(pid_ang_vel_pitch, "KD", &cascade_ang_vel_pitch.kd, float_Box);
-    Menu_Item *pid_vel_yaw = Create_Menu_Folder_dynamic(pid, "Yaw speed");
-    Create_Menu_File_dynamic(pid_vel_yaw, "KP", &cascade_vel_yaw.kp, float_Box);
-    Create_Menu_File_dynamic(pid_vel_yaw, "KI", &cascade_vel_yaw.ki, float_Box);
-    Create_Menu_File_dynamic(pid_vel_yaw, "KD", &cascade_vel_yaw.kd, float_Box);
-    Menu_Item *pid_ang_yaw = Create_Menu_Folder_dynamic(pid, "Yaw angle");
-    Create_Menu_File_dynamic(pid_ang_yaw, "KP", &cascade_ang_yaw.kp, float_Box);
-    Create_Menu_File_dynamic(pid_ang_yaw, "KI", &cascade_ang_yaw.ki, float_Box);
-    Create_Menu_File_dynamic(pid_ang_yaw, "KD", &cascade_ang_yaw.kd, float_Box);
-    Menu_Item *pid_ang_vel_yaw = Create_Menu_Folder_dynamic(pid, "Yaw gyro");
-    Create_Menu_File_dynamic(pid_ang_vel_yaw, "KP", &cascade_ang_vel_yaw.kp, float_Box);
-    Create_Menu_File_dynamic(pid_ang_vel_yaw, "KI", &cascade_ang_vel_yaw.ki, float_Box);
-    Create_Menu_File_dynamic(pid_ang_vel_yaw, "KD", &cascade_ang_vel_yaw.kd, float_Box);
-    Create_Menu_File_dynamic(vehicle, "Fast speed", &mono_params.fast_speed, float_Box);
-    Create_Menu_File_dynamic(vehicle, "Slow speed", &mono_params.slow_speed, float_Box);
-    Create_Menu_File_dynamic(vehicle, "Speed mode", &mono_params.speed_flag, float_Box);
-    Create_Menu_File_dynamic(vehicle, "Balance X wheel", &mono_params.balance_angle_x, float_Box);
-    Create_Menu_File_dynamic(vehicle, "Balance Y fly", &mono_params.balance_angle_y, float_Box);
-    Create_Menu_File_dynamic(vehicle, "Dead zone", &mono_params.dead_zone, float_Box);
-    Create_Menu_File_dynamic(vehicle, "Dead zone P", &mono_params.dead_zone_p, float_Box);
-    Create_Menu_File_dynamic(vehicle, "Turn K1 L", &mono_params.turn_k1_l, float_Box);
-    Create_Menu_File_dynamic(vehicle, "Turn K1 R", &mono_params.turn_k1_r, float_Box);
-    Create_Menu_File_dynamic(vehicle, "Turn K2 L", &mono_params.turn_k2_l, float_Box);
-    Create_Menu_File_dynamic(vehicle, "Turn K2 R", &mono_params.turn_k2_r, float_Box);
-    Create_Menu_File_dynamic(vehicle, "Turn K1 PL", &mono_params.turn_k1_p_l, float_Box);
-    Create_Menu_File_dynamic(vehicle, "Turn K1 PR", &mono_params.turn_k1_p_r, float_Box);
-    Create_Menu_File_dynamic(vehicle, "Turn K2 PL", &mono_params.turn_k2_p_l, float_Box);
-    Create_Menu_File_dynamic(vehicle, "Turn K2 PR", &mono_params.turn_k2_p_r, float_Box);
-    Create_Menu_File_dynamic(vision, "Day/night", &img_process_params.img_process_mode, float_Box);
-    Create_Menu_File_dynamic(vision, "Threshold", &imageinfo.fixed_threshold, float_Box);
-    Create_Menu_File_dynamic(vision, "Radius", &imageinfo.domain_radius, float_Box);
-    Create_Menu_File_dynamic(vision, "Min std", &img_process_params.min_std, float_Box);
-    Create_Menu_File_dynamic(vision, "Min gray", &img_process_params.min_gray, float_Box);
-    Create_Menu_File_dynamic(vision, "Max std", &img_process_params.max_std, float_Box);
-    Create_Menu_File_dynamic(vision, "Max gray", &img_process_params.max_gray, float_Box);
-    Create_Menu_File_dynamic(vision, "Max miss", &img_process_params.max_miss, float_Box);
-    Create_Menu_File_dynamic(vision, "Distance", &img_process_params.max_distance, float_Box);
-    Create_Menu_File_dynamic(vision, "IOU", &img_process_params.iou, float_Box);
-    Create_Menu_File_dynamic(vision, "Small area", &img_process_params.small_area, float_Box);
-    Create_Menu_File_dynamic(vision, "Range mean", &img_process_params.range_mean, float_Box);
-    Create_Menu_File_dynamic(vision, "Range gray", &img_process_params.range_gray, float_Box);
-    Create_Menu_File_dynamic(vision, "Max dx", &img_process_params.max_dx, float_Box);
-    Create_Menu_File_dynamic(vision, "Max dy", &img_process_params.max_dy, float_Box);
-    Create_Menu_File_dynamic(vision, "Box ratio", &imageinfo.boxratio_threshold, float_Box);
-    Create_Menu_File_dynamic(vision, "Near max", &imageinfo.near_contour_max_area, float_Box);
-    Create_Menu_File_dynamic(vision, "Near min", &imageinfo.near_contour_min_area, float_Box);
-    Create_Menu_File_dynamic(track, "Weight dist", &turn_info.weight_dist, float_Box);
-    Create_Menu_File_dynamic(track, "Weight angle", &turn_info.weight_angle, float_Box);
-    Create_Menu_File_dynamic(track, "Weight cx", &turn_info.weight_first_cx_diff, float_Box);
-    Create_Menu_File_dynamic(track, "Dead zone", &turn_info.diff_dead_zone, float_Box);
-    Create_Menu_File_dynamic(track, "Yaw step", &mono_beacon.yaw_increment, float_Box);
-    Create_Menu_File_dynamic(track, "Track limit", &mono_beacon.track_threshold, float_Box);
-    Create_Menu_File_dynamic(track, "Turn limit", &mono_beacon.turn_threshold, float_Box);
-    Create_Menu_File_dynamic(track, "Midline", &mono_beacon.img_mid_line, float_Box);
-    Create_Menu_File_dynamic(track, "Max angle", &mono_beacon.angle_err_max, float_Box);
-    Create_Menu_File_dynamic(track, "Zero limit", &mono_beacon.dynamic_zero_threshold, float_Box);
-    Create_Menu_File_dynamic(track, "Mid Kp", &mono_beacon.dynamic_mid_line_kp, float_Box);
-    Create_Menu_File_dynamic(track, "Mid offset", &mono_beacon.dynamic_mid_line_offset, float_Box);
-    Create_Menu_File_dynamic(track, "Mid Kp 2", &mono_beacon.dynamic_mid_line_kp_2, float_Box);
-    Create_Menu_File_dynamic(track, "Mid offset 2", &mono_beacon.dynamic_mid_line_offset_2, float_Box);
-    Create_Menu_File_dynamic(storage, "Save", &save_switch, bool_Box);
-    Create_Menu_File_dynamic(storage, "Load", &load_switch, bool_Box);
+    Menu_Item *fly=Create_Menu_Folder_dynamic(pid,"Gyro test");
+    Create_Menu_File_dynamic(fly,"KP",&roll_rate_test_kp,float_Box);
+    Create_Menu_File_dynamic(fly,"PWM limit",&roll_rate_test_limit,float_Box);
+    Create_Menu_File_dynamic(fly,"Sign +/-1",&roll_rate_test_sign,float_Box);
+    Create_Menu_File_dynamic(fly,"Angle KP",&pitch_balance_kp,float_Box);
+    Create_Menu_File_dynamic(fly,"Rate limit",&pitch_balance_rate_limit,float_Box);
+    Create_Menu_File_dynamic(fly,"Balance Y",&mono_params.balance_angle_y,float_Box);
+    Menu_Item *ground=Create_Menu_Folder_dynamic(pid,"Pitch balance");
+    Create_Menu_File_dynamic(ground,"KP",&ground_rate_test_kp,float_Box);
+    Create_Menu_File_dynamic(ground,"PWM limit",&ground_rate_test_limit,float_Box);
+    Create_Menu_File_dynamic(ground,"Sign +/-1",&ground_rate_test_sign,float_Box);
+    Create_Menu_File_dynamic(ground,"Angle KP",&ground_angle_kp,float_Box);
+    Create_Menu_File_dynamic(ground,"Rate limit",&ground_angle_rate_limit,float_Box);
+    Create_Menu_File_dynamic(ground,"Balance X",&mono_params.balance_angle_x,float_Box);
+    Create_Menu_File_dynamic(storage,"Save",&save_switch,bool_Box);
+    Create_Menu_File_dynamic(storage,"Load",&load_switch,bool_Box);
 }
 
 void Menu_Init(void)
@@ -305,8 +181,8 @@ void Menu_Init(void)
     All_Folder_Menu_Init(&Root);
     pointer = Root.First_Son;
     /* 四个输入启动时按松开处理，防止首轮产生伪按键事件。 */
-    key_init(1);
-    pit_init(CCU61_CH1, 1000);
+    key_init(APP_KEY_PERIOD_MS);
+    pit_init(CCU61_CH1, APP_KEY_PERIOD_MS*1000u);
     redraw = 1;
     refresh_divider = 4;
 }
@@ -380,7 +256,7 @@ static void menu_wifi_connect(void)
     auto_wifi_last_announce=IfxStm_getLower(&MODULE_STM0);
 }
 
-void menu_auto_telemetry_init(void)
+void menu_hardware_init(void)
 {
     /* Menu remains available; only an explicit Start enables control. */
     stop_car();
@@ -389,19 +265,19 @@ void menu_auto_telemetry_init(void)
     small_driver_set_duty(0,0);
 #if QCAR_BOOT_IMU_INIT
     if (ensure_imu()) {
-        pit_init(CCU60_CH1,5000);
+        pit_init(CCU60_CH1,APP_IMU_PERIOD_US);
         control_timers_ready=true;
     }
 #endif
     auto_wifi_per_ms=(uint32)(IfxStm_getFrequency(&MODULE_STM0)/1000.0f);
-    message="Ready; WiFi/Connect when needed";
+    message="Ready; Startup/WiFi connect";
 }
 
 static void menu_auto_wifi_service(void)
 {
     uint32 now=IfxStm_getLower(&MODULE_STM0);
     if (!wifi_deferred_item && wifispi_is_ready() && auto_wifi_per_ms &&
-        (uint32)(now-auto_wifi_last_announce)>=auto_wifi_per_ms*1000u) {
+        (uint32)(now-auto_wifi_last_announce)>=auto_wifi_per_ms*APP_WIFI_ANNOUNCE_MS) {
         menu_wifi_announce(); auto_wifi_last_announce=now;
     }
 }
@@ -422,9 +298,6 @@ static bool Menu_Handle_Control_Bool(Menu_Item *item, bool value)
     } else if (item->data == &stop_switch) {
         if (value) stop_car();
         stop_switch = false;
-    } else if (item->data == &camera_switch) {
-        if (value) camera_preview(); else stop_car();
-        camera_switch = preview == 1;
     } else if (item->data == &imu_switch) {
         if (value) imu_preview(); else stop_car();
         imu_switch = preview == 2;
@@ -465,7 +338,7 @@ static bool Menu_Handle_Control_Uint8(Menu_Item *item, int16 delta)
         int value = run_mode + delta;
         if (wifi_connecting) {message="Wait for WiFi then change Mode";return true;}
         if (running || preview) stop_car();
-        run_mode = (uint8)(value < 0 ? 0 : value > 7 ? 7 : value);
+        run_mode = (uint8)(value < 3 ? 3 : value > 7 ? 7 : value);
         return true;
     }
     return false;
@@ -502,7 +375,7 @@ static void Menu_Show_Attitude(void)
 #if QCAR_WIFI_ENABLED
     /* Connection failures must remain visible even while the gyro/IMU view
      * would normally replace the menu's status message. */
-    if (pointer->Father && strcmp(pointer->Father->name, "WiFi") == 0 &&
+    if (pointer->Father && pointer->data == &wifi_switch &&
         !(roll_rate_test_enabled && roll_rate_test_state<0)) {
         snprintf(line, sizeof(line), "WiFi:%d Err:%d Try:%lu          ",
                  imu_wifi_status, imu_wifi_last_error, (unsigned long)imu_wifi_init_attempts);
@@ -603,23 +476,23 @@ static const char *test_mode_name(void)
     switch(run_mode) {
     case 3:return "Roll angle: flywheel";case 4:return "Pitch angle: wheel";
     case 5:return "DUAL angle: both";case 6:return "Roll RATE ONLY: flywheel";
-    case 7:return "Pitch RATE ONLY: wheel";default:return "Legacy full control";
+    case 7:return "Pitch RATE ONLY: wheel";default:return "Invalid mode";
     }
 }
 
-void Key_Up(void) 
+void Key_Up(void)
 {
     Menu_Request_Redraw();
     if (pointer->Last_Brother != NULL)
         pointer = pointer->Last_Brother;
 }
-void Key_Down(void) 
+void Key_Down(void)
 {
     Menu_Request_Redraw();
     if (pointer->Next_Brother != NULL)
         pointer = pointer->Next_Brother;
 }
-void Key_Plus(void) 
+void Key_Plus(void)
 {
     Menu_Request_Redraw();
     switch (pointer->kind)
@@ -658,7 +531,7 @@ void Key_Plus(void)
         break;
     }
 }
-void Key_Sub(void) 
+void Key_Sub(void)
 {
     Menu_Request_Redraw();
     switch (pointer->kind)
@@ -697,7 +570,7 @@ void Key_Sub(void)
         break;
     }
 }
-void Key_Enter(void) 
+void Key_Enter(void)
 {
     Menu_Request_Redraw();
     if (pointer->kind == MENU_Folder)
@@ -713,7 +586,7 @@ void Key_Enter(void)
         ips200_show_string(0, 112, "                              ");
     }
 }
-void Key_Exit(void) 
+void Key_Exit(void)
 {
     Menu_Request_Redraw();
     if (pointer->Father->Father != NULL)
@@ -729,20 +602,20 @@ void Key_Exit(void)
         ips200_show_string(0, 112, "                              ");
     }
 }
-void Key_Select(void) 
+void Key_Select(void)
 {
     Menu_Request_Redraw();
     if (pointer->kind != MENU_Folder)
         pointer->selected = 1;
 }
-void Key_Deselect(void) 
+void Key_Deselect(void)
 {
     Menu_Request_Redraw();
     if (pointer->kind != MENU_Folder)
         pointer->selected = 0;
     /* Qcar parameters are explicitly saved through Storage/Save. */
 }
-void Key_SetupCtrl_Sub(void) 
+void Key_SetupCtrl_Sub(void)
 {
     Menu_Request_Redraw();
     step_index = (step_index - 1 + 5) % 5;
@@ -751,7 +624,7 @@ void Key_SetupCtrl_Sub(void)
 
 void Menu_Switch(void)
 {
-    
+
     key_state_enum k3 = key_get_state(KEY_3);
     key_state_enum k1 = key_get_state(KEY_1);
     key_state_enum k4 = key_get_state(KEY_4);
@@ -760,7 +633,7 @@ void Menu_Switch(void)
     if (k1 == KEY_SHORT_PRESS)
     {
         key_consume_state(KEY_1, KEY_SHORT_PRESS);
-        
+
         if (pointer->selected == false)
             Key_Up();
         else
@@ -769,7 +642,7 @@ void Menu_Switch(void)
     else if (k2 == KEY_SHORT_PRESS)
     {
         key_consume_state(KEY_2, KEY_SHORT_PRESS);
-        
+
         if (pointer->selected == false)
             Key_Down();
         else
@@ -778,9 +651,9 @@ void Menu_Switch(void)
     else if (k3 == KEY_SHORT_PRESS)
     {
         key_consume_state(KEY_3, KEY_SHORT_PRESS);
-        
 
-        
+
+
         if (pointer->kind == MENU_Folder)
             Key_Enter();
         else if (pointer->selected == false)
@@ -792,7 +665,7 @@ void Menu_Switch(void)
     else if (k4 == KEY_SHORT_PRESS)
     {
         key_consume_state(KEY_4, KEY_SHORT_PRESS);
-        
+
         if (pointer->kind != MENU_Folder && pointer->selected == true)
             Key_Deselect();
         else
@@ -813,7 +686,7 @@ void Menu_Show(void)
     Menu_Item *item;
     uint8 i, page;
     char line[40];
-    if (++refresh_divider < 5) return;
+    if (++refresh_divider < APP_DISPLAY_DIVIDER) return;
     refresh_divider = 0;
     if (redraw) { ips200_clear(); redraw = 0; }
     snprintf(line, sizeof(line), "%-20.20s <%6.2f>", pointer->Father->name, steps[step_index]);
@@ -848,14 +721,11 @@ void Menu_Show(void)
     ips200_show_string(0,282,line);
 }
 
-void menu(int menu_key)
+void menu_poll(void)
 {
-    (void)menu_key;
     menu_apply_deferred_control();
-    if (Usart1_Rec_Fini_Flag) { Usart1_Rec_Fini_Flag = 0; Telecontrol(); }
     imu_service();
     start_switch = running != 0;
-    camera_switch = preview == 1;
     imu_switch = preview == 2;
     wheel_switch = preview == 3;
     Menu_Switch();
@@ -871,5 +741,5 @@ void menu(int menu_key)
     menu_auto_wifi_service();
     menu_wifi_poll();
     Menu_Show();
-    system_delay_ms(10);
+    system_delay_ms(APP_POLL_PERIOD_MS);
 }
