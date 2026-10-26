@@ -94,10 +94,10 @@ static int stored_valid(const float v[BALANCE_PARAMETER_COUNT],uint32 ramp)
 {
     unsigned i;
     for(i=0;i<BALANCE_PARAMETER_COUNT;++i) if(!isfinite(v[i])) return 0;
-    return v[0]>=0 && v[0]<=500 && v[1]>=0 && v[1]<=4000 && (v[2]==1 || v[2]==-1) &&
-        v[3]>=0 && v[3]<=100 && v[4]>0 && v[4]<=100 &&
-        v[5]>=0 && v[5]<=500 && v[6]>=0 && v[6]<=4000 && (v[7]==1 || v[7]==-1) &&
-        v[8]>=0 && v[8]<=100 && v[9]>0 && v[9]<=100 &&
+    return v[0]>=0 && v[0]<=500 && v[1]>=0 && v[1]<=BALANCE_PWM_LIMIT_MAX && (v[2]==1 || v[2]==-1) &&
+        v[3]>=0 && v[3]<=100 && v[4]>0 && v[4]<=BALANCE_RATE_LIMIT_MAX_DPS &&
+        v[5]>=0 && v[5]<=500 && v[6]>=0 && v[6]<=BALANCE_PWM_LIMIT_MAX && (v[7]==1 || v[7]==-1) &&
+        v[8]>=0 && v[8]<=100 && v[9]>0 && v[9]<=BALANCE_RATE_LIMIT_MAX_DPS &&
         fabsf(v[10])<=20 && fabsf(v[11])<=20 && ramp<=5000;
 }
 int write_flash(void)

@@ -1,5 +1,6 @@
 /* Upright controller, extracted from upstream pid.c (GPL-3.0-or-later).
- * Modes 3..7 retain their numerical gains, signs and angle LPF; 8 is raw PWM.
+ * Modes 3..7 retain gains/signs; flywheel rate feedback has a light LPF.
+ * Mode 8 remains raw PWM.
  */
 #include "balance_control.h"
 #include "pid.h"
@@ -8,14 +9,57 @@ uint8_t shacheflag;
 int16 costrained_flywheel_speed_left, costrained_flywheel_speed_right, costrained_wheel_speed;
 float cascade_angle_out,cascade_angle_out_p,cascade_angle_vel_out,cascade_angle_vel_out_p;
 Mono_params mono_params;
+// 函数简介：将输入值限制在指定的上下限范围内。
+// 参数说明：v 为待限制的输入值；lo 为下限；hi 为上限。
+// 返回值：返回限制后的数值。
 float constrain_float(float v,float lo,float hi) { return v<lo?lo:v>hi?hi:v; }
 /* One private PID instance per axis and loop; no shared error history. */
 static pid_controller_t angle_pid[2],rate_pid[2];
+// 函数简介：获取控制器使用的固定采样周期，单位为秒。
+// 参数说明：无。
+// 返回值：返回控制周期，单位为秒。
 static float controller_dt_s(void) {return (float)APP_IMU_PERIOD_US*0.000001f;}
+static float fly_rate_lpf;
+static uint32 fly_rate_lpf_sequence;
+static uint8 fly_rate_lpf_ready;
+// 函数简介：清除飞轮角速度低通滤波器的内部状态。
+// 参数说明：无。
+// 返回值：无。
+static void fly_rate_filter_reset(void)
+{
+    fly_rate_lpf = 0.0f;
+    fly_rate_lpf_sequence = 0u;
+    fly_rate_lpf_ready = 0u;
+}
+/* Called only after raw-data, tilt and freshness checks. Never smooth an
+ * invalid sample or repeatedly filter a held sample while the IMU is stale. */
+// 函数简介：使用当前有效陀螺仪采样更新飞轮角速度低通滤波器。
+// 参数说明：raw 为原始角速度；sequence 为 IMU 采样序号。
+// 返回值：返回滤波后的飞轮角速度。
+static float fly_rate_filter_update(float raw, uint32 sequence)
+{
+    const float dt = controller_dt_s();
+    if (!fly_rate_lpf_ready || FLY_RATE_LPF_TAU_S <= 0.0f) {
+        fly_rate_lpf = raw;
+        fly_rate_lpf_ready = 1u;
+    } else if (sequence != fly_rate_lpf_sequence) {
+        fly_rate_lpf += (raw - fly_rate_lpf) * (dt / (FLY_RATE_LPF_TAU_S + dt));
+    }
+    fly_rate_lpf_sequence = sequence;
+    return fly_rate_lpf;
+}
+// 函数简介：复位两个控制轴的角度环、角速度环和飞轮滤波器。
+// 参数说明：无。
+// 返回值：无。
 static void balance_pid_reset(void)
 {
     unsigned i;for(i=0;i<2;++i){pid_reset(&angle_pid[i]);pid_reset(&rate_pid[i]);}
+    fly_rate_filter_reset();
 }
+// 函数简介：执行指定控制轴的姿态角环 PID，生成目标角速度。
+// 参数说明：axis 为控制轴索引；target 为目标角度；angle 为当前角度；
+//           kp 为角度环比例参数；rate_limit 为目标角速度限幅。
+// 返回值：返回角度环输出的目标角速度。
 static float balance_angle_pid(unsigned axis,float target,float angle,float kp,float rate_limit)
 {
     pid_controller_t *p=&angle_pid[axis];
@@ -28,17 +72,26 @@ static float balance_angle_pid(unsigned axis,float target,float angle,float kp,f
     return pid_position_update(p,target,angle,controller_dt_s());
 #endif
 }
-static float balance_rate_pid(unsigned axis,float target,float rate,float kp,float pwm_limit,float sign)
+// 函数简介：执行指定控制轴的角速度环 PID，生成带方向的 PWM 输出。
+// 参数说明：axis 为控制轴索引；target 为目标角速度；rate 为当前角速度；
+//           kp 为角速度环比例参数；pwm_limit 为 PWM 限幅；
+//           sign 为输出方向符号，只允许为 1 或 -1。
+// 返回值：返回带方向且经过限幅的 PWM 输出。
+static float balance_rate_pid(unsigned axis,float target,float rate,float kp,float pwm_limit,float sign,float angle_ff)
 {
+    float output;
     pid_controller_t *p=&rate_pid[axis];
     p->kp=kp;p->ki=axis?GROUND_RATE_KI:FLY_RATE_KI;p->kd=axis?GROUND_RATE_KD:FLY_RATE_KD;
     p->integral_limit=BALANCE_RATE_I_LIMIT_PWM;
     p->output_min=-pwm_limit;p->output_max=pwm_limit;
 #if BALANCE_RATE_PID_INCREMENTAL
-    return sign*pid_incremental_update(p,target,rate,controller_dt_s());
+    output=pid_incremental_update(p,target,rate,controller_dt_s());
 #else
-    return sign*pid_position_update(p,target,rate,controller_dt_s());
+    output=pid_position_update(p,target,rate,controller_dt_s());
 #endif
+    /* Same signed actuator path for PID and angle compensation; the combined
+     * command must obey the startup-scaled PWM limit, including with Kp=0. */
+    return sign*constrain_float(output+angle_ff,-pwm_limit,pwm_limit);
 }
 
 /* States: 0 off, 1 calibration, 2 running;
@@ -74,10 +127,13 @@ float roll_rate_test_limit = FLY_PWM_LIMIT;
 float roll_rate_test_sign = FLY_OUTPUT_SIGN;
 static uint8 rate_divider;
 static uint32 rate_stale_ms, rate_sequence;
-/* Preserve upstream's angle LPF. Default tau=60ms, about 2.65Hz corner;
+/* Angle LPF defaults to tau=40ms, about 3.98Hz corner;
  * this adds phase lag and requires physical tuning, not proof of stability. */
 #define ANGLE_LPF_TAU_S BALANCE_ANGLE_LPF_TAU_S
 static float angle_lpf[2];
+// 函数简介：更新姿态角一阶低通滤波器。
+// 参数说明：state 为滤波器状态指针；value 为当前原始角度。
+// 返回值：返回滤波后的角度。
 static float angle_lpf_update(float *state, float value)
 {
     const float dt = (float)APP_IMU_PERIOD_US*0.000001f;
@@ -127,22 +183,38 @@ void roll_rate_test_arm(void)
 // 函数简介：周期性更新飞轮角速度测试控制量并驱动电机。
 // 参数说明：无。
 // 返回值：无。
+// 函数简介：启动地轮角速度测试模式。
+// 参数说明：无。
+// 返回值：无。
 void ground_rate_test_arm(void)
 {
     roll_rate_test_arm();
     ground_rate_test_enabled=1;
 }
 
+// 函数简介：启动仅角速度反馈的飞轮测试模式。
+// 参数说明：无。
+// 返回值：无。
 void roll_rate_only_arm(void) {roll_rate_test_arm();rate_only_test=1;}
+// 函数简介：启动仅角速度反馈的地轮测试模式。
+// 参数说明：无。
+// 返回值：无。
 void ground_rate_only_arm(void) {ground_rate_test_arm();rate_only_test=1;}
+// 函数简介：锁存控制故障并记录故障发生时的控制状态。
+// 参数说明：state 为故障状态码；reason 为故障原因码。
+// 返回值：无。
 static void control_latch_fault(int32 state,int32 reason)
 {
+    fly_rate_filter_reset();
     uint32 irq=interrupt_global_disable();
     roll_rate_test_state=state;control_fault_reason=reason;
     control_fault_imu_status=imu_attitude_status;control_fault_seq=imu_sample_sequence;
     control_fault_dt_ms=imu_sample_dt_ms;
     interrupt_global_enable(irq);
 }
+// 函数简介：推进启动缓升计时并计算当前 PWM 输出缩放系数。
+// 参数说明：无。
+// 返回值：无。
 static void control_startup_advance(void)
 {
     if(control_startup_elapsed_ms<5000u)control_startup_elapsed_ms+=APP_IMU_PERIOD_US/1000u;
@@ -150,6 +222,9 @@ static void control_startup_advance(void)
         constrain_float((float)control_startup_elapsed_ms/(float)control_startup_ramp_ms,0.0f,1.0f);
 }
 
+// 函数简介：启动飞轮和地轮双轴平衡控制模式。
+// 参数说明：无。
+// 返回值：无。
 void dual_balance_arm(void)
 {
     ground_rate_test_arm();
@@ -158,6 +233,9 @@ void dual_balance_arm(void)
 
 /* Bench mode: direct signed PWM, no attitude controller or IMU interlock.
  * Arm/Stop zero all three commands. Only the control ISR owns active outputs. */
+// 函数简介：启动三路 PWM 直接调试模式。
+// 参数说明：无。
+// 返回值：无。
 void pwm_debug_arm(void)
 {
     roll_rate_test_stop();
@@ -166,6 +244,9 @@ void pwm_debug_arm(void)
     roll_rate_test_state=2;
 }
 
+// 函数简介：读取三路调试 PWM，限幅后直接驱动飞轮和地轮。
+// 参数说明：无。
+// 返回值：无。
 static void pwm_debug_update(void)
 {
     float left,right,ground;
@@ -212,15 +293,21 @@ static void pwm_debug_update(void)
 typedef struct {
     float angle,rate,target,angle_kp,rate_limit,rate_kp,pwm_limit,sign;
 } balance_axis_snapshot;
+// 函数简介：检查单个平衡轴的目标、PID 参数和输出限幅是否有效。
+// 参数说明：a 为待检查的平衡轴参数快照指针。
+// 返回值：参数有效返回 1，否则返回 0。
 static int dual_axis_parameters_valid(const balance_axis_snapshot *a)
 {
     return isfinite(a->target) && fabsf(a->target)<=20 &&
         isfinite(a->angle_kp) && a->angle_kp>=0 && a->angle_kp<=100 &&
         isfinite(a->rate_kp) && a->rate_kp>=0 && a->rate_kp<=500 &&
-        isfinite(a->rate_limit) && a->rate_limit>0 && a->rate_limit<=100 &&
-        isfinite(a->pwm_limit) && a->pwm_limit>=0 && a->pwm_limit<=4000 &&
+        isfinite(a->rate_limit) && a->rate_limit>0 && a->rate_limit<=BALANCE_RATE_LIMIT_MAX_DPS &&
+        isfinite(a->pwm_limit) && a->pwm_limit>=0 && a->pwm_limit<=BALANCE_PWM_LIMIT_MAX &&
         (a->sign==1 || a->sign==-1);
 }
+// 函数简介：执行飞轮和地轮双轴串级平衡控制并输出电机 PWM。
+// 参数说明：无。
+// 返回值：无。
 static void dual_balance_update(void)
 {
     balance_axis_snapshot a[2];
@@ -246,11 +333,14 @@ static void dual_balance_update(void)
         if (!shacheflag) roll_rate_test_state=0;
         else if (status<0) control_latch_fault(-1,1);
         else if (status==IMU_ATTITUDE_CALIBRATING) {
+            fly_rate_filter_reset();
             roll_rate_test_state=1;rate_stale_ms=0;rate_sequence=seq;
         } else if (!seq || !isfinite(imu_roll_deg) || !isfinite(imu_pitch_deg) || !isfinite(a[0].angle) || !isfinite(a[1].angle) ||
                    !isfinite(a[0].rate) || !isfinite(a[1].rate)) control_latch_fault(-1,seq?3:2);
         else if (fabsf(imu_pitch_deg)>BALANCE_TILT_LIMIT_DEG || fabsf(imu_roll_deg)>BALANCE_TILT_LIMIT_DEG) control_latch_fault(-2,5);
-        else if (!dual_axis_parameters_valid(&a[0]) || !dual_axis_parameters_valid(&a[1]) || control_startup_ramp_ms>5000u)
+        else if (!dual_axis_parameters_valid(&a[0]) || !dual_axis_parameters_valid(&a[1]) ||
+                 !isfinite(FLY_ANGLE_FF_KP) || FLY_ANGLE_FF_KP<0.0f || FLY_ANGLE_FF_KP>1000.0f ||
+                 control_startup_ramp_ms>5000u)
             control_latch_fault(-3,6);
         else {
             if (seq==rate_sequence) rate_stale_ms+=APP_IMU_PERIOD_US/1000u;
@@ -260,9 +350,14 @@ static void dual_balance_update(void)
                 roll_rate_test_state=2;
                 control_startup_advance();
                 for(unsigned i=0;i<2;i++) {
+                    if (i==0u) {
+                        a[i].rate=fly_rate_filter_update(a[i].rate,seq);
+                        dual_rate[i]=a[i].rate;
+                    }
                     dual_target_rate[i]=balance_angle_pid(i,a[i].target,a[i].angle,a[i].angle_kp,a[i].rate_limit);
                     dual_rate_error[i]=dual_target_rate[i]-a[i].rate;
-                    output[i]=(int)roundf(balance_rate_pid(i,dual_target_rate[i],a[i].rate,a[i].rate_kp,a[i].pwm_limit*control_startup_scale,a[i].sign));
+                    output[i]=(int)roundf(balance_rate_pid(i,dual_target_rate[i],a[i].rate,a[i].rate_kp,a[i].pwm_limit*control_startup_scale,a[i].sign,
+                        i==0u && a[i].angle_kp>0.0f ? FLY_ANGLE_FF_KP*dual_angle_error[i] : 0.0f));
                     dual_pwm[i]=(float)output[i];
                 }
             }
@@ -280,6 +375,9 @@ static void dual_balance_update(void)
     motor_m_ctrl(output[1]);
 }
 
+// 函数简介：周期性执行单轴角度/角速度控制、测试模式和电机输出。
+// 参数说明：无。
+// 返回值：无。
 static void roll_rate_test_update(void)
 {
     float rate, roll, pitch, kp, limit, direction;
@@ -314,6 +412,7 @@ static void roll_rate_test_update(void)
         if (!shacheflag) roll_rate_test_state = 0;
         else if (status < 0) control_latch_fault(-1,1);
         else if (status == IMU_ATTITUDE_CALIBRATING) {
+            fly_rate_filter_reset();
             /* Calibration never drives either flywheel. */
             roll_rate_test_state = 1;
             rate_stale_ms = 0;
@@ -324,11 +423,14 @@ static void roll_rate_test_update(void)
         else if (fabsf(ground_rate_test_enabled ? roll : pitch) > BALANCE_TILT_LIMIT_DEG)
             control_latch_fault(-2,5);
         else if (!isfinite(kp) || kp < 0.0f || kp > 500.0f ||
-                 !isfinite(limit) || limit < 0.0f || limit > 4000.0f ||
+                 !isfinite(limit) || limit < 0.0f || limit > BALANCE_PWM_LIMIT_MAX ||
                  (direction != 1.0f && direction != -1.0f) ||
                  !isfinite(angle_kp) || angle_kp < 0.0f || angle_kp > 100.0f ||
-                 !isfinite(rate_limit) || rate_limit <= 0.0f || rate_limit > 100.0f ||
-                 !isfinite(balance_angle) || fabsf(balance_angle) > 20.0f || control_startup_ramp_ms>5000u)
+                 !isfinite(rate_limit) || rate_limit <= 0.0f || rate_limit > BALANCE_RATE_LIMIT_MAX_DPS ||
+                 !isfinite(balance_angle) || fabsf(balance_angle) > 20.0f ||
+                 (!ground_rate_test_enabled && !rate_only_test &&
+                  (!isfinite(FLY_ANGLE_FF_KP) || FLY_ANGLE_FF_KP<0.0f || FLY_ANGLE_FF_KP>1000.0f)) ||
+                 control_startup_ramp_ms>5000u)
             control_latch_fault(-3,6);
         else {
             if (sequence == rate_sequence) rate_stale_ms += APP_IMU_PERIOD_US/1000u;
@@ -337,13 +439,18 @@ static void roll_rate_test_update(void)
             else {
                 roll_rate_test_state = 2;
                 control_startup_advance();
+                if (!ground_rate_test_enabled) {
+                    rate=fly_rate_filter_update(rate,sequence);
+                    roll_rate_test_actual=rate;
+                }
                 /* 索引与双轴路径一致：0=pitch(飞轮)，1=roll(地轮)。 */
                 pitch_balance_error = balance_angle - angle_lpf_update(
                     &angle_lpf[ground_rate_test_enabled ? 1u : 0u],
                     ground_rate_test_enabled ? roll : pitch);
                 pitch_balance_target_rate = rate_only_test ? 0.0f : balance_angle_pid(ground_rate_test_enabled?1u:0u,balance_angle,balance_angle-pitch_balance_error,angle_kp,rate_limit);
                 roll_rate_test_error = pitch_balance_target_rate - rate;
-                output = (int)roundf(balance_rate_pid(ground_rate_test_enabled?1u:0u,pitch_balance_target_rate,rate,kp,limit*control_startup_scale,direction));
+                output = (int)roundf(balance_rate_pid(ground_rate_test_enabled?1u:0u,pitch_balance_target_rate,rate,kp,limit*control_startup_scale,direction,
+                    !ground_rate_test_enabled && !rate_only_test && angle_kp>0.0f ? FLY_ANGLE_FF_KP*pitch_balance_error : 0.0f));
             }
         }
     }
@@ -358,18 +465,26 @@ static void roll_rate_test_update(void)
     motor_m_ctrl(costrained_wheel_speed);
 }
 
-
+// 函数简介：以 1 ms 周期分发当前控制模式并更新电机输出。
+// 参数说明：无。
+// 返回值：无。
 void balance_control_tick_1ms(void)
 {
     if (roll_rate_test_enabled) roll_rate_test_update();
     else { small_driver_set_duty(0,0); motor_m_ctrl(0); }
 }
+// 函数简介：清除级联控制输出和对外暴露的电机速度命令。
+// 参数说明：无。
+// 返回值：无。
 void clear_all_cascade_out(void)
 {
     cascade_angle_out=cascade_angle_out_p=0;
     cascade_angle_vel_out=cascade_angle_vel_out_p=0;
     costrained_flywheel_speed_left=costrained_flywheel_speed_right=costrained_wheel_speed=0;
 }
+// 函数简介：恢复平衡控制器、测试参数和启动状态的编译默认值。
+// 参数说明：无。
+// 返回值：无。
 void balance_control_defaults(void)
 {
     roll_rate_test_stop(); clear_all_cascade_out();

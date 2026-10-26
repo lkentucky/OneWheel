@@ -148,18 +148,17 @@ typedef struct {
     float minimum, maximum;
 } slider_parameter_t;
 static const slider_parameter_t g_slider_parameters[] = {
-    /* 单轴环在线调参（Mode 7 地轮）。范围与 pid.c 的运行期校验一致：
-     * Kp>500、limit>4000、Sign 不是 ±1 都会锁存 F=6，所以不要用 0 做 Sign。 */
+    /* Tuning ranges match controller and Flash validation in config.h. */
     {"rate_kp", &ground_rate_test_kp, 0.0f, 500.0f},
-    {"rate_pwm_limit", &ground_rate_test_limit, 0.0f, 4000.0f},
+    {"rate_pwm_limit", &ground_rate_test_limit, 0.0f, BALANCE_PWM_LIMIT_MAX},
     {"rate_sign", &ground_rate_test_sign, -1.0f, 1.0f},
     /* 模式 4 外环：角度P 与目标角速度限幅，只在 rate_only=0 时参与。 */
     {"ground_angle_kp", &ground_angle_kp, 0.0f, 100.0f},
     /* 模式 5 横向（飞轮，代码里是 pitch/imu_pitch_deg，屏幕标 Roll）。 */
     {"fly_angle_kp", &pitch_balance_kp, 0.0f, 100.0f},
-    {"fly_rate_limit_dps", &pitch_balance_rate_limit, 0.1f, 100.0f},
+    {"fly_rate_limit_dps", &pitch_balance_rate_limit, 0.1f, BALANCE_RATE_LIMIT_MAX_DPS},
     {"fly_rate_kp", &roll_rate_test_kp, 0.0f, 500.0f},
-    {"fly_pwm_limit", &roll_rate_test_limit, 0.0f, 4000.0f},
+    {"fly_pwm_limit", &roll_rate_test_limit, 0.0f, BALANCE_PWM_LIMIT_MAX},
     {"fly_sign", &roll_rate_test_sign, -1.0f, 1.0f},
     /* 停车时单独开环驱动左右无刷（排查飞轮通道用，0 = 不驱动）。 */
     {"fly_test_left", &small_driver_test_left, -4000.0f, 4000.0f},
@@ -168,7 +167,7 @@ static const slider_parameter_t g_slider_parameters[] = {
     {"debug_fly_left_pwm", &pwm_debug_fly_left, -DEBUG_PWM_LIMIT, DEBUG_PWM_LIMIT},
     {"debug_fly_right_pwm", &pwm_debug_fly_right, -DEBUG_PWM_LIMIT, DEBUG_PWM_LIMIT},
     {"debug_ground_pwm", &pwm_debug_ground, -DEBUG_PWM_LIMIT, DEBUG_PWM_LIMIT},
-    {"ground_rate_limit_dps", &ground_angle_rate_limit, 0.1f, 100.0f},
+    {"ground_rate_limit_dps", &ground_angle_rate_limit, 0.1f, BALANCE_RATE_LIMIT_MAX_DPS},
     {"balance_angle_x", &mono_params.balance_angle_x, -20.0f, 20.0f},
     {"balance_angle_y", &mono_params.balance_angle_y, -20.0f, 20.0f}
 };

@@ -47,14 +47,15 @@ static void arm(int mode){
 }
 int main(void){
     /* Rate-only axis ownership, signs, output limits and P-only equivalence. */
-    arm(6);attitude_state.gyro.y=10;tick(1);assert(fly_l==-350 && fly_r==350 && ground==0);
+    arm(6);attitude_state.gyro.y=10;tick(1);assert(fly_l==-430 && fly_r==430 && ground==0);
     arm(7);attitude_state.gyro.x=10;tick(1);assert(ground==-300 && fly_l==0 && fly_r==0);
     ground_rate_test_sign=-1;tick(1);assert(ground==300);
     ground_rate_test_limit=100;tick(1);assert(ground==100);
     arm(5);tick(1);assert(!ground && !fly_l && !fly_r);
-    /* Compare the original default P/P + LPF equation over a moving trajectory. */
+    /* Compare P/P + LPF + signed flywheel angle compensation over a trajectory. */
     float filter[2]={BALANCE_ZERO_Y_DEG,BALANCE_ZERO_X_DEG};
     float alpha=0.005f/(BALANCE_ANGLE_LPF_TAU_S+0.005f);
+    float fly_rate=0.0f;
     for(int k=0;k<150;++k){
         imu_pitch_deg=BALANCE_ZERO_Y_DEG+((k%17)-8)*0.12f;
         imu_roll_deg=BALANCE_ZERO_X_DEG+((k%13)-6)*0.15f;
@@ -66,8 +67,12 @@ int main(void){
         if(tr0< -FLY_RATE_LIMIT_DPS)tr0= -FLY_RATE_LIMIT_DPS;
         if(tr1>GROUND_RATE_LIMIT_DPS)tr1=GROUND_RATE_LIMIT_DPS;
         if(tr1< -GROUND_RATE_LIMIT_DPS)tr1= -GROUND_RATE_LIMIT_DPS;
-        float uf=FLY_RATE_KP*(tr0-attitude_state.gyro.y);
+        if (FLY_RATE_LPF_TAU_S<=0.0f) fly_rate=attitude_state.gyro.y;
+        else fly_rate+=(attitude_state.gyro.y-fly_rate)*(0.005f/(FLY_RATE_LPF_TAU_S+0.005f));
+        float uf=FLY_RATE_KP*(tr0-fly_rate);
         float ug=GROUND_RATE_KP*(tr1-attitude_state.gyro.x);
+        if(uf>FLY_PWM_LIMIT)uf=FLY_PWM_LIMIT;if(uf< -FLY_PWM_LIMIT)uf= -FLY_PWM_LIMIT;
+        uf+=FLY_ANGLE_FF_KP*(BALANCE_ZERO_Y_DEG-filter[0]);
         if(uf>FLY_PWM_LIMIT)uf=FLY_PWM_LIMIT;if(uf< -FLY_PWM_LIMIT)uf= -FLY_PWM_LIMIT;
         if(ug>GROUND_PWM_LIMIT)ug=GROUND_PWM_LIMIT;if(ug< -GROUND_PWM_LIMIT)ug= -GROUND_PWM_LIMIT;
         int f=(int)roundf(uf),g=(int)roundf(ug);
@@ -85,6 +90,22 @@ int main(void){
     arm(5);ground_rate_test_sign=0;tick(1);assert(roll_rate_test_state==-3 && !ground && !fly_l);
     arm(5);attitude_state.gyro.x=4;tick(1);assert(ground!=0);shacheflag=0;tick(1);assert(!ground && !fly_l);
     arm(7);control_startup_ramp_ms=1000;attitude_state.gyro.x=100;tick(1);assert(control_startup_scale>0 && control_startup_scale<0.01f && ground==-20);
+    /* Verify requested flywheel defaults and unchanged ground limits. */
+    arm(5);assert(pitch_balance_rate_limit==100 && roll_rate_test_limit==8000);
+    assert(roll_rate_test_kp==43 && mono_params.balance_angle_y==-.5f && ground_rate_test_limit==4000);
+    pitch_balance_rate_limit=ground_angle_rate_limit=200;
+    roll_rate_test_limit=ground_rate_test_limit=8000;
+    roll_rate_test_kp=ground_rate_test_kp=50;
+    pitch_balance_kp=ground_angle_kp=100;
+    mono_params.balance_angle_y=imu_pitch_deg+4;mono_params.balance_angle_x=imu_roll_deg+4;
+    tick(1);assert(roll_rate_test_state==2 && dual_target_rate[0]==200 && dual_target_rate[1]==200);
+    assert(fly_l==8000 && fly_r==-8000 && ground==8000);
+    pitch_balance_rate_limit=200.1f;tick(1);assert(roll_rate_test_state==-3 && !fly_l && !ground);
+    arm(5);ground_rate_test_limit=8000.1f;tick(1);assert(roll_rate_test_state==-3 && !fly_l && !ground);
+    arm(3);pitch_balance_rate_limit=200;roll_rate_test_limit=8000;
+    attitude_state.gyro.y=300;tick(1);assert(roll_rate_test_state==2 && fly_l==-8000);
+    roll_rate_test_limit=8000.1f;tick(1);assert(roll_rate_test_state==-3 && !fly_l);
+    arm(4);ground_angle_rate_limit=200.1f;tick(1);assert(roll_rate_test_state==-3 && !ground);
     roll_rate_test_stop();balance_control_tick_1ms();assert(!ground && !fly_l && !roll_rate_test_enabled);
     /* Mode8 owns both raw outputs independently of all IMU state and PID gains. */
     pwm_debug_arm();shacheflag=1;control_startup_ramp_ms=0;
