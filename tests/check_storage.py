@@ -45,10 +45,17 @@ int main(void){
  dropped=-1;assert(write_flash());float bad=501;memcpy(&memory[6],&bad,4);repair_checksum();get_flash();assert(ground_rate_test_kp==GROUND_RATE_KP);
  bad=NAN;memcpy(&memory[6],&bad,4);repair_checksum();get_flash();assert(ground_rate_test_kp==GROUND_RATE_KP);
  assert(write_flash());memory[13]=5001;repair_checksum();get_flash();assert(control_startup_ramp_ms==BALANCE_STARTUP_RAMP_MS);
+ balance_control_defaults();assert(pitch_balance_rate_limit==100 && roll_rate_test_limit==8000);
+ assert(roll_rate_test_kp==43 && mono_params.balance_angle_y==-.5f && ground_rate_test_limit==4000);
+ pitch_balance_rate_limit=ground_angle_rate_limit=200;roll_rate_test_limit=ground_rate_test_limit=8000;
+ assert(write_flash());balance_control_defaults();get_flash();
+ assert(pitch_balance_rate_limit==200 && ground_angle_rate_limit==200 && roll_rate_test_limit==8000 && ground_rate_test_limit==8000);
+ old=erases;pitch_balance_rate_limit=200.1f;assert(!write_flash() && erases==old);
+ pitch_balance_rate_limit=200;ground_rate_test_limit=8000.1f;assert(!write_flash() && erases==old);
  puts("Flash: roundtrip, marker-last, checksum, partial writes, finite/range guards and readback PASS");return 0;
 }
 '''
 with tempfile.TemporaryDirectory(prefix='onewheel-flash-') as d:
     p=Path(d);test=p/'flash_test.c';test.write_text(prefix+payload+main,encoding='utf-8');exe=p/'flash.exe'
-    subprocess.run(['gcc','-std=c99','-I'+str(root/'code'),str(test),'-o',str(exe)],check=True)
+    subprocess.run(['gcc','-std=c99','-DQCAR_BOOT_LOAD_FLASH=1','-I'+str(root/'code'),str(test),'-o',str(exe)],check=True)
     subprocess.run([str(exe)],check=True)

@@ -169,6 +169,11 @@ void Menu_Create(void)
     Create_Menu_File_dynamic(ground,"Angle KP",&ground_angle_kp,float_Box);
     Create_Menu_File_dynamic(ground,"Rate limit",&ground_angle_rate_limit,float_Box);
     Create_Menu_File_dynamic(ground,"Balance X",&mono_params.balance_angle_x,float_Box);
+    /* 左右无刷开环测试：停车状态下直接给占空比，用于单独排查飞轮通道。
+     * 与 WiFi 滑杆 fly_test_left/right 是同一组变量，两处都能改。 */
+    Menu_Item *fly_test=Create_Menu_Folder_dynamic(pid,"Flywheel");
+    Create_Menu_File_dynamic(fly_test,"Left PWM",&small_driver_test_left,float_Box);
+    Create_Menu_File_dynamic(fly_test,"Right PWM",&small_driver_test_right,float_Box);
     Create_Menu_File_dynamic(storage,"Save",&save_switch,bool_Box);
     Create_Menu_File_dynamic(storage,"Load",&load_switch,bool_Box);
     Create_Menu_File_dynamic(debug,"Fly left PWM",(void *)&pwm_debug_fly_left,float_Box);

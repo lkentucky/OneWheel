@@ -46,7 +46,7 @@
  * defaults only. Setting 0 isolates the menu from the boot-time flash
  * read (Storage -> Load also does nothing while this is 0). */
 #ifndef QCAR_BOOT_LOAD_FLASH
-#define QCAR_BOOT_LOAD_FLASH 1
+#define QCAR_BOOT_LOAD_FLASH 0
 #endif
 /* CPU0 owns WiFi-SPI UDP telemetry. */
 #ifndef QCAR_WIFI_ENABLED
@@ -62,7 +62,7 @@
 #define QCAR_WIFI_PASSWORD "zyz520520"
 #endif
 #ifndef QCAR_WIFI_TARGET_IP
-#define QCAR_WIFI_TARGET_IP "192.168.0.112"
+#define QCAR_WIFI_TARGET_IP "192.168.0.115"
 #endif
 #ifndef QCAR_WIFI_TARGET_PORT
 #define QCAR_WIFI_TARGET_PORT "8081"
@@ -173,15 +173,15 @@
  * 保留上游 7a053b2 的值；不要套用旧版原始量零点 -100 / 190。
  */
 #define BALANCE_ZERO_X_DEG           3.9f
-#define BALANCE_ZERO_Y_DEG          -0.3f
-#define FLY_RATE_KP                 35.0f
+#define BALANCE_ZERO_Y_DEG          -0.5f
+#define FLY_RATE_KP                 43.0f
 #define FLY_RATE_KI                  0.0f
 #define FLY_RATE_KD                  0.0f
 #define FLY_ANGLE_KP                50.0f
 #define FLY_ANGLE_KI                 0.0f
 #define FLY_ANGLE_KD                 0.0f
-#define FLY_RATE_LIMIT_DPS          80.0f
-#define FLY_PWM_LIMIT             4000.0f
+#define FLY_RATE_LIMIT_DPS         100.0f
+#define FLY_PWM_LIMIT             8000.0f
 #define FLY_OUTPUT_SIGN              1.0f
 #define GROUND_RATE_KP              30.0f
 #define GROUND_RATE_KI               0.0f
@@ -192,13 +192,26 @@
 #define GROUND_RATE_LIMIT_DPS      100.0f
 #define GROUND_PWM_LIMIT          4000.0f
 #define GROUND_OUTPUT_SIGN           1.0f
+/* Allowed tuning ranges, separate from the active/default limits above. */
+#define BALANCE_RATE_LIMIT_MAX_DPS  200.0f
+#define BALANCE_PWM_LIMIT_MAX      8000.0f
 /* PID gains use seconds: integral += Ki*error*dt, derivative = Kd*de/dt.
  * Defaults remain P-only. 0=position form, 1=incremental form. */
 #define BALANCE_ANGLE_PID_INCREMENTAL 0
 #define BALANCE_RATE_PID_INCREMENTAL  0
 #define BALANCE_ANGLE_I_LIMIT_DPS     0.0f
 #define BALANCE_RATE_I_LIMIT_PWM      0.0f
-#define BALANCE_ANGLE_LPF_TAU_S       0.06f /* 0 disables; upstream filter */
+/* Flywheel body-rate feedback only (Modes 3/5/6), before the rate PID.
+ * tau=5ms, dt=5ms -> alpha=0.5. Set to 0 to bypass; rebuild required. */
+#ifndef FLY_RATE_LPF_TAU_S
+#define FLY_RATE_LPF_TAU_S            0.005f
+#endif
+#define BALANCE_ANGLE_LPF_TAU_S       0.04f /* 0 disables; reduced angle-feedback lag */
+/* Flywheel angle-error -> PWM, Modes 3/5 only. PWM per degree; 0 disables.
+ * Compile-time setting, independent of Flash/RAM PID gains. */
+#ifndef FLY_ANGLE_FF_KP
+#define FLY_ANGLE_FF_KP             300.0f
+#endif
 #define BALANCE_TILT_LIMIT_DEG       30.0f
 #define BALANCE_IMU_STALE_MS         25u
 #define BALANCE_STARTUP_RAMP_MS    1000u

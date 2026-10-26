@@ -171,6 +171,16 @@ static void test_transport(void)
     command("STREAM 1\nRATE 2\n"); assert(wifi_telemetry_stream_enabled && wifi_telemetry_period_ms==2);
     command("[slider,ground_angle_kp,2.5]");
     assert(ground_angle_kp==2.5f && has_reply("MCAR SLIDER ground_angle_kp 2.5\n"));
+    float saved_fly_rate_limit=pitch_balance_rate_limit,saved_ground_rate_limit=ground_angle_rate_limit;
+    float saved_fly_pwm_limit=roll_rate_test_limit,saved_ground_pwm_limit=ground_rate_test_limit;
+    command("[slider,fly_rate_limit_dps,200][slider,ground_rate_limit_dps,200][slider,fly_pwm_limit,8000][slider,rate_pwm_limit,8000]");
+    assert(pitch_balance_rate_limit==200 && ground_angle_rate_limit==200 && roll_rate_test_limit==8000 && ground_rate_test_limit==8000);
+    command("[slider,fly_rate_limit_dps,200.1][slider,ground_rate_limit_dps,200.1][slider,fly_pwm_limit,8000.1][slider,rate_pwm_limit,8000.1]");
+    assert(pitch_balance_rate_limit==200 && ground_angle_rate_limit==200 && roll_rate_test_limit==8000 && ground_rate_test_limit==8000);
+    command("[slider,fly_rate_limit_dps,100][slider,ground_rate_limit_dps,100][slider,fly_pwm_limit,4000][slider,rate_pwm_limit,4000]");
+    assert(pitch_balance_rate_limit==100 && ground_angle_rate_limit==100 && roll_rate_test_limit==4000 && ground_rate_test_limit==4000);
+    pitch_balance_rate_limit=saved_fly_rate_limit;ground_angle_rate_limit=saved_ground_rate_limit;
+    roll_rate_test_limit=saved_fly_pwm_limit;ground_rate_test_limit=saved_ground_pwm_limit;
     command("[\"slider\",\"balance_angle_x\",-1.25e1]\n");
     assert(mono_params.balance_angle_x==-12.5f);
     command("[slider,ground_angle_kp,");
