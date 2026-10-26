@@ -15,11 +15,20 @@
 #endif
 #define QCAR_DRIVER_SPEED_QUERY_MS 20u
 #define QCAR_DRIVER_FEEDBACK_TIMEOUT_MS 100u
-/* Final UART duty polarity for BOTH flywheels, including Mode8 and bench tests.
- * Kept separate from the runtime PID Sign and raw encoder feedback. */
-#define QCAR_FLYWHEEL_DRIVER_SIGN (-1)
-#if QCAR_FLYWHEEL_DRIVER_SIGN != 1 && QCAR_FLYWHEEL_DRIVER_SIGN != -1
-#error QCAR_FLYWHEEL_DRIVER_SIGN must be +1 or -1
+/* 左右飞轮最终输出方向：+1保持逻辑方向，-1反向；只允许+1或-1。
+ * 两路独立，适用于Mode3/5/6/8和停车诊断；不改变PID Sign和原始转速。
+ * 默认保持原有两路反向效果；修改后重新编译、烧录TC264。 */
+#ifndef QCAR_FLYWHEEL_LEFT_SIGN
+#define QCAR_FLYWHEEL_LEFT_SIGN  (-1)
+#endif
+#ifndef QCAR_FLYWHEEL_RIGHT_SIGN
+#define QCAR_FLYWHEEL_RIGHT_SIGN (-1)
+#endif
+#if QCAR_FLYWHEEL_LEFT_SIGN != 1 && QCAR_FLYWHEEL_LEFT_SIGN != -1
+#error QCAR_FLYWHEEL_LEFT_SIGN must be +1 or -1
+#endif
+#if QCAR_FLYWHEEL_RIGHT_SIGN != 1 && QCAR_FLYWHEEL_RIGHT_SIGN != -1
+#error QCAR_FLYWHEEL_RIGHT_SIGN must be +1 or -1
 #endif
 #define QCAR_MOTOR_PWM ATOM0_CH3_P21_5
 #define QCAR_MOTOR_DIR P21_4

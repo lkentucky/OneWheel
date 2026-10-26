@@ -76,8 +76,8 @@ static float g_telemetry_ms;
     X(rate_state, roll_rate_test_state) X(rate_enabled, roll_rate_test_enabled) \
     X(rate_kp, ground_rate_test_enabled?ground_rate_test_kp:roll_rate_test_kp) X(rate_sign, ground_rate_test_enabled?ground_rate_test_sign:roll_rate_test_sign) \
     X(rate_pwm_limit, ground_rate_test_enabled?ground_rate_test_limit:roll_rate_test_limit) \
-    X(motor_left_pwm, QCAR_FLYWHEEL_DRIVER_SIGN * costrained_flywheel_speed_left) \
-    X(motor_right_pwm, QCAR_FLYWHEEL_DRIVER_SIGN * -costrained_flywheel_speed_right) \
+    X(motor_left_pwm, QCAR_FLYWHEEL_LEFT_SIGN * costrained_flywheel_speed_left) \
+    X(motor_right_pwm, QCAR_FLYWHEEL_RIGHT_SIGN * -costrained_flywheel_speed_right) \
     X(flywheel_left_speed_raw, motor_value.receive_left_speed_data) \
     X(flywheel_right_speed_raw, motor_value.receive_right_speed_data) \
     X(driver_speed_frames, small_driver_speed_frames) \

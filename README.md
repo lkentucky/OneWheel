@@ -88,7 +88,7 @@ K1上移/加，K2下移/减，K3进入/选中/切换步进，K4返回/取消选�
 
 ### Mode8 开环调试
 
-先固定或架空车辆，在 Startup 选择8并Start（输出仍为0），再进入 PWM debug 调整 Fly left PWM / Fly right PWM / Wheel PWM，分别控制左飞轮、右飞轮、行进轮。三路参数范围均默认为-4000～4000，0停车，负数反向；10000代表100%占空比，4000为40%指令。左右飞轮使用各自独立的逻辑输入，不乘PID的Sign参数；串口发送入口统一应用 config.h 的 QCAR_FLYWHEEL_DRIVER_SIGN（当前-1），因此两路最终指令均反向。此极性也适用于Mode3/5/6及停车串口诊断，行进轮和磁编原始反馈符号不变。
+先固定或架空车辆，在 Startup 选择8并Start（输出仍为0），再进入 PWM debug 调整 Fly left PWM / Fly right PWM / Wheel PWM，分别控制左飞轮、右飞轮、行进轮。三路参数范围均默认为-4000～4000，0停车，负数反向；10000代表100%占空比，4000为40%指令。左右飞轮使用各自独立的逻辑输入，不乘PID的Sign参数；串口发送入口分别应用 config.h 的 QCAR_FLYWHEEL_LEFT_SIGN / QCAR_FLYWHEEL_RIGHT_SIGN（当前均为-1），可独立修改任意一路的最终方向。此极性也适用于Mode3/5/6及停车串口诊断，行进轮和磁编原始反馈符号不变。
 
 Mode8的PWM设定值和控制器兼容字段保留逻辑符号；屏幕PWM L/R及遥测motor_left_pwm/motor_right_pwm表示应用硬件极性后的最终下发指令。例如左设定+300，最终左下发-300。
 

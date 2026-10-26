@@ -121,8 +121,8 @@ void small_driver_set_duty(int16 left_duty, int16 right_duty)
     if (left < -10000) left = -10000;
     if (right > 10000) right = 10000;
     if (right < -10000) right = -10000;
-    left *= QCAR_FLYWHEEL_DRIVER_SIGN;
-    right *= QCAR_FLYWHEEL_DRIVER_SIGN;
+    left *= QCAR_FLYWHEEL_LEFT_SIGN;
+    right *= QCAR_FLYWHEEL_RIGHT_SIGN;
 #if QCAR_DRIVER_TEXT_DUTY
     char command[32];
     int length = snprintf(command, sizeof(command), "SET-DUTY,%d,%d\n", (int)left, (int)right);

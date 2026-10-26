@@ -2,7 +2,7 @@
 from pathlib import Path
 import argparse,runpy,subprocess,sys,tempfile,json
 TESTS=(
- 'check_driver_link.py','check_driver_protection.py','check_pid.py','check_balance_control.py','check_pwm_debug_menu.py','check_pwm_uart.py','check_storage.py','check_imu.py',
+ 'check_flywheel_direction.py','check_driver_link.py','check_driver_protection.py','check_pid.py','check_balance_control.py','check_pwm_debug_menu.py','check_pwm_uart.py','check_storage.py','check_imu.py',
  'check_calibration.py','check_wifi.py','check_key_debounce.py',
  'check_spi_timeout.py','check_wifi_spi_driver.py','check_menu_tree.py',
  'check_menu_keys.py','check_menu_wifi_responsiveness.py','check_motor_open_loop.py',

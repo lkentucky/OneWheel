@@ -421,8 +421,8 @@ static void Menu_Show_Attitude(void)
         if (pwm_debug_enabled) {
             float left,right,ground;
             irq=interrupt_global_disable();
-            left=(float)(QCAR_FLYWHEEL_DRIVER_SIGN * costrained_flywheel_speed_left);
-            right=(float)(QCAR_FLYWHEEL_DRIVER_SIGN * -costrained_flywheel_speed_right);
+            left=(float)(QCAR_FLYWHEEL_LEFT_SIGN * costrained_flywheel_speed_left);
+            right=(float)(QCAR_FLYWHEEL_RIGHT_SIGN * -costrained_flywheel_speed_right);
             ground=(float)costrained_wheel_speed;rate_state=roll_rate_test_state;
             interrupt_global_enable(irq);
             snprintf(line,sizeof(line),"PWM L:%5.0f R:%5.0f W:%5.0f          ",left,right,ground);
