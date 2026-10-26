@@ -15,11 +15,14 @@
 extern small_device_value_struct motor_value;
 extern volatile uint32 small_driver_rx_bytes;
 extern volatile uint32 small_driver_speed_frames;
+extern volatile uint32 small_driver_feedback_age_ms;
+extern volatile uint8 small_driver_feedback_fresh;
 extern volatile float small_driver_test_left, small_driver_test_right;
 
 
 
 void uart_control_callback(void);                                   // 无刷驱动 串口接收回调函数
+void small_driver_tick_1ms(void); /* Always-on key timer; no UART I/O. */
 
 void small_driver_set_duty(int16 left_duty, int16 right_duty);      // 无刷驱动 设置电机占空比
 

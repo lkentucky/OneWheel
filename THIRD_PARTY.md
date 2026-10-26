@@ -1,5 +1,9 @@
 # 来源与版权
 
+## CYT2BL3 双路无刷驱动修订
+
+`tools/cyt2bl3_driver/code` 来自用户提供的逐飞 CYT2BL3 双驱开源工程；源码保留 Copyright (c) 2022 SEEKFREE / GPL-3.0-or-later 声明。修订串口解析与左右过载计数；配置和头文件保留作参考。许可证随目录提供。`tests/fixtures/cyt2bl3_stock` 保存原串口解析源码用于验证主控对未升级驱动的文本协议兼容性。此目录未接入TC264固件构建。
+
 ## MCARpreparation 姿态算法
 
 - 来源：本地 `C:\Users\csz18\Desktop\mcar-mailun\MCARpreparation\project\code\attitude.c/.h`、`imu.c/.h`、`config.h` 中的姿态参数，以及 `tests/attitude_ekf_test.c`。

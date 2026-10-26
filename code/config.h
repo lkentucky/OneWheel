@@ -5,6 +5,22 @@
 #define QCAR_DRIVER_TX UART3_TX_P15_6
 #define QCAR_DRIVER_RX UART3_RX_P15_7
 #define QCAR_DRIVER_BAUD 460800
+/* Text duty avoids stock CYT2BL3 binary/newline ambiguity. Set 0 only with
+ * the corrected driver parser. Speed RX accepts both binary and text. */
+#ifndef QCAR_DRIVER_TEXT_DUTY
+#define QCAR_DRIVER_TEXT_DUTY 1
+#endif
+#if QCAR_DRIVER_TEXT_DUTY != 0 && QCAR_DRIVER_TEXT_DUTY != 1
+#error QCAR_DRIVER_TEXT_DUTY must be 0 or 1
+#endif
+#define QCAR_DRIVER_SPEED_QUERY_MS 20u
+#define QCAR_DRIVER_FEEDBACK_TIMEOUT_MS 100u
+/* Final UART duty polarity for BOTH flywheels, including Mode8 and bench tests.
+ * Kept separate from the runtime PID Sign and raw encoder feedback. */
+#define QCAR_FLYWHEEL_DRIVER_SIGN (-1)
+#if QCAR_FLYWHEEL_DRIVER_SIGN != 1 && QCAR_FLYWHEEL_DRIVER_SIGN != -1
+#error QCAR_FLYWHEEL_DRIVER_SIGN must be +1 or -1
+#endif
 #define QCAR_MOTOR_PWM ATOM0_CH3_P21_5
 #define QCAR_MOTOR_DIR P21_4
 #define QCAR_KEY1 P20_6

@@ -8,7 +8,7 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
-#define VOFA_MAX_CHANNELS 40u
+#define VOFA_MAX_CHANNELS 48u
 #define VOFA_TAIL_BYTES 4u
 #define VOFA_FRAME_BYTES(count) (4u*(count)+VOFA_TAIL_BYTES)
 #define VOFA_MAX_FRAME_BYTES VOFA_FRAME_BYTES(VOFA_MAX_CHANNELS)

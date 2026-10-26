@@ -28,7 +28,7 @@ code/attitude_algorithm.c  向控制层发布机体角速度和姿态
 code/menu.c             菜单、显式启停、参数编辑、联网、屏幕显示
 code/menu_tree.c        通用菜单树和静态节点池
 code/motor.c            行进轮 PWM+DIR
-code/small_driver_uart_control.c  无刷驱动7字节串口协议和转速反馈
+code/small_driver_uart_control.c  无刷驱动文本兼容发送、文本/二进制转速接收
 code/wifispi.c          JustFloat遥测、订阅、RAM参数写入
 code/flash.c            仅直立参数的保存、校验和恢复
 user/isr.c              1ms控制入口、5ms采样、1ms按键、串口反馈中断
@@ -88,11 +88,13 @@ K1上移/加，K2下移/减，K3进入/选中/切换步进，K4返回/取消选�
 
 ### Mode8 开环调试
 
-先固定或架空车辆，在 Startup 选择8并Start（输出仍为0），再进入 PWM debug 调整 Fly left PWM / Fly right PWM / Wheel PWM，分别控制左飞轮、右飞轮、行进轮。三路参数范围均默认为-4000～4000，0停车，负数反向；10000代表100%占空比，4000为40%指令。左右飞轮直接使用各自输入，不自动同步或取反，也不乘PID的Sign参数。
+先固定或架空车辆，在 Startup 选择8并Start（输出仍为0），再进入 PWM debug 调整 Fly left PWM / Fly right PWM / Wheel PWM，分别控制左飞轮、右飞轮、行进轮。三路参数范围均默认为-4000～4000，0停车，负数反向；10000代表100%占空比，4000为40%指令。左右飞轮使用各自独立的逻辑输入，不乘PID的Sign参数；串口发送入口统一应用 config.h 的 QCAR_FLYWHEEL_DRIVER_SIGN（当前-1），因此两路最终指令均反向。此极性也适用于Mode3/5/6及停车串口诊断，行进轮和磁编原始反馈符号不变。
+
+Mode8的PWM设定值和控制器兼容字段保留逻辑符号；屏幕PWM L/R及遥测motor_left_pwm/motor_right_pwm表示应用硬件极性后的最终下发指令。例如左设定+300，最终左下发-300。
 
 Mode8不运行PID、不自动回正，也不要求IMU就绪或执行倾角/采样过期保护。它保留默认1秒启动限幅斜坡、非有限值/越界参数故障锁存、Stop立即硬件归零；任一路参数无效会停掉三路。上电、每次Start、Stop、切换模式都会清零三路Mode8设定值；不保存到Flash。斜坡只在启动时放开输出上限，后续手动修改PWM不会逐次缓变。
 
-WiFi连接应在停车时完成。Mode8 Start后可发送 `[slider,debug_fly_left_pwm,300]`、`[slider,debug_fly_right_pwm,-700]`、`[slider,debug_ground_pwm,-500]`；可订阅字段为 `pwm_debug_enabled` 以及这三个PWM设定名。旧的 `debug_fly_pwm` 配对指令不再支持。默认沿用40通道双轴帧，其中 `motor_left_pwm` / `motor_right_pwm` / `motor_ground_pwm` 为三路实际下发指令。Mode8的兼容字段 `dual_roll_pwm` 仅表示左飞轮，`dual_pitch_pwm` 表示行进轮，`dual_enabled=0`表示没有双轴闭环。没有IMU时角度/角速度字段不作为有效测量使用。原上位机若没有对应滑杆，可用指令发送框；远程Start/Stop仍不支持。
+WiFi连接应在停车时完成。Mode8 Start后可发送 `[slider,debug_fly_left_pwm,300]`、`[slider,debug_fly_right_pwm,-700]`、`[slider,debug_ground_pwm,-500]`；可订阅字段为 `pwm_debug_enabled` 以及这三个PWM设定名。旧的 `debug_fly_pwm` 配对指令不再支持。默认使用45通道双轴帧，其中 `motor_left_pwm` / `motor_right_pwm` / `motor_ground_pwm` 为三路实际下发指令。Mode8的兼容字段 `dual_roll_pwm` 仅表示左飞轮，`dual_pitch_pwm` 表示行进轮，`dual_enabled=0`表示没有双轴闭环。没有IMU时角度/角速度字段不作为有效测量使用。原上位机若没有对应滑杆，可用指令发送框；远程Start/Stop仍不支持。
 
 ## PID与滤波
 
@@ -114,7 +116,7 @@ WiFi连接应在停车时完成。Mode8 Start后可发送 `[slider,debug_fly_lef
 | 用途 | 当前配置 |
 |---|---|
 | 行进轮 | P21.5，17kHz PWM；P21.4 DIR，正指令低 |
-| 无刷驱动 | UART3 TX=P15.6、RX=P15.7，460800，7字节A5协议 |
+| 无刷驱动 | UART3 TX=P15.6、RX=P15.7，460800，默认文本指令；兼容A5转速回传 |
 | IMU660RB | SPI0 SCK=P20.11、MOSI=P20.14、MISO=P20.12、CS=P20.13 |
 | IPS200 SPI | SPI2 SCK=P15.3、MOSI=P15.5、DC=P15.0、CS=P15.2、RST=P15.1、背光=P15.4 |
 | WiFi-SPI | SPI3 SCK=P22.3、MOSI=P22.0、MISO=P22.1、CS=P22.2、INT=P15.8、RST=P23.1 |
@@ -123,9 +125,19 @@ WiFi连接应在停车时完成。Mode8 Start后可发送 `[slider,debug_fly_lef
 
 编码器按实车接线配置为P33.7/P33.6。目前应用仅初始化编码器，尚未接入周期读取、遥测或速度/位置外环；修正引脚不代表上位机已有编码器示数。屏幕、网络及电机配置保持已有数值。
 
-PC目标IP保持本地 **192.168.0.112**，接收端口 **8081**；模块命令端口 **5001**。WiFi名和密码仍在config中，未改动。上位机采用N个小端float32加尾标 `00 00 80 7F`，文本回执仍以MCAR开头。
+PC目标IP以本地 `config.h` 的 `QCAR_WIFI_TARGET_IP` 为准，接收端口 **8081**；模块命令端口 **5001**。WiFi名和密码仍在config中，未改动。上位机采用N个小端float32加尾标 `00 00 80 7F`，文本回执仍以MCAR开头。
 
-支持 LIST?、GET?、SUB、RATE、STREAM 和 `[slider,名称,值]`；STREAM 0只停遥测，不停电机。当前单轴34通道、双轴40通道、三轴姿态3通道及28通道诊断配置保持兼容。旧速度环遥测和旧cascade_* PID写入名已移除，不能再用于当前直立控制。保留的可写名见 `wifispi.c` 的 `g_slider_parameters`。
+支持 LIST?、GET?、SUB、RATE、STREAM 和 `[slider,名称,值]`；STREAM 0只停遥测，不停电机。当前单轴39通道、双轴/Mode8共45通道，前三十四/四十项顺序保留，末尾追加左右转速、速度帧计数、反馈年龄和新鲜度；上限48通道。上位机应通过MCAR通道名称公告同步顺序，旧固定长度34/40配置需重新同步。三轴姿态3通道及28通道诊断配置保留。旧速度环遥测和旧cascade_* PID写入名已移除，不能再用于当前直立控制。保留的可写名见 `wifispi.c` 的 `g_slider_parameters`。
+
+## 无刷驱动通信修复
+
+`QCAR_DRIVER_TEXT_DUTY=1` 为默认：发送 `SET-DUTY,左,右\n` 和 `GET-SPEED\n`，避开原版CYT2BL3驱动把二进制负载0x0A误作文本换行的问题。保留当前飞轮最终方向-1；PWM数值、PID和引脚不变。常见±2800指令已通过原版驱动解析器的端到端回归。驱动板未升级时也可使用这个主控兼容路径；参考驱动支持此文本协议，其他板上固件仍需确认。
+
+每次输出时检查20ms速度请求周期，运行和停车诊断均会补发GET-SPEED，使单独复位驱动后能恢复转速回传。接收端有界读取最多32字节，支持文本 `左转速,右转速` 和A5七字节帧，拒绝格式错误、溢出数字和错误校验。独立1ms按键定时器维护反馈年龄，不依赖控制中断是否启动。
+
+Start后默认遥测保留 `flywheel_left_speed_raw`、`flywheel_right_speed_raw`、`driver_speed_frames`、`driver_feedback_age_ms`、`driver_feedback_fresh`。反馈年龄超过100ms后fresh=0；它表示链路反馈过期，不等同于磁编码器损坏。当前新鲜度为诊断字段，不新增自动启停或改变原控制状态机。
+
+修订的CYT2BL3驱动源码和安装脚本位于 [tools/cyt2bl3_driver](tools/cyt2bl3_driver/README.md)：二进制帧优先按长度/校验接收、逐帧清校验、兼容文本并限制数字长度；左右电机低占空比阶段清过载累计时间。堵转/过载保护及故障锁存保留，主控Stop/Start不清驱动保护。驱动侧修复需用其IAR工程重新编译并烧入驱动板；TC264的HEX只更新主控。
 
 ## 参数保存
 

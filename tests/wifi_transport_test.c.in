@@ -18,11 +18,11 @@ static void test_pack(void)
     assert(vofa_pack(NULL,sizeof(frame),values,3)==0);
     assert(vofa_pack(frame,sizeof(frame),NULL,3)==0);
     assert(vofa_pack(frame,sizeof(frame),values,0)==0);
-    assert(vofa_pack(frame,sizeof(frame),values,41)==0);
+    assert(vofa_pack(frame,sizeof(frame),values,VOFA_MAX_CHANNELS+1u)==0);
     assert(vofa_pack(frame,sizeof(frame),values,3)==16);
     assert(memcmp(frame,expected,sizeof(expected))==0 && frame[16]==0xa5);
-    float maximum[40]={0};
-    assert(vofa_pack(frame,sizeof(frame),maximum,40)==sizeof(frame));
+    float maximum[VOFA_MAX_CHANNELS]={0};
+    assert(vofa_pack(frame,sizeof(frame),maximum,VOFA_MAX_CHANNELS)==sizeof(frame));
 }
 
 #if QCAR_WIFI_ENABLED
@@ -66,7 +66,8 @@ float roll_rate_test_kp=20, roll_rate_test_sign=1, roll_rate_test_limit=1000;
 int16 costrained_flywheel_speed_left=250, costrained_flywheel_speed_right=250;
 small_device_value_struct motor_value;
 volatile float small_driver_test_left,small_driver_test_right;
-volatile uint32 small_driver_speed_frames=123;
+volatile uint32 small_driver_speed_frames=123,small_driver_feedback_age_ms=12;
+volatile uint8 small_driver_feedback_fresh=1;
 int16_t real_speed=88;
 Mono_params mono_params;
 float cascade_vel_out, cascade_vel_out_p, cascade_vel_out_y;
@@ -232,7 +233,7 @@ static void test_transport(void)
     command("SUB telemetry_ms,rate_seq,rate_target_dps,rate_actual_dps,rate_error_dps,rate_pwm,motor_left_pwm,motor_right_pwm,roll_deg,pitch_deg,rate_state,imu_status,rate_kp,rate_sign,rate_pwm_limit,flywheel_left_speed_raw,flywheel_right_speed_raw,driver_speed_frames,imu_seq\n");
     assert(wifi_telemetry_channel_count==19);
     assert(last_value(1,19)==99 && last_value(3,19)==-12.5f && last_value(4,19)==12.5f);
-    assert(last_value(5,19)==250 && last_value(6,19)==250 && last_value(7,19)==-250);
+    assert(last_value(5,19)==250 && last_value(6,19)==-250 && last_value(7,19)==250);
     assert(last_value(10,19)==2 && last_value(12,19)==20 && last_value(13,19)==1);
     assert(last_value(14,19)==1000 && last_value(15,19)==234 && last_value(16,19)==-234);
     assert(last_value(17,19)==123 && last_value(18,19)==1234);
@@ -250,7 +251,7 @@ static void test_transport(void)
     command("SUB telemetry_ms,rate_seq,imu_seq,imu_status,rate_state,rate_enabled,balance_target_deg,balance_actual_deg,balance_error_deg,rate_target_dps,rate_actual_dps,rate_error_dps,rate_pwm,motor_left_pwm,motor_right_pwm,balance_kp,rate_kp,rate_sign,balance_rate_limit_dps,rate_pwm_limit,balance_rate_saturated,balance_pwm_saturated,flywheel_left_speed_raw,flywheel_right_speed_raw,driver_speed_frames,imu_dt_ms,roll_deg,pitch_deg\n");
     assert(wifi_telemetry_channel_count==28);
     assert(last_value(7,28)==1.7f && last_value(8,28)==-2 && last_value(9,28)==-40);
-    assert(last_value(12,28)==-1000 && last_value(13,28)==-1000 && last_value(14,28)==1000);
+    assert(last_value(12,28)==-1000 && last_value(13,28)==1000 && last_value(14,28)==-1000);
     assert(last_value(20,28)==1 && last_value(21,28)==0);
     if (getenv("QCAR_WIFI_ANGLE_FIXTURE")) {
         FILE *file=fopen(getenv("QCAR_WIFI_ANGLE_FIXTURE"),"wb");assert(file);
@@ -276,31 +277,35 @@ static void test_transport(void)
     ground_angle_kp=10;ground_angle_rate_limit=30;ground_rate_test_kp=100;ground_rate_test_sign=1;ground_rate_test_limit=4000;
     costrained_flywheel_speed_left=costrained_flywheel_speed_right=-2800;costrained_wheel_speed=-3000;
     wifispi_telemetry_dual_profile();packet_count=0;advance(20);
-    assert(wifi_telemetry_channel_count==40 && sizes[packet_count-1]==164);
-    assert(last_value(6,40)==1.7f && last_value(12,40)==-2800);
-    assert(last_value(13,40)==3.9f && last_value(19,40)==-3000);
-    assert(last_value(30,40)==-2800 && last_value(31,40)==2800 && last_value(32,40)==-3000);
-    assert(last_value(34,40)==0 && last_value(35,40)==0 && last_value(36,40)==0 && last_value(39,40)==1);
+    assert(wifi_telemetry_channel_count==45 && sizes[packet_count-1]==184);
+    assert(last_value(6,45)==1.7f && last_value(12,45)==-2800);
+    assert(last_value(13,45)==3.9f && last_value(19,45)==-3000);
+    assert(last_value(30,45)==2800 && last_value(31,45)==-2800 && last_value(32,45)==-3000);
+    assert(last_value(34,45)==0 && last_value(35,45)==0 && last_value(36,45)==0 && last_value(39,45)==1);
+    assert(last_value(40,45)==234 && last_value(41,45)==-234 && last_value(42,45)==123);
+    assert(last_value(43,45)==12 && last_value(44,45)==1);
     if (getenv("QCAR_WIFI_DUAL_FIXTURE")) {
         FILE *file=fopen(getenv("QCAR_WIFI_DUAL_FIXTURE"),"wb");assert(file);
-        assert(fwrite(datagrams[packet_count-1],1,sizes[packet_count-1],file)==164);assert(fclose(file)==0);
+        assert(fwrite(datagrams[packet_count-1],1,sizes[packet_count-1],file)==184);assert(fclose(file)==0);
     }
     dual_balance_enabled=ground_rate_test_enabled=0;
     roll_rate_test_state=-1;rate_only_test=1;control_fault_reason=4;control_fault_imu_status=1;
     control_fault_seq=1234;control_fault_dt_ms=15;control_startup_scale=.25f;
     imu_spi_timeouts=2;imu_not_ready_samples=9;imu_last_status_reg=3;
     wifispi_telemetry_startup_profile();packet_count=0;advance(20);
-    assert(wifi_telemetry_channel_count==34);
-    assert(last_value(27,34)==4);
-    assert(last_value(28,34)==1);
-    assert(last_value(29,34)==1234);
-    assert(last_value(30,34)==15);
-    assert(last_value(31,34)==2);
-    assert(last_value(32,34)==9);
-    assert(last_value(33,34)==3);
+    assert(wifi_telemetry_channel_count==39);
+    assert(last_value(34,39)==234 && last_value(35,39)==-234 && last_value(36,39)==123);
+    assert(last_value(37,39)==12 && last_value(38,39)==1);
+    assert(last_value(27,39)==4);
+    assert(last_value(28,39)==1);
+    assert(last_value(29,39)==1234);
+    assert(last_value(30,39)==15);
+    assert(last_value(31,39)==2);
+    assert(last_value(32,39)==9);
+    assert(last_value(33,39)==3);
     if (getenv("QCAR_WIFI_STARTUP_FIXTURE")) {
         FILE *file=fopen(getenv("QCAR_WIFI_STARTUP_FIXTURE"),"wb");assert(file);
-        assert(fwrite(datagrams[packet_count-1],1,sizes[packet_count-1],file)==140);assert(fclose(file)==0);
+        assert(fwrite(datagrams[packet_count-1],1,sizes[packet_count-1],file)==160);assert(fclose(file)==0);
     }
     unsigned previous_sockets=socket_calls;
     wifispi_set_progress_hook(cancel_during_join);
