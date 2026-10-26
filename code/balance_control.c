@@ -205,7 +205,7 @@ static void pwm_debug_update(void)
     /* Preserve the legacy internal right-sign convention used by telemetry. */
     costrained_flywheel_speed_right=(int16)-output[1];
     costrained_wheel_speed=(int16)output[2];
-    small_driver_set_duty((int16)output[0],(int16)output[1]);
+    small_driver_set_duty((int16)output[0],(int16)(-output[1]));
     motor_m_ctrl(output[2]);
 }
 
@@ -276,7 +276,7 @@ static void dual_balance_update(void)
     cascade_angle_vel_out=(float)output[0];cascade_angle_vel_out_p=(float)output[1];
     costrained_flywheel_speed_left=costrained_flywheel_speed_right=(int16)output[0];
     costrained_wheel_speed=(int16)output[1];
-    small_driver_set_duty((int16)output[0],(int16)(-output[0]));
+    small_driver_set_duty((int16)output[0],-(int16)(output[0]));
     motor_m_ctrl(output[1]);
 }
 
