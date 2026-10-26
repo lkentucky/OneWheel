@@ -5,6 +5,31 @@
 #define QCAR_DRIVER_TX UART3_TX_P15_6
 #define QCAR_DRIVER_RX UART3_RX_P15_7
 #define QCAR_DRIVER_BAUD 460800
+/* Text duty avoids stock CYT2BL3 binary/newline ambiguity. Set 0 only with
+ * the corrected driver parser. Speed RX accepts both binary and text. */
+#ifndef QCAR_DRIVER_TEXT_DUTY
+#define QCAR_DRIVER_TEXT_DUTY 1
+#endif
+#if QCAR_DRIVER_TEXT_DUTY != 0 && QCAR_DRIVER_TEXT_DUTY != 1
+#error QCAR_DRIVER_TEXT_DUTY must be 0 or 1
+#endif
+#define QCAR_DRIVER_SPEED_QUERY_MS 20u
+#define QCAR_DRIVER_FEEDBACK_TIMEOUT_MS 100u
+/* 左右飞轮最终输出方向：+1保持逻辑方向，-1反向；只允许+1或-1。
+ * 两路独立，适用于Mode3/5/6/8和停车诊断；不改变PID Sign和原始转速。
+ * 默认保持原有两路反向效果；修改后重新编译、烧录TC264。 */
+#ifndef QCAR_FLYWHEEL_LEFT_SIGN
+#define QCAR_FLYWHEEL_LEFT_SIGN  (-1)
+#endif
+#ifndef QCAR_FLYWHEEL_RIGHT_SIGN
+#define QCAR_FLYWHEEL_RIGHT_SIGN (-1)
+#endif
+#if QCAR_FLYWHEEL_LEFT_SIGN != 1 && QCAR_FLYWHEEL_LEFT_SIGN != -1
+#error QCAR_FLYWHEEL_LEFT_SIGN must be +1 or -1
+#endif
+#if QCAR_FLYWHEEL_RIGHT_SIGN != 1 && QCAR_FLYWHEEL_RIGHT_SIGN != -1
+#error QCAR_FLYWHEEL_RIGHT_SIGN must be +1 or -1
+#endif
 #define QCAR_MOTOR_PWM ATOM0_CH3_P21_5
 #define QCAR_MOTOR_DIR P21_4
 #define QCAR_KEY1 P20_6

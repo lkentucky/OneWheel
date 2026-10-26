@@ -76,11 +76,13 @@ static float g_telemetry_ms;
     X(rate_state, roll_rate_test_state) X(rate_enabled, roll_rate_test_enabled) \
     X(rate_kp, ground_rate_test_enabled?ground_rate_test_kp:roll_rate_test_kp) X(rate_sign, ground_rate_test_enabled?ground_rate_test_sign:roll_rate_test_sign) \
     X(rate_pwm_limit, ground_rate_test_enabled?ground_rate_test_limit:roll_rate_test_limit) \
-    X(motor_left_pwm, costrained_flywheel_speed_left) \
-    X(motor_right_pwm, -costrained_flywheel_speed_right) \
+    X(motor_left_pwm, QCAR_FLYWHEEL_LEFT_SIGN * costrained_flywheel_speed_left) \
+    X(motor_right_pwm, QCAR_FLYWHEEL_RIGHT_SIGN * -costrained_flywheel_speed_right) \
     X(flywheel_left_speed_raw, motor_value.receive_left_speed_data) \
     X(flywheel_right_speed_raw, motor_value.receive_right_speed_data) \
     X(driver_speed_frames, small_driver_speed_frames) \
+    X(driver_feedback_age_ms, small_driver_feedback_age_ms) \
+    X(driver_feedback_fresh, small_driver_feedback_fresh) \
     X(balance_error_deg, pitch_balance_error) X(balance_kp, rate_only_test?0.0f:(ground_rate_test_enabled?ground_angle_kp:pitch_balance_kp)) \
     X(balance_target_deg, pitch_balance_target_angle) X(balance_rate_limit_dps, ground_rate_test_enabled?ground_angle_rate_limit:pitch_balance_rate_limit) \
     X(rate_axis, dual_balance_enabled?2:ground_rate_test_enabled) X(motor_ground_pwm, costrained_wheel_speed) \
@@ -315,7 +317,7 @@ static void process_command(char *line)
     *arg++='\0'; arg=trim(arg);
     if (strcmp(command,"SUB")==0) {
         /* Validate the entire list before replacing anything. Empty fields,
-         * duplicate names, unknown names and >40 channels leave the old list intact. */
+         * duplicate names, unknown names and >VOFA_MAX_CHANNELS channels leave the old list intact. */
         while (1) {
             char *comma=strchr(arg,',');
             size_t j;
@@ -537,7 +539,7 @@ void wifispi_telemetry_angle_profile(void)
 void wifispi_telemetry_startup_profile(void)
 {
 #if QCAR_WIFI_ENABLED
-    static const uint8_t channels[]={TV_telemetry_ms,TV_rate_seq,TV_imu_seq,TV_imu_status,TV_rate_state,TV_rate_enabled,TV_balance_target_deg,TV_balance_actual_deg,TV_balance_error_deg,TV_rate_target_dps,TV_rate_actual_dps,TV_rate_error_dps,TV_rate_pwm,TV_motor_left_pwm,TV_motor_right_pwm,TV_balance_kp,TV_rate_kp,TV_rate_sign,TV_balance_rate_limit_dps,TV_rate_pwm_limit,TV_balance_rate_saturated,TV_balance_pwm_saturated,TV_imu_dt_ms,TV_rate_axis,TV_rate_only,TV_startup_scale,TV_startup_ramp_ms,TV_fault_reason,TV_fault_imu_status,TV_fault_imu_seq,TV_fault_imu_dt_ms,TV_imu_spi_timeouts,TV_imu_not_ready,TV_imu_status_reg};
+    static const uint8_t channels[]={TV_telemetry_ms,TV_rate_seq,TV_imu_seq,TV_imu_status,TV_rate_state,TV_rate_enabled,TV_balance_target_deg,TV_balance_actual_deg,TV_balance_error_deg,TV_rate_target_dps,TV_rate_actual_dps,TV_rate_error_dps,TV_rate_pwm,TV_motor_left_pwm,TV_motor_right_pwm,TV_balance_kp,TV_rate_kp,TV_rate_sign,TV_balance_rate_limit_dps,TV_rate_pwm_limit,TV_balance_rate_saturated,TV_balance_pwm_saturated,TV_imu_dt_ms,TV_rate_axis,TV_rate_only,TV_startup_scale,TV_startup_ramp_ms,TV_fault_reason,TV_fault_imu_status,TV_fault_imu_seq,TV_fault_imu_dt_ms,TV_imu_spi_timeouts,TV_imu_not_ready,TV_imu_status_reg,TV_flywheel_left_speed_raw,TV_flywheel_right_speed_raw,TV_driver_speed_frames,TV_driver_feedback_age_ms,TV_driver_feedback_fresh};
     memcpy(g_channels,channels,sizeof(channels));
     wifi_telemetry_channel_count=sizeof(channels);wifi_telemetry_period_ms=APP_TELEMETRY_PROFILE_MS;
     wifi_telemetry_stream_enabled=1;g_announce_pending=1;
@@ -547,9 +549,9 @@ void wifispi_telemetry_startup_profile(void)
 void wifispi_telemetry_dual_profile(void)
 {
 #if QCAR_WIFI_ENABLED
-    static const uint8_t channels[]={TV_telemetry_ms,TV_rate_seq,TV_imu_seq,TV_imu_status,TV_rate_state,TV_dual_enabled,TV_dual_roll_actual_deg,TV_dual_roll_target_deg,TV_dual_roll_error_deg,TV_dual_roll_target_rate_dps,TV_dual_roll_rate_dps,TV_dual_roll_rate_error_dps,TV_dual_roll_pwm,TV_dual_pitch_actual_deg,TV_dual_pitch_target_deg,TV_dual_pitch_error_deg,TV_dual_pitch_target_rate_dps,TV_dual_pitch_rate_dps,TV_dual_pitch_rate_error_dps,TV_dual_pitch_pwm,TV_fly_angle_kp,TV_fly_rate_kp,TV_fly_sign,TV_fly_rate_limit_dps,TV_fly_pwm_limit,TV_ground_angle_kp,TV_ground_rate_kp,TV_ground_sign,TV_ground_rate_limit_dps,TV_ground_pwm_limit,TV_motor_left_pwm,TV_motor_right_pwm,TV_motor_ground_pwm,TV_imu_dt_ms,TV_fault_reason,TV_fault_imu_status,TV_fault_imu_dt_ms,TV_imu_spi_timeouts,TV_imu_not_ready,TV_startup_scale};
+    static const uint8_t channels[]={TV_telemetry_ms,TV_rate_seq,TV_imu_seq,TV_imu_status,TV_rate_state,TV_dual_enabled,TV_dual_roll_actual_deg,TV_dual_roll_target_deg,TV_dual_roll_error_deg,TV_dual_roll_target_rate_dps,TV_dual_roll_rate_dps,TV_dual_roll_rate_error_dps,TV_dual_roll_pwm,TV_dual_pitch_actual_deg,TV_dual_pitch_target_deg,TV_dual_pitch_error_deg,TV_dual_pitch_target_rate_dps,TV_dual_pitch_rate_dps,TV_dual_pitch_rate_error_dps,TV_dual_pitch_pwm,TV_fly_angle_kp,TV_fly_rate_kp,TV_fly_sign,TV_fly_rate_limit_dps,TV_fly_pwm_limit,TV_ground_angle_kp,TV_ground_rate_kp,TV_ground_sign,TV_ground_rate_limit_dps,TV_ground_pwm_limit,TV_motor_left_pwm,TV_motor_right_pwm,TV_motor_ground_pwm,TV_imu_dt_ms,TV_fault_reason,TV_fault_imu_status,TV_fault_imu_dt_ms,TV_imu_spi_timeouts,TV_imu_not_ready,TV_startup_scale,TV_flywheel_left_speed_raw,TV_flywheel_right_speed_raw,TV_driver_speed_frames,TV_driver_feedback_age_ms,TV_driver_feedback_fresh};
     memcpy(g_channels,channels,sizeof(channels));
-    wifi_telemetry_channel_count=40;wifi_telemetry_period_ms=APP_TELEMETRY_PROFILE_MS;
+    wifi_telemetry_channel_count=sizeof(channels)/sizeof(channels[0]);wifi_telemetry_period_ms=APP_TELEMETRY_PROFILE_MS;
     wifi_telemetry_stream_enabled=1;g_announce_pending=1;
 #endif
 }

@@ -26,3 +26,6 @@
 
 !/.settings/com.infineon.aurix.buildsystem.prefs
 !/.settings/org.eclipse.core.resources.prefs
+
+# Firmware-produced host compatibility fixtures (tiny JustFloat datagrams).
+!/tools/qcar_monitor_update/tests/fixtures/qcar_*.bin

@@ -55,7 +55,8 @@ extern float cascade_angle_vel_out, cascade_angle_vel_out_p, cascade_angle_vel_o
 #include "zf_common_typedef.h"
 #include "qcar_types.h"
 extern small_device_value_struct motor_value;
-extern volatile uint32 small_driver_speed_frames;
+extern volatile uint32 small_driver_speed_frames,small_driver_feedback_age_ms;
+extern volatile uint8 small_driver_feedback_fresh;
 extern volatile float small_driver_test_left,small_driver_test_right;
 """)
     with (work/'balance_control.h').open('a') as header:
