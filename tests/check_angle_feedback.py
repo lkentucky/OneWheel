@@ -1,4 +1,4 @@
-"""Run real C: independent angle filters, mode consistency and braking timing.
+"""Run real C: direct angle feedback, mode consistency and braking timing.
 
 The trajectory is prescribed sensor input, not a mechanical-plant simulation.
 """
@@ -40,7 +40,7 @@ static int zero_crossing(int mode) {
 }
 int main(void) {
     int fly_reference[60],ground_reference[60];
-    /* Single-axis and dual-axis paths must select the same per-axis filter. */
+    /* Single-axis and dual-axis paths must consume the same current angles. */
     arm(3);
     for(int k=0;k<60;k++){fly_input(k);tick(1);fly_reference[k]=fly_l;}
     arm(4);
@@ -51,13 +51,11 @@ int main(void) {
         assert(fly_l==fly_reference[k] && fly_r==-fly_l);
         assert(ground==ground_reference[k]);
     }
-    /* A one-degree step exposes axis swaps and independent bypass settings. */
+    /* A one-degree step must be visible in full on the first control update. */
     arm(5);imu_pitch_deg+=1.0f;imu_roll_deg+=1.0f;tick(1);
-    float fly_fraction=0.005f/(FLY_ANGLE_LPF_TAU_S+0.005f);
-    float ground_fraction=0.005f/(GROUND_ANGLE_LPF_TAU_S+0.005f);
-    assert(fabsf(dual_angle_error[0]+fly_fraction)<0.0001f);
-    assert(fabsf(dual_angle_error[1]+ground_fraction)<0.0001f);
-    /* Arm must seed the filter from current attitude, never from zero/history. */
+    assert(fabsf(dual_angle_error[0]+1.0f)<0.0001f);
+    assert(fabsf(dual_angle_error[1]+1.0f)<0.0001f);
+    /* Rearm must use current attitude, never old feedback history. */
     arm(3);imu_pitch_deg=mono_params.balance_angle_y-2.0f;
     roll_rate_test_arm();tick(1);assert(fabsf(pitch_balance_error-2.0f)<0.0001f);
     imu_pitch_deg=mono_params.balance_angle_y+2.0f;
@@ -65,31 +63,20 @@ int main(void) {
     /* Same physical-angle crossing with 20deg/s: compare recorded C baselines. */
     int single=zero_crossing(3),dual=zero_crossing(5);
     assert(single==dual);
-    if(FLY_ANGLE_LPF_TAU_S==0.010f) assert(abs(single-(-370))<=2);
-    if(FLY_ANGLE_LPF_TAU_S==0.040f) assert(abs(single-1095)<=2);
-    if(FLY_ANGLE_LPF_TAU_S==0.0f) assert(abs(single-(-860))<=2);
-    /* The slow ground filter must not defer raw-angle protection. */
+    assert(abs(single-(int)roundf(-FLY_RATE_KP*20.0f))<=1);
+    /* Direct-angle protection still stops both axes immediately. */
     arm(5);imu_roll_deg=31.0f;tick(1);
     assert(roll_rate_test_state==-2 && !fly_l && !ground);
-    printf("PASS: angle tau fly=%.3fs ground=%.3fs; Mode3/4/5 consistency, independent step/bypass, arm seed, raw tilt; prescribed zero-crossing PWM=%d\n",
-           FLY_ANGLE_LPF_TAU_S,GROUND_ANGLE_LPF_TAU_S,single);
+    printf("PASS: direct angle steps, Mode3/4/5 consistency, rearm, tilt; prescribed zero-crossing PWM=%d\n",single);
 }
 '''
 
-variants = (
-    (),
-    ('-DFLY_ANGLE_LPF_TAU_S=0.040f',),
-    ('-DFLY_ANGLE_LPF_TAU_S=0.0f',),
-    ('-DGROUND_ANGLE_LPF_TAU_S=0.0f',),
-)
-with tempfile.TemporaryDirectory(prefix='qcar-angle-filter-') as d:
+with tempfile.TemporaryDirectory(prefix='qcar-angle-feedback-') as d:
     work = Path(d)
     (work / 'zf_common_headfile.h').write_text(boundary)
     (work / 'test.c').write_text(fixture + test)
-    for index, definitions in enumerate(variants):
-        exe = work / f'test_{index}.exe'
-        subprocess.run(['gcc', '-std=c99', *definitions,
-                        '-I' + str(work), '-I' + str(root / 'code'),
-                        str(root / 'code/balance_control.c'), str(root / 'code/pid.c'),
-                        str(work / 'test.c'), '-lm', '-o', str(exe)], check=True)
-        subprocess.run([str(exe)], check=True)
+    exe = work / 'test.exe'
+    subprocess.run(['gcc', '-std=c99', '-I' + str(work), '-I' + str(root / 'code'),
+                    str(root / 'code/balance_control.c'), str(root / 'code/pid.c'),
+                    str(work / 'test.c'), '-lm', '-o', str(exe)], check=True)
+    subprocess.run([str(exe)], check=True)

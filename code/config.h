@@ -32,10 +32,10 @@
 #endif
 #define QCAR_MOTOR_PWM ATOM0_CH3_P21_5
 #define QCAR_MOTOR_DIR P21_4
-#define QCAR_KEY1 P20_6
-#define QCAR_KEY2 P20_7
-#define QCAR_KEY3 P11_2
-#define QCAR_EC11_KEY P11_3
+#define QCAR_KEY1 P20_7
+#define QCAR_KEY2 P20_6
+#define QCAR_KEY3 P11_3
+#define QCAR_EC11_KEY P11_2
 /* 1: initialize the IMU and start the 5 ms sampling timer at boot.
  * 0: leave the IMU off until Start / IMU preview. Use 0 to bisect a
  *    boot-time menu freeze between the IMU path and the rest. */
@@ -174,7 +174,7 @@
  */
 #define BALANCE_ZERO_X_DEG           3.9f
 #define BALANCE_ZERO_Y_DEG          -0.5f
-#define FLY_RATE_KP                 43.0f
+#define FLY_RATE_KP                 36.0f
 #define FLY_RATE_KI                  0.0f
 #define FLY_RATE_KD                  0.0f
 #define FLY_ANGLE_KP                50.0f
@@ -183,7 +183,7 @@
 #define FLY_RATE_LIMIT_DPS         100.0f
 #define FLY_PWM_LIMIT             8000.0f
 #define FLY_OUTPUT_SIGN              1.0f
-#define GROUND_RATE_KP              30.0f
+#define GROUND_RATE_KP              20.0f
 #define GROUND_RATE_KI               0.0f
 #define GROUND_RATE_KD               0.0f
 #define GROUND_ANGLE_KP             40.0f
@@ -201,20 +201,8 @@
 #define BALANCE_RATE_PID_INCREMENTAL  0
 #define BALANCE_ANGLE_I_LIMIT_DPS     0.0f
 #define BALANCE_RATE_I_LIMIT_PWM      0.0f
-/* Flywheel body-rate feedback only (Modes 3/5/6), before the rate PID.
- * tau=5ms, dt=5ms -> alpha=0.5. Set to 0 to bypass; rebuild required. */
-#ifndef FLY_RATE_LPF_TAU_S
-#define FLY_RATE_LPF_TAU_S            0.005f
-#endif
-/* Extra angle-feedback LPF, independent per axis; 0 bypasses that axis.
- * At dt=5ms: flywheel tau=10ms -> alpha=1/3; ground tau=40ms -> alpha=1/9.
- * Flywheel angle PID and angle-PWM compensation use the same filtered angle. */
-#ifndef FLY_ANGLE_LPF_TAU_S
-#define FLY_ANGLE_LPF_TAU_S          0.010f
-#endif
-#ifndef GROUND_ANGLE_LPF_TAU_S
-#define GROUND_ANGLE_LPF_TAU_S       0.040f
-#endif
+/* Control loops use EKF angles and corrected gyro rates directly.
+ * EKF estimation, its internal accel LPF and validity gates remain enabled. */
 /* Flywheel angle-error -> PWM, Modes 3/5 only. PWM per degree; 0 disables.
  * Compile-time setting, independent of Flash/RAM PID gains. */
 #ifndef FLY_ANGLE_FF_KP

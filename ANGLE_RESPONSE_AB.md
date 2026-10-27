@@ -1,5 +1,7 @@
 # A/B angle response changes
 
+Current revision (2026-10-27): all extra controller angle and body-rate LPFs have been removed, including their state and config macros. Modes 3..7 consume EKF angles and corrected gyro rates directly. EKF and its internal accel LPF are retained. Compiled rate Kp defaults are flywheel 36 and ground 20. The A/B results below describe historical revisions, not the current feedback path.
+
 - A: angle LPFs are now independent: `FLY_ANGLE_LPF_TAU_S=0.010f` for the flywheel (previously 0.040 s), and `GROUND_ANGLE_LPF_TAU_S=0.040f` for the ground wheel. Set either to 0 to bypass that axis. Flywheel rate LPF remains 0.005 s.
 - B: `FLY_ANGLE_FF_KP` in `code/config.h` defaults to 300 PWM/degree. Set 0 to disable; supported range 0..1000. This is a compile-time parameter, not stored in Flash or controlled by the UDP PID sliders.
 - Active only for the flywheel in Modes 3/5 with nonzero angle Kp. Ground control, rate-only Modes 6/7 and raw Mode8 do not receive the compensation.

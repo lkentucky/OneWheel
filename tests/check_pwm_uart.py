@@ -69,9 +69,9 @@ int main(void){
         attitude_state.gyro.y=10;attitude_state.gyro.x=4;
         if(mode==5)dual_balance_arm();else if(mode==6)roll_rate_only_arm();else roll_rate_test_arm();
         ++imu_sample_sequence;tick();
-        assert(!memcmp(frame,(uint8[]){0xA5,1,1,0xAE,0xFE,0x52,0xA5},7));
-        assert(ground==(mode==5?-120:0));
-        printf("Mode%d: logical -430/+430 -> wire +430/-430, ground=%d\n",mode,ground);
+        assert(!memcmp(frame,(uint8[]){0xA5,1,1,0x68,0xFE,0x98,0xA5},7));
+        assert(ground==(mode==5?-80:0));
+        printf("Mode%d: logical -360/+360 -> wire +360/-360, ground=%d\n",mode,ground);
     }
     roll_rate_test_stop();balance_control_tick_1ms();
     assert(!memcmp(frame,(uint8[]){0xA5,1,0,0,0,0,0xA6},7) && !ground);
