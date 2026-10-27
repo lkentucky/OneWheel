@@ -206,7 +206,15 @@
 #ifndef FLY_RATE_LPF_TAU_S
 #define FLY_RATE_LPF_TAU_S            0.005f
 #endif
-#define BALANCE_ANGLE_LPF_TAU_S       0.04f /* 0 disables; reduced angle-feedback lag */
+/* Extra angle-feedback LPF, independent per axis; 0 bypasses that axis.
+ * At dt=5ms: flywheel tau=10ms -> alpha=1/3; ground tau=40ms -> alpha=1/9.
+ * Flywheel angle PID and angle-PWM compensation use the same filtered angle. */
+#ifndef FLY_ANGLE_LPF_TAU_S
+#define FLY_ANGLE_LPF_TAU_S          0.010f
+#endif
+#ifndef GROUND_ANGLE_LPF_TAU_S
+#define GROUND_ANGLE_LPF_TAU_S       0.040f
+#endif
 /* Flywheel angle-error -> PWM, Modes 3/5 only. PWM per degree; 0 disables.
  * Compile-time setting, independent of Flash/RAM PID gains. */
 #ifndef FLY_ANGLE_FF_KP

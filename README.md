@@ -60,7 +60,8 @@ user/cpu1_main.c        CPU1空闲；不再处理图像或网络
 | `*_OUTPUT_SIGN` | +1 / +1 | 已验证的纠偏方向，保持不变 |
 | `*_KI` / `*_KD` | 全部0 | 当前保持原 P/P 控制；启用积分还要设置相应 `*_I_LIMIT_*` |
 | `BALANCE_*_PID_INCREMENTAL` | 全部0 | 0位置式，1增量式；分别选择角度环和角速度环 |
-| `BALANCE_ANGLE_LPF_TAU_S` | 0.06秒 | 沿用上游角度低通；0关闭；改变会影响相位和稳定性 |
+| `FLY_ANGLE_LPF_TAU_S` | 0.010秒 | 飞轮轴额外角度低通，Mode3/5使用；0关闭；角度环与角度PWM补偿共用滤后角度 |
+| `GROUND_ANGLE_LPF_TAU_S` | 0.040秒 | 行进轮轴额外角度低通，Mode4/5使用；0关闭；本轮保持原40ms |
 | `BALANCE_STARTUP_RAMP_MS` | 1000ms | 启动PWM上限逐渐放开 |
 | `BALANCE_TILT_LIMIT_DEG` / `BALANCE_IMU_STALE_MS` | 30° / 25ms | 原始角度倾倒保护 / 控制采样过期保护 |
 | `APP_DEFAULT_MODE` / `DEBUG_PWM_LIMIT` | 5 / 4000 | 上电选中模式 / Mode8有符号PWM绝对上限 |

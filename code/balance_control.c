@@ -127,18 +127,19 @@ float roll_rate_test_limit = FLY_PWM_LIMIT;
 float roll_rate_test_sign = FLY_OUTPUT_SIGN;
 static uint8 rate_divider;
 static uint32 rate_stale_ms, rate_sequence;
-/* Angle LPF defaults to tau=40ms, about 3.98Hz corner;
- * this adds phase lag and requires physical tuning, not proof of stability. */
-#define ANGLE_LPF_TAU_S BALANCE_ANGLE_LPF_TAU_S
+/* Independent angle LPFs: index 0 flywheel 10ms; index 1 ground 40ms.
+ * Both add phase lag and require physical tuning, not proof of stability. */
 static float angle_lpf[2];
 // 函数简介：更新姿态角一阶低通滤波器。
-// 参数说明：state 为滤波器状态指针；value 为当前原始角度。
+// 参数说明：axis 为控制轴索引（0飞轮、1地轮）；value 为当前原始角度。
 // 返回值：返回滤波后的角度。
-static float angle_lpf_update(float *state, float value)
+static float angle_lpf_update(unsigned axis, float value)
 {
+    float *state = &angle_lpf[axis];
+    const float tau = axis ? GROUND_ANGLE_LPF_TAU_S : FLY_ANGLE_LPF_TAU_S;
     const float dt = (float)APP_IMU_PERIOD_US*0.000001f;
-    if(ANGLE_LPF_TAU_S<=0.0f) {*state=value;return value;}
-    *state += (value - *state) * (dt / (ANGLE_LPF_TAU_S + dt));
+    if(tau<=0.0f) {*state=value;return value;}
+    *state += (value - *state) * (dt / (tau + dt));
     return *state;
 }
 
@@ -314,11 +315,11 @@ static void dual_balance_update(void)
     uint32 seq,irq; int32 status;
     int output[2]={0,0};
     irq=interrupt_global_disable();
-    a[0].angle=angle_lpf_update(&angle_lpf[0],imu_pitch_deg); a[0].rate=attitude_state.gyro.y;
+    a[0].angle=angle_lpf_update(0u,imu_pitch_deg); a[0].rate=attitude_state.gyro.y;
     a[0].target=mono_params.balance_angle_y;
     a[0].angle_kp=pitch_balance_kp; a[0].rate_limit=pitch_balance_rate_limit;
     a[0].rate_kp=roll_rate_test_kp; a[0].pwm_limit=roll_rate_test_limit; a[0].sign=roll_rate_test_sign;
-    a[1].angle=angle_lpf_update(&angle_lpf[1],imu_roll_deg); a[1].rate=attitude_state.gyro.x;
+    a[1].angle=angle_lpf_update(1u,imu_roll_deg); a[1].rate=attitude_state.gyro.x;
     a[1].target=mono_params.balance_angle_x;
     a[1].angle_kp=ground_angle_kp; a[1].rate_limit=ground_angle_rate_limit;
     a[1].rate_kp=ground_rate_test_kp; a[1].pwm_limit=ground_rate_test_limit; a[1].sign=ground_rate_test_sign;
@@ -445,7 +446,7 @@ static void roll_rate_test_update(void)
                 }
                 /* 索引与双轴路径一致：0=pitch(飞轮)，1=roll(地轮)。 */
                 pitch_balance_error = balance_angle - angle_lpf_update(
-                    &angle_lpf[ground_rate_test_enabled ? 1u : 0u],
+                    ground_rate_test_enabled ? 1u : 0u,
                     ground_rate_test_enabled ? roll : pitch);
                 pitch_balance_target_rate = rate_only_test ? 0.0f : balance_angle_pid(ground_rate_test_enabled?1u:0u,balance_angle,balance_angle-pitch_balance_error,angle_kp,rate_limit);
                 roll_rate_test_error = pitch_balance_target_rate - rate;

@@ -54,13 +54,14 @@ int main(void){
     arm(5);tick(1);assert(!ground && !fly_l && !fly_r);
     /* Compare P/P + LPF + signed flywheel angle compensation over a trajectory. */
     float filter[2]={BALANCE_ZERO_Y_DEG,BALANCE_ZERO_X_DEG};
-    float alpha=0.005f/(BALANCE_ANGLE_LPF_TAU_S+0.005f);
+    float alpha[2]={0.005f/(FLY_ANGLE_LPF_TAU_S+0.005f),
+                    0.005f/(GROUND_ANGLE_LPF_TAU_S+0.005f)};
     float fly_rate=0.0f;
     for(int k=0;k<150;++k){
         imu_pitch_deg=BALANCE_ZERO_Y_DEG+((k%17)-8)*0.12f;
         imu_roll_deg=BALANCE_ZERO_X_DEG+((k%13)-6)*0.15f;
         attitude_state.gyro.y=((k%7)-3)*0.8f;attitude_state.gyro.x=((k%9)-4)*0.7f;
-        filter[0]+=alpha*(imu_pitch_deg-filter[0]);filter[1]+=alpha*(imu_roll_deg-filter[1]);
+        filter[0]+=alpha[0]*(imu_pitch_deg-filter[0]);filter[1]+=alpha[1]*(imu_roll_deg-filter[1]);
         float tr0=FLY_ANGLE_KP*(BALANCE_ZERO_Y_DEG-filter[0]);
         float tr1=GROUND_ANGLE_KP*(BALANCE_ZERO_X_DEG-filter[1]);
         if(tr0>FLY_RATE_LIMIT_DPS)tr0=FLY_RATE_LIMIT_DPS;
