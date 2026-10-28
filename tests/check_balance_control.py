@@ -46,6 +46,11 @@ static void arm(int mode){
     else if(mode==5)dual_balance_arm();else if(mode==6)roll_rate_only_arm();else ground_rate_only_arm();
 }
 int main(void){
+    /* The 1ms dispatcher must update outputs exactly once per 2ms. */
+    arm(6);attitude_state.gyro.y=10;
+    uint32 before_sequence=roll_rate_test_sequence;
+    balance_control_tick_1ms();assert(roll_rate_test_sequence==before_sequence && !fly_l);
+    balance_control_tick_1ms();assert(roll_rate_test_sequence==before_sequence+1 && fly_l==-360);
     /* Rate-only axis ownership, signs, output limits and P-only equivalence. */
     arm(6);attitude_state.gyro.y=10;tick(1);assert(fly_l==-360 && fly_r==360 && ground==0);
     arm(7);attitude_state.gyro.x=10;tick(1);assert(ground==-200 && fly_l==0 && fly_r==0);
@@ -79,11 +84,17 @@ int main(void){
     imu_roll_deg=0;tick(1);assert(roll_rate_test_state==-2 && !ground);
     arm(5);imu_pitch_deg=NAN;tick(1);assert(roll_rate_test_state==-1 && !fly_l && !ground);
     arm(5);imu_attitude_status=-2;tick(1);assert(control_fault_reason==1 && !ground && !fly_l);
-    arm(5);for(int k=0;k<5;++k)tick(0);assert(control_fault_reason==4 && !ground && !fly_l);
+    arm(5);
+    for(unsigned elapsed=APP_IMU_PERIOD_US/1000u;elapsed<BALANCE_IMU_STALE_MS;elapsed+=APP_IMU_PERIOD_US/1000u)tick(0);
+    assert(roll_rate_test_state==2 && control_fault_reason==0);
+    tick(0);assert(control_fault_reason==4 && !ground && !fly_l);
     arm(5);imu_attitude_status=0;tick(1);assert(roll_rate_test_state==1 && !ground && !fly_l);
     arm(5);ground_rate_test_sign=0;tick(1);assert(roll_rate_test_state==-3 && !ground && !fly_l);
     arm(5);attitude_state.gyro.x=4;tick(1);assert(ground!=0);shacheflag=0;tick(1);assert(!ground && !fly_l);
-    arm(7);control_startup_ramp_ms=1000;attitude_state.gyro.x=100;tick(1);assert(control_startup_scale>0 && control_startup_scale<0.01f && ground==-20);
+    arm(7);control_startup_ramp_ms=1000;attitude_state.gyro.x=100;tick(1);assert(control_startup_scale>0 && control_startup_scale<0.01f && ground==-8);
+    for(unsigned i=1;i<499;++i)tick(1);
+    assert(fabsf(control_startup_scale-0.998f)<0.0001f);
+    tick(1);assert(control_startup_scale==1.0f && ground==-2000);
     /* Verify requested flywheel defaults and unchanged ground limits. */
     arm(5);assert(pitch_balance_rate_limit==100 && roll_rate_test_limit==8000);
     assert(roll_rate_test_kp==36 && ground_rate_test_kp==20 && mono_params.balance_angle_y==-.5f && ground_rate_test_limit==4000);
@@ -125,12 +136,12 @@ int main(void){
     assert(roll_rate_test_state==-3 && !fly_l && !fly_r && !ground);
     pwm_debug_arm();control_startup_ramp_ms=1000;
     pwm_debug_fly_left=4000;pwm_debug_fly_right=-4000;pwm_debug_ground=-4000;tick(0);
-    assert(fly_l==20 && fly_r==-20 && ground==-20);
+    assert(fly_l==8 && fly_r==-8 && ground==-8);
     shacheflag=0;tick(0);assert(!fly_l && !ground && roll_rate_test_state==0);
     roll_rate_test_stop();assert(!pwm_debug_enabled && !pwm_debug_fly_left && !pwm_debug_fly_right && !pwm_debug_ground);
     balance_control_tick_1ms();assert(!fly_l && !ground);
     arm(5);tick(1);assert(!pwm_debug_enabled && roll_rate_test_state==2 && !ground && !fly_l);
-    puts("balance control: axes, reference output, LPF, limits, ramp, stop and faults PASS");
+    puts("balance control: 2ms dispatch, direct feedback, limits, 1s ramp, 26ms stale trip, stop and faults PASS");
     return 0;
 }
 ''')

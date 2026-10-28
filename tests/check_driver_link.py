@@ -97,8 +97,8 @@ int main(void){
         printf("Mode%d: 200/200 applied commands, no unexpected protection/calibration command\n",mode);
     }
     reset_driver();balance_control_defaults();shacheflag=1;imu_pitch_deg=3;roll_rate_test_arm();
-    for(unsigned i=0;i<200;++i)tick();
-    assert(duty_frames==200 && applied_left==(int)(FLY_RATE_KP*FLY_RATE_LIMIT_DPS+FLY_ANGLE_FF_KP*3.5f) && applied_right==-applied_left);
+    for(unsigned i=0;i<1000000u/APP_IMU_PERIOD_US;++i)tick();
+    assert(duty_frames==1000000u/APP_IMU_PERIOD_US && applied_left==(int)(FLY_RATE_KP*FLY_RATE_LIMIT_DPS+FLY_ANGLE_FF_KP*3.5f) && applied_right==-applied_left);
     puts("Default startup ramp reaches PID + angle compensation without a stale duty hold");
     for(int left=-4000;left<=4000;++left){
         int right=((left+4000)*37)%8001-4000;

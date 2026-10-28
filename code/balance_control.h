@@ -9,7 +9,7 @@ float constrain_float(float v,float lo,float hi);
 void balance_control_defaults(void);
 void balance_control_tick_1ms(void);
 void clear_all_cascade_out(void);
-/* Flywheel Pitch/Y angle P -> rate P, 5ms update; angle KP=0 gives rate-only.
+/* Flywheel Pitch/Y angle P -> rate P, configured 2ms update; angle KP=0 gives rate-only.
  * roll_rate_test_* names retained for Flash/host compatibility. */
 extern volatile uint8 roll_rate_test_enabled;
 extern volatile uint32 roll_rate_test_sequence;

@@ -46,7 +46,7 @@ int main(void) {
     arm(6);tick(1);attitude_state.gyro.y=INFINITY;tick(1);
     assert(roll_rate_test_state==-1 && !fly_l);
     arm(6);attitude_state.gyro.y=10;tick(1);
-    for(int k=0;k<5;k++)tick(0);
+    for(unsigned ms=0;ms<BALANCE_IMU_STALE_MS;ms+=APP_IMU_PERIOD_US/1000u)tick(0);
     assert(control_fault_reason==4 && !fly_l && !fly_r);
     arm(6);tick(1);imu_pitch_deg=31;tick(1);
     assert(roll_rate_test_state==-2 && !fly_l);

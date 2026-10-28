@@ -22,7 +22,7 @@ void calibration_reset(ImuCalibration *c)
 {
     memset(c, 0, sizeof(*c));
 }
-/* 400 个连续合格样本，200Hz 下约 2 秒；不能识别所有匀速运动。 */
+/* 当前500个连续合格样本，500Hz下约1秒；不能识别所有匀速运动。 */
 int calibration_push(ImuCalibration *c, const float g[3], const float a[3])
 {
     unsigned i;

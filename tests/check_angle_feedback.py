@@ -29,8 +29,9 @@ static int zero_crossing(int mode) {
     arm(mode); /* Disable the ramp to isolate the running controller. */
     imu_pitch_deg=BALANCE_ZERO_Y_DEG-5.0f;
     for(int k=0;k<100;k++)tick(1);
-    for(int k=1;k<=50;k++) {
-        imu_pitch_deg=BALANCE_ZERO_Y_DEG-5.0f+0.1f*(float)k;
+    int steps=(int)roundf(5.0f/(20.0f*APP_IMU_PERIOD_US*0.000001f));
+    for(int k=1;k<=steps;k++) {
+        imu_pitch_deg=BALANCE_ZERO_Y_DEG-5.0f+5.0f*(float)k/(float)steps;
         attitude_state.gyro.y=20.0f;
         tick(1);
         assert(roll_rate_test_state==2 && control_fault_reason==0);

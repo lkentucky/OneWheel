@@ -31,7 +31,7 @@ code/motor.c            行进轮 PWM+DIR
 code/small_driver_uart_control.c  无刷驱动文本兼容发送、文本/二进制转速接收
 code/wifispi.c          JustFloat遥测、订阅、RAM参数写入
 code/flash.c            仅直立参数的保存、校验和恢复
-user/isr.c              1ms控制入口、5ms采样、1ms按键、串口反馈中断
+user/isr.c              1ms控制入口、2ms采样、1ms按键、串口反馈中断
 user/cpu1_main.c        CPU1空闲；不再处理图像或网络
 ```
 
@@ -39,8 +39,8 @@ user/cpu1_main.c        CPU1空闲；不再处理图像或网络
 
 | 任务 | 默认周期 / 所在核 |
 |---|---|
-| 控制中断入口 CCU60_CH0 | 1ms / CPU0；每5次执行一次控制，即200Hz |
-| IMU CCU60_CH1 | 5ms / CPU0 |
+| 控制中断入口 CCU60_CH0 | 1ms / CPU0；每2次执行一次控制，即500Hz |
+| IMU CCU60_CH1 | 2ms / CPU0；加速度/陀螺硬件ODR均833Hz |
 | 按键 CCU61_CH1 | 1ms / CPU0 |
 | 主循环 | 每轮末尾等待10ms；同步网络/屏幕操作会延长一轮 |
 | 屏幕 | 每5轮轮询刷新 |
