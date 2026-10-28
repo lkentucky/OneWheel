@@ -28,6 +28,9 @@ void small_driver_set_duty(int16 left_duty, int16 right_duty);      // 无刷驱
 
 void small_driver_get_speed(void);                                  // 无刷驱动 获取速度信息
 
+/* 65534 arm, 65533 cancel, 65535 metadata, 60000+event, or first row. */
+int small_driver_trace_request(unsigned index);
+int small_driver_trace_take(char *out, unsigned capacity);
 void small_driver_uart_init(void);                                  // 无刷驱动 串口通讯初始化
 
 #endif

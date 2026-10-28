@@ -32,10 +32,10 @@
 #endif
 #define QCAR_MOTOR_PWM ATOM0_CH3_P21_5
 #define QCAR_MOTOR_DIR P21_4
-#define QCAR_KEY1 P20_6
-#define QCAR_KEY2 P20_7
-#define QCAR_KEY3 P11_2
-#define QCAR_EC11_KEY P11_3
+#define QCAR_KEY1 P20_7
+#define QCAR_KEY2 P20_6
+#define QCAR_KEY3 P11_3
+#define QCAR_EC11_KEY P11_2
 /* 1: initialize the IMU and start the 5 ms sampling timer at boot.
  * 0: leave the IMU off until Start / IMU preview. Use 0 to bisect a
  *    boot-time menu freeze between the IMU path and the rest. */
@@ -62,7 +62,7 @@
 #define QCAR_WIFI_PASSWORD "zyz520520"
 #endif
 #ifndef QCAR_WIFI_TARGET_IP
-#define QCAR_WIFI_TARGET_IP "192.168.0.115"
+#define QCAR_WIFI_TARGET_IP "192.168.0.117"
 #endif
 #ifndef QCAR_WIFI_TARGET_PORT
 #define QCAR_WIFI_TARGET_PORT "8081"
@@ -172,15 +172,15 @@
  * displayed Pitch = ground wheel = imu_roll_deg / gyro.x
  * 保留上游 7a053b2 的值；不要套用旧版原始量零点 -100 / 190。
  */
-#define BALANCE_ZERO_X_DEG           3.9f
-#define BALANCE_ZERO_Y_DEG          -0.5f
+#define BALANCE_ZERO_X_DEG           5.0f
+#define BALANCE_ZERO_Y_DEG           1.0f
 #define FLY_RATE_KP                 43.0f
 #define FLY_RATE_KI                  0.0f
 #define FLY_RATE_KD                  0.0f
 #define FLY_ANGLE_KP                50.0f
 #define FLY_ANGLE_KI                 0.0f
 #define FLY_ANGLE_KD                 0.0f
-#define FLY_RATE_LIMIT_DPS         100.0f
+#define FLY_RATE_LIMIT_DPS         200.0f
 #define FLY_PWM_LIMIT             8000.0f
 #define FLY_OUTPUT_SIGN              1.0f
 #define GROUND_RATE_KP              30.0f
@@ -206,7 +206,7 @@
 #ifndef FLY_RATE_LPF_TAU_S
 #define FLY_RATE_LPF_TAU_S            0.005f
 #endif
-#define BALANCE_ANGLE_LPF_TAU_S       0.04f /* 0 disables; reduced angle-feedback lag */
+#define BALANCE_ANGLE_LPF_TAU_S       0.0f  /* 0 disables; bypass post-EKF angle LPF lag */
 /* Flywheel angle-error -> PWM, Modes 3/5 only. PWM per degree; 0 disables.
  * Compile-time setting, independent of Flash/RAM PID gains. */
 #ifndef FLY_ANGLE_FF_KP

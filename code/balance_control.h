@@ -29,6 +29,10 @@ extern volatile uint8 rate_only_test;
 extern volatile uint8 pwm_debug_enabled;
 extern volatile float pwm_debug_fly_left, pwm_debug_fly_right, pwm_debug_ground;
 void pwm_debug_arm(void);
+/* Fixed left-only bench sequence. 0 idle, 1 running, 2 complete, -1 aborted. */
+extern volatile int32 pwm_step_state;
+extern volatile uint32 pwm_step_ms, pwm_step_stage;
+int pwm_step_command(int run);
 extern volatile int32 control_fault_reason,control_fault_imu_status;
 extern volatile uint32 control_fault_seq;
 extern volatile float control_fault_dt_ms,control_startup_scale;

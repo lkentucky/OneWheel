@@ -102,6 +102,51 @@ volatile uint8 dual_balance_enabled;
 volatile uint8 rate_only_test;
 volatile uint8 pwm_debug_enabled;
 volatile float pwm_debug_fly_left, pwm_debug_fly_right, pwm_debug_ground;
+volatile int32 pwm_step_state;
+volatile uint32 pwm_step_ms, pwm_step_stage;
+static uint32 pwm_step_next_ms;
+
+/* Called with interrupts disabled by the WiFi parser. No remote Start. */
+int pwm_step_command(int run)
+{
+    if (!run) {
+        pwm_step_state=-1;
+        pwm_debug_fly_left=pwm_debug_fly_right=pwm_debug_ground=0.0f;
+        return 1;
+    }
+    if (!pwm_debug_enabled || !roll_rate_test_enabled || roll_rate_test_state!=2 ||
+        !shacheflag || control_startup_scale<1.0f ||
+        !isfinite(DEBUG_PWM_LIMIT) || DEBUG_PWM_LIMIT<600.0f || DEBUG_PWM_LIMIT>4000.0f)
+        return 0;
+    if (pwm_step_state==1) return 1; /* Duplicate UDP trigger never restarts. */
+    if (pwm_debug_fly_left!=0 || pwm_debug_fly_right!=0 || pwm_debug_ground!=0)
+        return 0;
+    pwm_step_ms=pwm_step_stage=pwm_step_next_ms=0;
+    pwm_step_state=1;
+    return 1;
+}
+
+static void pwm_step_update(void)
+{
+    uint32 t;
+    if (pwm_step_state!=1) return;
+    if (!pwm_debug_enabled || roll_rate_test_state!=2 || !shacheflag ||
+        control_startup_scale<1.0f) {
+        pwm_step_state=-1;
+        pwm_debug_fly_left=pwm_debug_fly_right=pwm_debug_ground=0.0f;
+        return;
+    }
+    t=pwm_step_next_ms;
+    pwm_step_ms=t;
+    pwm_debug_fly_right=pwm_debug_ground=0.0f;
+    if (t<1000u) { pwm_step_stage=1; pwm_debug_fly_left=0; }
+    else if (t<2500u) { pwm_step_stage=2; pwm_debug_fly_left=300; }
+    else if (t<4000u) { pwm_step_stage=3; pwm_debug_fly_left=600; }
+    else if (t<5500u) { pwm_step_stage=4; pwm_debug_fly_left=300; }
+    else { pwm_step_stage=5; pwm_debug_fly_left=0; }
+    if (t>=7500u) pwm_step_state=2;
+    else pwm_step_next_ms+=APP_CONTROL_TICK_US*APP_CONTROL_DIVIDER/1000u;
+}
 volatile int32 control_fault_reason,control_fault_imu_status;
 volatile uint32 control_fault_seq;
 volatile float control_fault_dt_ms,control_startup_scale;
@@ -152,6 +197,7 @@ void roll_rate_test_stop(void)
     ground_rate_test_enabled = 0;
     dual_balance_enabled=0;rate_only_test=0;
     pwm_debug_enabled=0;
+    pwm_step_state=0;pwm_step_ms=pwm_step_stage=pwm_step_next_ms=0;
     pwm_debug_fly_left=pwm_debug_fly_right=pwm_debug_ground=0.0f;
     control_fault_reason=control_fault_imu_status=0;control_fault_seq=0;
     control_fault_dt_ms=control_startup_scale=0;control_startup_elapsed_ms=0;
@@ -250,6 +296,7 @@ void pwm_debug_arm(void)
 static void pwm_debug_update(void)
 {
     float left,right,ground;
+    pwm_step_update();
     int output[3]={0,0,0};
     uint32 irq=interrupt_global_disable();
     left=pwm_debug_fly_left;right=pwm_debug_fly_right;ground=pwm_debug_ground;

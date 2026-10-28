@@ -93,12 +93,12 @@ int main(void){
         if(mode==8){pwm_debug_fly_left=-2800;pwm_debug_fly_right=2800;}
         for(unsigned i=0;i<200;++i)tick();
         assert(!control_fault_reason && roll_rate_test_state==2 && duty_frames==200);
-        assert(applied_left==(mode==6?0:mode==8?2800:(int)(4300+FLY_ANGLE_FF_KP*3.5f)) && applied_right==-applied_left);
+        assert(applied_left==(mode==6?0:mode==8?2800:(int)constrain_float(FLY_RATE_KP*constrain_float(FLY_ANGLE_KP*3.5f,0.0f,FLY_RATE_LIMIT_DPS)+FLY_ANGLE_FF_KP*3.5f,0.0f,FLY_PWM_LIMIT)) && applied_right==-applied_left);
         printf("Mode%d: 200/200 applied commands, no unexpected protection/calibration command\n",mode);
     }
     reset_driver();balance_control_defaults();shacheflag=1;imu_pitch_deg=3;roll_rate_test_arm();
     for(unsigned i=0;i<200;++i)tick();
-    assert(duty_frames==200 && applied_left==(int)(4300+FLY_ANGLE_FF_KP*3.5f) && applied_right==-applied_left);
+    assert(duty_frames==200 && applied_left==(int)constrain_float(FLY_RATE_KP*constrain_float(FLY_ANGLE_KP*3.5f,0.0f,FLY_RATE_LIMIT_DPS)+FLY_ANGLE_FF_KP*3.5f,0.0f,FLY_PWM_LIMIT) && applied_right==-applied_left);
     puts("Default startup ramp reaches PID + angle compensation without a stale duty hold");
     for(int left=-4000;left<=4000;++left){
         int right=((left+4000)*37)%8001-4000;

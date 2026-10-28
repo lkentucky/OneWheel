@@ -125,7 +125,8 @@ static float g_telemetry_ms;
     X(imu_bad_bursts, imu_bad_bursts) \
     X(pwm_debug_enabled, pwm_debug_enabled) \
     X(debug_fly_left_pwm, pwm_debug_fly_left) X(debug_fly_right_pwm, pwm_debug_fly_right) \
-    X(debug_ground_pwm, pwm_debug_ground)
+    X(debug_ground_pwm, pwm_debug_ground) \
+    X(step_state, pwm_step_state) X(step_ms, pwm_step_ms) X(step_stage, pwm_step_stage)
 
 #define VARIABLE_ID(name, expr) TV_##name,
 enum { TELEMETRY_VARIABLES(VARIABLE_ID) TV_COUNT };
@@ -259,6 +260,21 @@ static void process_slider(char *command)
     kind=slider_token(kind); name=slider_token(name);
     if (kind==NULL || name==NULL || !slider_number(number,&value)) goto bad_packet;
     if (strcmp(kind,"slider")!=0) { command_error("unknown control type"); return; }
+    if (strcmp(name,"debug_step_run")==0) {
+        int accepted=0;
+        if (value!=0.0f && value!=1.0f) { command_error("step expects 0 or 1"); return; }
+        primask=interrupt_global_disable();
+        accepted=pwm_step_command((int)value);
+        interrupt_global_enable(primask);
+        if (!accepted) { command_error("step requires Mode8 Start, full ramp and zero commands"); return; }
+        (void)snprintf(reply,sizeof(reply),"MCAR SLIDER debug_step_run %.9g\n",(double)value);
+        send_reply(reply);
+        return;
+    }
+    if (pwm_step_state==1 && (strcmp(name,"debug_fly_left_pwm")==0 ||
+        strcmp(name,"debug_fly_right_pwm")==0 || strcmp(name,"debug_ground_pwm")==0)) {
+        command_error("step running; cancel with debug_step_run=0 first"); return;
+    }
     for (i=0;i<sizeof(g_slider_parameters)/sizeof(g_slider_parameters[0]);++i) {
         if (strcmp(name,g_slider_parameters[i].name)==0) { parameter=&g_slider_parameters[i]; break; }
     }
@@ -303,6 +319,31 @@ static void process_command(char *line)
     char reply[80];
     ++wifi_telemetry_commands;
     if (*command=='[') { process_slider(command); return; }
+    if (strncmp(command,"DTRACE ",7)==0) {
+        unsigned index;
+        char *op=command+7;
+        if(strcmp(op,"CANCEL")==0)index=65533u;
+        else {
+            if(!pwm_debug_enabled || roll_rate_test_state!=2 || pwm_step_state==1 ||
+               pwm_debug_fly_left!=0 || pwm_debug_fly_right!=0 || pwm_debug_ground!=0 ||
+               costrained_flywheel_speed_left || costrained_flywheel_speed_right || costrained_wheel_speed) {
+                command_error("DTRACE requires started zero-output Mode8");return;
+            }
+            if(strcmp(op,"ARM")==0)index=65534u;
+            else if(strcmp(op,"META")==0)index=65535u;
+            else {
+                int event=strncmp(op,"EVENT ",6)==0;
+                if(!event && strncmp(op,"ROW ",4)!=0) {command_error("DTRACE ARM/CANCEL/META/EVENT n/ROW n");return;}
+                op+=event?6:4;
+                if(*op<'0' || *op>'9') {command_error("DTRACE index");return;}
+                errno=0;number=strtoul(op,&end,10);
+                if(errno || *end || number>=(event?16u:8192u)) {command_error("DTRACE index");return;}
+                index=(unsigned)number+(event?60000u:0u);
+            }
+        }
+        if(!small_driver_trace_request(index)) {command_error("DTRACE pending reply or request");return;}
+        send_reply("MCAR DTRACE QUEUED\n");return;
+    }
     if (strcmp(command,"LIST?")==0) { reply_names(1); return; }
     if (strcmp(command,"GET?")==0) {
         reply_names(0);
@@ -513,6 +554,14 @@ void wifispi_telemetry_service(void)
      * the host out. Limit SPI polling to 100 Hz in the main loop. */
     if ((uint32)(now-g_last_wifi_rx_ticks)>=g_ticks_per_ms*10u) {
         g_last_wifi_rx_ticks=now; receive_commands();
+    }
+    {
+        static char line[1600];
+        int n=small_driver_trace_take(line+11,sizeof(line)-12u);
+        if(n>0) {
+            memcpy(line,"MCAR TRACE ",11);line[11+n]='\n';line[12+n]='\0';
+            send_reply(line);
+        }
     }
     now=IfxStm_getLower(&MODULE_STM0);
     if (!wifi_telemetry_stream_enabled ||

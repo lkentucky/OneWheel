@@ -43,7 +43,15 @@ volatile float imu_ekf_nis=0.25f, imu_ekf_bias_xy_dps[2]={0.1f,-0.2f};
 volatile uint32 imu_sample_sequence=1234;
 volatile uint32 imu_spi_timeouts,imu_not_ready_samples,imu_last_status_reg,imu_bad_bursts;
 volatile uint8 rate_only_test;
+static unsigned trace_request_value,trace_request_calls;
+static const char *trace_mock_reply;
+int small_driver_trace_request(unsigned index) { trace_request_value=index;++trace_request_calls;return 1; }
+int small_driver_trace_take(char *out,unsigned capacity) { if(!trace_mock_reply)return 0;unsigned n=(unsigned)strlen(trace_mock_reply);assert(n<capacity);memcpy(out,trace_mock_reply,n+1);trace_mock_reply=NULL;return (int)n; }
 volatile uint8 pwm_debug_enabled;
+volatile int32 pwm_step_state;
+volatile uint32 pwm_step_ms,pwm_step_stage;
+int pwm_step_command(int run) { if (run && !pwm_debug_enabled) return 0; pwm_step_state=run?1:-1; return 1; }
+
 volatile float pwm_debug_fly_left,pwm_debug_fly_right,pwm_debug_ground;
 volatile int32 control_fault_reason,control_fault_imu_status;
 volatile uint32 control_fault_seq;
@@ -212,7 +220,35 @@ static void test_transport(void)
     const char binary[]={0,'7',']'}; queue(binary,sizeof(binary)); command("\n");
     assert(ground_angle_kp==3 && has_reply("MCAR ERR invalid or oversized line\n"));
     command("RATE 10\n"); packet_count=0;
+    command("[slider,debug_step_run,1]\n");
+    assert(has_reply("MCAR ERR step requires Mode8 Start, full ramp and zero commands\n"));
+    command("[slider,debug_step_run,0.5]\n");
+    assert(has_reply("MCAR ERR step expects 0 or 1\n"));
     pwm_debug_enabled=1;
+    command("[slider,debug_step_run,1]\n");
+    assert(pwm_step_state==1 && has_reply("MCAR SLIDER debug_step_run 1\n"));
+    float held=pwm_debug_fly_left;
+    command("[slider,debug_fly_left_pwm,123]\n");
+    assert(pwm_debug_fly_left==held && has_reply("MCAR ERR step running; cancel with debug_step_run=0 first\n"));
+    command("[slider,debug_step_run,0]\n");
+    assert(pwm_step_state==-1);
+    command("DTRACE ARM\n");assert(has_reply("MCAR ERR DTRACE requires started zero-output Mode8\n"));
+    pwm_debug_fly_left=pwm_debug_fly_right=pwm_debug_ground=0;
+    costrained_flywheel_speed_left=costrained_flywheel_speed_right=costrained_wheel_speed=0;
+    roll_rate_test_state=2;
+    command("DTRACE ARM\n");assert(trace_request_value==65534 && trace_request_calls==1);
+    trace_mock_reply="TR,A,1,1*0000";
+    command("DTRACE META\n");assert(trace_request_value==65535);
+    assert(has_reply("MCAR TRACE TR,A,1,1*0000\n"));
+    command("DTRACE EVENT 2\n");assert(trace_request_value==60002);
+    command("DTRACE ROW 24\n");assert(trace_request_value==24);
+    command("DTRACE ROW -1\n");assert(has_reply("MCAR ERR DTRACE index\n"));
+    command("DTRACE EVENT 16\n");assert(has_reply("MCAR ERR DTRACE index\n"));
+    command("DTRACE CANCEL\n");assert(trace_request_value==65533);
+    pwm_debug_fly_left=300;pwm_debug_fly_right=-700;pwm_debug_ground=-500;
+    costrained_flywheel_speed_left=costrained_flywheel_speed_right=250;
+
+
     command("SUB pwm_debug_enabled,debug_fly_left_pwm,debug_fly_right_pwm,debug_ground_pwm\n");
     assert(last_value(0,4)==1 && last_value(1,4)==300 && last_value(2,4)==-700 && last_value(3,4)==-500);
     pwm_debug_enabled=0;

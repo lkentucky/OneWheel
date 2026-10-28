@@ -93,7 +93,10 @@ FIELDS = ('roll_deg',
  'pwm_debug_enabled',
  'debug_fly_left_pwm',
  'debug_fly_right_pwm',
- 'debug_ground_pwm')
+ 'debug_ground_pwm',
+ 'step_state',
+ 'step_ms',
+ 'step_stage')
 PROFILES = {'startup': ['telemetry_ms',
              'rate_seq',
              'imu_seq',

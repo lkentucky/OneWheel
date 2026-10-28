@@ -91,7 +91,7 @@ int main(void){
     arm(5);attitude_state.gyro.x=4;tick(1);assert(ground!=0);shacheflag=0;tick(1);assert(!ground && !fly_l);
     arm(7);control_startup_ramp_ms=1000;attitude_state.gyro.x=100;tick(1);assert(control_startup_scale>0 && control_startup_scale<0.01f && ground==-20);
     /* Verify requested flywheel defaults and unchanged ground limits. */
-    arm(5);assert(pitch_balance_rate_limit==100 && roll_rate_test_limit==8000);
+    arm(5);assert(pitch_balance_rate_limit==FLY_RATE_LIMIT_DPS && roll_rate_test_limit==8000);
     assert(roll_rate_test_kp==43 && mono_params.balance_angle_y==-.5f && ground_rate_test_limit==4000);
     pitch_balance_rate_limit=ground_angle_rate_limit=200;
     roll_rate_test_limit=ground_rate_test_limit=8000;

@@ -57,12 +57,17 @@ extern float cascade_angle_vel_out, cascade_angle_vel_out_p, cascade_angle_vel_o
 extern small_device_value_struct motor_value;
 extern volatile uint32 small_driver_speed_frames,small_driver_feedback_age_ms;
 extern volatile uint8 small_driver_feedback_fresh;
+int small_driver_trace_request(unsigned);
+int small_driver_trace_take(char *,unsigned);
 extern volatile float small_driver_test_left,small_driver_test_right;
 """)
     with (work/'balance_control.h').open('a') as header:
         header.write("""
 extern volatile uint8 rate_only_test;
 extern volatile uint8 pwm_debug_enabled;
+extern volatile int32 pwm_step_state;
+extern volatile uint32 pwm_step_ms,pwm_step_stage;
+int pwm_step_command(int);
 extern volatile float pwm_debug_fly_left,pwm_debug_fly_right,pwm_debug_ground;
 extern volatile int32 control_fault_reason,control_fault_imu_status;
 extern volatile uint32 control_fault_seq;

@@ -10,8 +10,41 @@ volatile float small_driver_test_left, small_driver_test_right;
 small_device_value_struct motor_value;
 static volatile uint32 driver_ms;
 static uint32 last_speed_query_ms;
-static char speed_line[24];
-static uint8 speed_line_used, speed_line_overflow;
+static char speed_line[1536];
+static unsigned speed_line_used;
+static uint8 speed_line_overflow;
+static char trace_reply[1536];
+static volatile unsigned trace_reply_length;
+static volatile unsigned trace_request_pending,trace_request_index;
+
+int small_driver_trace_request(unsigned index)
+{
+    uint32 irq=interrupt_global_disable();
+    if(index>65535u || trace_request_pending || trace_reply_length) {
+        interrupt_global_enable(irq);return 0;
+    }
+    trace_request_index=index;trace_request_pending=1;
+    interrupt_global_enable(irq);return 1;
+}
+int small_driver_trace_take(char *out,unsigned capacity)
+{
+    unsigned n;uint32 irq=interrupt_global_disable();
+    n=trace_reply_length;
+    if(!out || capacity<=n || !n) {interrupt_global_enable(irq);return 0;}
+    memcpy(out,trace_reply,n);out[n]='\0';trace_reply_length=0;
+    interrupt_global_enable(irq);return (int)n;
+}
+static void trace_request_send(void)
+{
+    char command[32];int n;unsigned index;
+    if(!trace_request_pending)return;
+    index=trace_request_index;trace_request_pending=0;
+    if(index==65534u)n=snprintf(command,sizeof(command),"SET-TRACE,1\n");
+    else if(index==65533u)n=snprintf(command,sizeof(command),"SET-TRACE,0\n");
+    else n=snprintf(command,sizeof(command),"GET-TRACE,%u\n",index);
+    if(n>0 && (unsigned)n<sizeof(command))
+        uart_write_buffer(SMALL_DRIVER_UART,(const uint8 *)command,(uint32)n);
+}
 
 /* Always-on key timer: independent of control Start/Stop, never sends UART. */
 void small_driver_tick_1ms(void)
@@ -54,6 +87,13 @@ static void receive_speed_text(uint8 byte)
         const char *p = speed_line;
         int16 left, right;
         speed_line[speed_line_used] = '\0';
+        if(!speed_line_overflow && speed_line_used>=3u && !memcmp(speed_line,"TR,",3)) {
+            if(!trace_reply_length) {
+                memcpy(trace_reply,speed_line,speed_line_used);
+                trace_reply_length=speed_line_used;
+            }
+            speed_line_used=0;speed_line_overflow=0;return;
+        }
         if (!speed_line_overflow && parse_speed_number(&p, &left) && *p++ == ',' &&
             parse_speed_number(&p, &right)) {
             if (*p == '\r') ++p;
@@ -139,6 +179,7 @@ void small_driver_set_duty(int16 left_duty, int16 right_duty)
     /* Both active control and stopped bench output renew a reset driver's query. */
     if ((uint32)(driver_ms - last_speed_query_ms) >= QCAR_DRIVER_SPEED_QUERY_MS)
         small_driver_get_speed();
+    trace_request_send();
 }
 void small_driver_uart_init(void)
 {
@@ -148,6 +189,7 @@ void small_driver_uart_init(void)
     small_driver_feedback_age_ms = 0xffffffffu;
     small_driver_feedback_fresh = 0;
     speed_line_used = speed_line_overflow = 0;
+    trace_reply_length=trace_request_pending=0;
     last_speed_query_ms = driver_ms;
     interrupt_global_enable(irq);
     uart_init(SMALL_DRIVER_UART, SMALL_DRIVER_BAUDRATE, SMALL_DRIVER_TX, SMALL_DRIVER_RX);
