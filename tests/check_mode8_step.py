@@ -11,20 +11,20 @@ int main(void) {
     balance_control_defaults(); assert(!pwm_step_command(1));
     pwm_debug_arm();shacheflag=1;control_startup_ramp_ms=1000;
     assert(!pwm_step_command(1));
-    for(int i=0;i<200;i++)tick(0);
+    for(unsigned i=0;i<1000000u/APP_IMU_PERIOD_US;i++)tick(0);
     assert(control_startup_scale==1);
     pwm_debug_fly_right=1;assert(!pwm_step_command(1));pwm_debug_fly_right=0;
     assert(pwm_step_command(1));
-    for(unsigned t=0;t<=7500;t+=5) {
+    for(unsigned t=0;t<=7500;t+=APP_IMU_PERIOD_US/1000u) {
         tick(0);
         int expected=t<1000?0:t<2500?300:t<4000?600:t<5500?300:0;
         assert(pwm_step_ms==t && fly_l==expected && !fly_r && !ground);
         if(t==2000) {assert(pwm_step_command(1));assert(pwm_step_ms==2000);}
     }
     assert(pwm_step_state==2);tick(0);assert(!fly_l && pwm_step_ms==7500);
-    assert(pwm_step_command(1));for(int i=0;i<250;i++)tick(0);assert(fly_l==300);
+    assert(pwm_step_command(1));for(unsigned i=0;i<1250000u/APP_IMU_PERIOD_US;i++)tick(0);assert(fly_l==300);
     assert(pwm_step_command(0));tick(0);assert(!fly_l && !fly_r && !ground && pwm_step_state==-1);
-    assert(pwm_step_command(1));for(int i=0;i<250;i++)tick(0);shacheflag=0;
+    assert(pwm_step_command(1));for(unsigned i=0;i<1250000u/APP_IMU_PERIOD_US;i++)tick(0);shacheflag=0;
     tick(0);assert(pwm_step_state==-1 && !fly_l && !ground);
     roll_rate_test_stop();assert(!pwm_step_state && !pwm_step_ms);
     arm(5);assert(!pwm_step_command(1));tick(1);assert(!fly_l && !fly_r && !ground);

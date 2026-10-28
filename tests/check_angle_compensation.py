@@ -15,12 +15,12 @@ int main(void) {
         roll_rate_test_sign=-1;tick(1);assert(fly_l==-(int)FLY_ANGLE_FF_KP);
         roll_rate_test_limit=100;tick(1);assert(fly_l==-100 && fly_r==100);
         arm(mode);roll_rate_test_kp=0;mono_params.balance_angle_y+=1;
-        control_startup_ramp_ms=1000;tick(1);assert(fly_l==40 && fly_r==-40);
+        control_startup_ramp_ms=1000;tick(1);assert(fly_l==16 && fly_r==-16);
         shacheflag=0;tick(1);assert(!fly_l && !fly_r);
         arm(mode);roll_rate_test_kp=0;mono_params.balance_angle_y+=1;
         imu_attitude_status=0;tick(1);assert(!fly_l);
         arm(mode);roll_rate_test_kp=0;mono_params.balance_angle_y+=1;
-        for(int k=0;k<5;k++)tick(0);
+        for(unsigned ms=0;ms<BALANCE_IMU_STALE_MS;ms+=APP_IMU_PERIOD_US/1000u)tick(0);
         assert(control_fault_reason==4 && !fly_l && !fly_r);
         arm(mode);roll_rate_test_kp=0;mono_params.balance_angle_y+=1;
         imu_pitch_deg=31;tick(1);assert(roll_rate_test_state==-2 && !fly_l);

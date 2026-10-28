@@ -25,15 +25,19 @@ int main(void) {
 #if FILTER_BYPASS
     close_rate(0);
 #else
-    close_rate(5);
+    const float dt=(float)APP_IMU_PERIOD_US*0.000001f;
+    const float alpha=dt/(FLY_RATE_LPF_TAU_S+dt);
+    const float step1=10.0f*(1.0f-alpha);
+    const float step2=step1*(1.0f-alpha);
+    close_rate(step1);
     /* Holding an old IMU sample must not consume it repeatedly. */
-    tick(0);close_rate(5);tick(1);close_rate(2.5f);
-    /* Alternating 100Hz noise at 200Hz sampling: steady amplitude 1/3. */
+    tick(0);close_rate(step1);tick(1);close_rate(step2);
+    /* Alternating Nyquist noise: steady amplitude 10 * alpha / (2 - alpha). */
     arm(6);tick(1);
-    for(int k=0;k<60;k++) {attitude_state.gyro.y=(k&1)?-10:10;tick(1);}
-    assert(fabsf(fabsf(roll_rate_test_actual)-10.0f/3.0f)<0.001f);
+    for(int k=0;k<80;k++) {attitude_state.gyro.y=(k&1)?-10:10;tick(1);}
+    assert(fabsf(fabsf(roll_rate_test_actual)-10.0f*alpha/(2.0f-alpha))<0.001f);
     /* DC motion is not removed by a deadband or a lasting gain reduction. */
-    attitude_state.gyro.y=10;for(int k=0;k<30;k++)tick(1);close_rate(10);
+    attitude_state.gyro.y=10;for(int k=0;k<60;k++)tick(1);close_rate(10);
 #endif
     /* Rearm, calibration and mode changes cannot reuse the previous motion. */
     arm(6);tick(1);close_rate(0);
@@ -48,7 +52,7 @@ int main(void) {
 #if FILTER_BYPASS
     assert(dual_rate[0]==0 && fly_l==0);
 #else
-    assert(dual_rate[0]==5 && fly_l==-215);
+    assert(fabsf(dual_rate[0]-step1)<0.001f && fly_l==(int)roundf(-FLY_RATE_KP*step1));
 #endif
     /* Raw faults are never hidden by a healthy filter history. */
     arm(6);tick(1);attitude_state.gyro.y=NAN;tick(0);
@@ -56,7 +60,7 @@ int main(void) {
     arm(6);tick(1);attitude_state.gyro.y=INFINITY;tick(1);
     assert(roll_rate_test_state==-1 && !fly_l);
     arm(6);attitude_state.gyro.y=10;tick(1);
-    for(int k=0;k<5;k++)tick(0);
+    for(unsigned ms=0;ms<BALANCE_IMU_STALE_MS;ms+=APP_IMU_PERIOD_US/1000u)tick(0);
     assert(control_fault_reason==4 && !fly_l && !fly_r);
     arm(6);tick(1);imu_pitch_deg=31;tick(1);
     assert(roll_rate_test_state==-2 && !fly_l);

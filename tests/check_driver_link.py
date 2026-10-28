@@ -88,17 +88,17 @@ int main(void){
     for(int mode=3;mode<=8;++mode){
         if(mode==4 || mode==7)continue;
         reset_driver();balance_control_defaults();shacheflag=1;control_startup_ramp_ms=0;
-        imu_pitch_deg=3;imu_roll_deg=BALANCE_ZERO_X_DEG;attitude_state.gyro.x=attitude_state.gyro.y=0;
+        imu_pitch_deg=BALANCE_ZERO_Y_DEG+5.0f;imu_roll_deg=BALANCE_ZERO_X_DEG;attitude_state.gyro.x=attitude_state.gyro.y=0;
         if(mode==3)roll_rate_test_arm();else if(mode==5)dual_balance_arm();else if(mode==6)roll_rate_only_arm();else pwm_debug_arm();
         if(mode==8){pwm_debug_fly_left=-2800;pwm_debug_fly_right=2800;}
         for(unsigned i=0;i<200;++i)tick();
         assert(!control_fault_reason && roll_rate_test_state==2 && duty_frames==200);
-        assert(applied_left==(mode==6?0:mode==8?2800:(int)constrain_float(FLY_RATE_KP*constrain_float(FLY_ANGLE_KP*3.5f,0.0f,FLY_RATE_LIMIT_DPS)+FLY_ANGLE_FF_KP*3.5f,0.0f,FLY_PWM_LIMIT)) && applied_right==-applied_left);
+        assert(applied_left==(mode==6?0:mode==8?2800:(int)constrain_float(FLY_RATE_KP*constrain_float(FLY_ANGLE_KP*5.0f,0.0f,FLY_RATE_LIMIT_DPS)+FLY_ANGLE_FF_KP*5.0f,0.0f,FLY_PWM_LIMIT)) && applied_right==-applied_left);
         printf("Mode%d: 200/200 applied commands, no unexpected protection/calibration command\n",mode);
     }
-    reset_driver();balance_control_defaults();shacheflag=1;imu_pitch_deg=3;roll_rate_test_arm();
-    for(unsigned i=0;i<200;++i)tick();
-    assert(duty_frames==200 && applied_left==(int)constrain_float(FLY_RATE_KP*constrain_float(FLY_ANGLE_KP*3.5f,0.0f,FLY_RATE_LIMIT_DPS)+FLY_ANGLE_FF_KP*3.5f,0.0f,FLY_PWM_LIMIT) && applied_right==-applied_left);
+    reset_driver();balance_control_defaults();shacheflag=1;imu_pitch_deg=BALANCE_ZERO_Y_DEG+5.0f;roll_rate_test_arm();
+    for(unsigned i=0;i<1000000u/APP_IMU_PERIOD_US;++i)tick();
+    assert(duty_frames==1000000u/APP_IMU_PERIOD_US && applied_left==(int)constrain_float(FLY_RATE_KP*constrain_float(FLY_ANGLE_KP*5.0f,0.0f,FLY_RATE_LIMIT_DPS)+FLY_ANGLE_FF_KP*5.0f,0.0f,FLY_PWM_LIMIT) && applied_right==-applied_left);
     puts("Default startup ramp reaches PID + angle compensation without a stale duty hold");
     for(int left=-4000;left<=4000;++left){
         int right=((left+4000)*37)%8001-4000;

@@ -31,7 +31,7 @@ code/motor.c            行进轮 PWM+DIR
 code/small_driver_uart_control.c  无刷驱动文本兼容发送、文本/二进制转速接收
 code/wifispi.c          JustFloat遥测、订阅、RAM参数写入
 code/flash.c            仅直立参数的保存、校验和恢复
-user/isr.c              1ms控制入口、5ms采样、1ms按键、串口反馈中断
+user/isr.c              1ms控制入口、2ms采样、1ms按键、串口反馈中断
 user/cpu1_main.c        CPU1空闲；不再处理图像或网络
 ```
 
@@ -39,8 +39,8 @@ user/cpu1_main.c        CPU1空闲；不再处理图像或网络
 
 | 任务 | 默认周期 / 所在核 |
 |---|---|
-| 控制中断入口 CCU60_CH0 | 1ms / CPU0；每5次执行一次控制，即200Hz |
-| IMU CCU60_CH1 | 5ms / CPU0 |
+| 控制中断入口 CCU60_CH0 | 1ms / CPU0；每2次执行一次控制，即500Hz |
+| IMU CCU60_CH1 | 2ms / CPU0；加速度/陀螺硬件ODR均833Hz |
 | 按键 CCU61_CH1 | 1ms / CPU0 |
 | 主循环 | 每轮末尾等待10ms；同步网络/屏幕操作会延长一轮 |
 | 屏幕 | 每5轮轮询刷新 |
@@ -52,15 +52,15 @@ user/cpu1_main.c        CPU1空闲；不再处理图像或网络
 
 | 参数组 | 当前编译默认值 | 含义 |
 |---|---|---|
-| `BALANCE_ZERO_X_DEG` / `BALANCE_ZERO_Y_DEG` | 3.9° / -0.3° | 行进轮 / 飞轮机械目标角 |
-| `GROUND_RATE_KP` / `GROUND_ANGLE_KP` | 30 / 40 | 行进轮内环 / 外环增益 |
-| `FLY_RATE_KP` / `FLY_ANGLE_KP` | 35 / 50 | 飞轮内环 / 外环增益 |
-| `GROUND_RATE_LIMIT_DPS` / `FLY_RATE_LIMIT_DPS` | 100 / 80 °/s | 外环目标角速度限幅 |
-| `GROUND_PWM_LIMIT` / `FLY_PWM_LIMIT` | 4000 / 4000 | 输出指令限幅；不是电流限制 |
+| `BALANCE_ZERO_X_DEG` / `BALANCE_ZERO_Y_DEG` | 3.9° / -0.5° | 行进轮 / 飞轮机械目标角 |
+| `GROUND_RATE_KP` / `GROUND_ANGLE_KP` | 20 / 40 | 行进轮内环 / 外环增益 |
+| `FLY_RATE_KP` / `FLY_ANGLE_KP` | 36 / 50 | 飞轮内环 / 外环增益 |
+| `GROUND_RATE_LIMIT_DPS` / `FLY_RATE_LIMIT_DPS` | 100 / 100 °/s | 外环目标角速度限幅；运行期菜单值可不同 |
+| `GROUND_PWM_LIMIT` / `FLY_PWM_LIMIT` | 4000 / 8000 | 输出指令限幅；不是电流限制 |
 | `*_OUTPUT_SIGN` | +1 / +1 | 已验证的纠偏方向，保持不变 |
 | `*_KI` / `*_KD` | 全部0 | 当前保持原 P/P 控制；启用积分还要设置相应 `*_I_LIMIT_*` |
 | `BALANCE_*_PID_INCREMENTAL` | 全部0 | 0位置式，1增量式；分别选择角度环和角速度环 |
-| `BALANCE_ANGLE_LPF_TAU_S` | 0.06秒 | 沿用上游角度低通；0关闭；改变会影响相位和稳定性 |
+| 控制环反馈 | 直接使用姿态角和校正后的机体角速度 | 两轴角度低通及飞轮角速度低通已删除；保留EKF及其内部加速度低通 |
 | `BALANCE_STARTUP_RAMP_MS` | 1000ms | 启动PWM上限逐渐放开 |
 | `BALANCE_TILT_LIMIT_DEG` / `BALANCE_IMU_STALE_MS` | 30° / 25ms | 原始角度倾倒保护 / 控制采样过期保护 |
 | `APP_DEFAULT_MODE` / `DEBUG_PWM_LIMIT` | 5 / 4000 | 上电选中模式 / Mode8有符号PWM绝对上限 |
@@ -103,13 +103,16 @@ WiFi连接应在停车时完成。Mode8 Start后可发送 `[slider,debug_fly_lef
 每轴的角度环、角速度环各自拥有状态，停车/重启清空历史。默认 I/D=0、位置式，数值上保持原来的 P/P 路径：
 
 ```text
-目标角速度 = clamp(Angle_KP × (机械零点 - 滤波角度), ±Rate_limit)
-输出 = round(clamp(Sign × Rate_KP × (目标角速度 - 机体角速度), ±PWM_limit×启动比例))
+角度误差 = 机械零点 - EKF姿态角
+目标角速度 = clamp(Angle_KP × 角度误差, ±Rate_limit)
+PID输出 = clamp(Rate_KP × (目标角速度 - 校正后机体角速度), ±PWM_limit×启动比例)
+输出 = round(Sign × clamp(PID输出 + 角度补偿, ±PWM_limit×启动比例))
+角度补偿 = FLY_ANGLE_FF_KP × 角度误差（仅Mode3/5飞轮轴，且Angle_KP>0）
 ```
 
 增量式与位置式在未饱和、固定增益时等价；饱和后增量式从上次限幅输出继续累加，不能假设两种形式表现相同。运行中切换算法应先停车并重新启动。
 
-保留的滤波只有正在使用的 EKF、其加速度低通/门限，以及控制外环角度一阶低通。当前没有新增角速度软件低通。倾倒和非有限值检查使用原始姿态，避免被角度低通延迟或掩盖。
+保留EKF、其内部加速度低通和门限；控制环额外角度/角速度低通的函数、状态和配置项已全部删除。Mode3～7直接使用EKF姿态角和校正后的机体角速度，遥测反映同一反馈量。倾倒、非有限值、采样过期和启动渐增保护保留；Mode8仍为独立PWM调试。
 
 ## 接线与网络
 

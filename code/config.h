@@ -36,7 +36,7 @@
 #define QCAR_KEY2 P20_6
 #define QCAR_KEY3 P11_3
 #define QCAR_EC11_KEY P11_2
-/* 1: initialize the IMU and start the 5 ms sampling timer at boot.
+/* 1: initialize the IMU and start the configured sampling timer at boot.
  * 0: leave the IMU off until Start / IMU preview. Use 0 to bisect a
  *    boot-time menu freeze between the IMU path and the rest. */
 #ifndef QCAR_BOOT_IMU_INIT
@@ -147,7 +147,9 @@
 /* 超过 MAX_SAMPLE_DT 但在本值以内：只丢这一帧，不锁止（总线偶发毛刺）。 */
 #define MAX_SKIP_DT              0.050f
 
-#define CALIBRATION_SAMPLES      200u
+#define CALIBRATION_SAMPLES      500u /* 500Hz: keep a 1 second stillness window. */
+#define IMU_CTRL1_XL_CONFIG      0x7Cu /* 833Hz accelerometer, +/-8g. */
+#define IMU_CTRL2_G_CONFIG       0x7Cu /* 833Hz gyroscope, +/-2000dps. */
 #define CAL_GYRO_LIMIT_DPS       10.0f
 #define CAL_GYRO_SPAN_DPS        6.0f
 #define CAL_ACCEL_SPAN_G         0.12f
@@ -170,7 +172,7 @@
 /* ===== 直立参数：只在此处改编译默认值；菜单/上位机改的是 RAM =====
  * displayed Roll = flywheel = imu_pitch_deg / gyro.y
  * displayed Pitch = ground wheel = imu_roll_deg / gyro.x
- * 保留上游 7a053b2 的值；不要套用旧版原始量零点 -100 / 190。
+ * 零点采用本车静止扶稳读数；不要套用旧版原始量零点 -100 / 190。
  */
 #define BALANCE_ZERO_X_DEG           5.0f
 #define BALANCE_ZERO_Y_DEG           1.0f
@@ -202,7 +204,7 @@
 #define BALANCE_ANGLE_I_LIMIT_DPS     0.0f
 #define BALANCE_RATE_I_LIMIT_PWM      0.0f
 /* Flywheel body-rate feedback only (Modes 3/5/6), before the rate PID.
- * tau=5ms, dt=5ms -> alpha=0.5. Set to 0 to bypass; rebuild required. */
+ * tau=5ms, dt=2ms. Set to 0 to bypass; rebuild required. */
 #ifndef FLY_RATE_LPF_TAU_S
 #define FLY_RATE_LPF_TAU_S            0.005f
 #endif
@@ -220,8 +222,8 @@
  * No PID, IMU readiness or tilt interlock in this bench-test mode. */
 #define DEBUG_PWM_LIMIT             4000.0f
 #define APP_CONTROL_TICK_US         1000u
-#define APP_CONTROL_DIVIDER            5u
-#define APP_IMU_PERIOD_US           5000u
+#define APP_CONTROL_DIVIDER            2u
+#define APP_IMU_PERIOD_US           2000u
 #define APP_KEY_PERIOD_MS              1u
 #define APP_POLL_PERIOD_MS            10u
 #define APP_DISPLAY_DIVIDER            5u
@@ -242,6 +244,9 @@
 #endif
 #if APP_CONTROL_TICK_US * APP_CONTROL_DIVIDER != APP_IMU_PERIOD_US
 #error Control and IMU update periods must match
+#endif
+#if APP_IMU_PERIOD_US < 1000u || APP_IMU_PERIOD_US % 1000u != 0u
+#error Control timeout and startup timers require whole milliseconds
 #endif
 
 /* Interrupt routing/priorities (all unique). */
