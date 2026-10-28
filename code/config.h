@@ -172,20 +172,20 @@
 /* ===== 直立参数：只在此处改编译默认值；菜单/上位机改的是 RAM =====
  * displayed Roll = flywheel = imu_pitch_deg / gyro.y
  * displayed Pitch = ground wheel = imu_roll_deg / gyro.x
- * 保留上游 7a053b2 的值；不要套用旧版原始量零点 -100 / 190。
+ * 零点采用本车静止扶稳读数；不要套用旧版原始量零点 -100 / 190。
  */
-#define BALANCE_ZERO_X_DEG           3.9f
-#define BALANCE_ZERO_Y_DEG          -0.5f
+#define BALANCE_ZERO_X_DEG           2.5f
+#define BALANCE_ZERO_Y_DEG          -0.25f
 #define FLY_RATE_KP                 36.0f
 #define FLY_RATE_KI                  0.0f
 #define FLY_RATE_KD                  0.0f
-#define FLY_ANGLE_KP                50.0f
+#define FLY_ANGLE_KP                40.0f
 #define FLY_ANGLE_KI                 0.0f
 #define FLY_ANGLE_KD                 0.0f
-#define FLY_RATE_LIMIT_DPS         100.0f
+#define FLY_RATE_LIMIT_DPS         160.0f
 #define FLY_PWM_LIMIT             8000.0f
 #define FLY_OUTPUT_SIGN              1.0f
-#define GROUND_RATE_KP              20.0f
+#define GROUND_RATE_KP              30.0f
 #define GROUND_RATE_KI               0.0f
 #define GROUND_RATE_KD               0.0f
 #define GROUND_ANGLE_KP             40.0f

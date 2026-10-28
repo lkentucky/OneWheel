@@ -51,7 +51,7 @@ int main(void){
         imu_roll_deg=BALANCE_ZERO_X_DEG;imu_pitch_deg=BALANCE_ZERO_Y_DEG;
         attitude_state.gyro.x=4;attitude_state.gyro.y=10;
         if(mode==5)dual_balance_arm();else if(mode==6)roll_rate_only_arm();else roll_rate_test_arm();
-        tick();expect(-360,360,mode==5?-80:0);
+        tick();expect(-360,360,mode==5?-120:0);
     }
     roll_rate_test_stop();clear_all_cascade_out();balance_control_tick_1ms();expect(0,0,0);
     printf("PASS: protocol=%d, left sign=%d, right sign=%d; Mode3/5/6/8 and stop\n",

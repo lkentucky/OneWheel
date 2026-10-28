@@ -53,8 +53,8 @@ int main(void){
     balance_control_tick_1ms();assert(roll_rate_test_sequence==before_sequence+1 && fly_l==-360);
     /* Rate-only axis ownership, signs, output limits and P-only equivalence. */
     arm(6);attitude_state.gyro.y=10;tick(1);assert(fly_l==-360 && fly_r==360 && ground==0);
-    arm(7);attitude_state.gyro.x=10;tick(1);assert(ground==-200 && fly_l==0 && fly_r==0);
-    ground_rate_test_sign=-1;tick(1);assert(ground==200);
+    arm(7);attitude_state.gyro.x=10;tick(1);assert(ground==-300 && fly_l==0 && fly_r==0);
+    ground_rate_test_sign=-1;tick(1);assert(ground==300);
     ground_rate_test_limit=100;tick(1);assert(ground==100);
     arm(5);tick(1);assert(!ground && !fly_l && !fly_r);
     /* Compare direct-feedback P/P plus signed angle compensation over a trajectory. */
@@ -94,10 +94,10 @@ int main(void){
     arm(7);control_startup_ramp_ms=1000;attitude_state.gyro.x=100;tick(1);assert(control_startup_scale>0 && control_startup_scale<0.01f && ground==-8);
     for(unsigned i=1;i<499;++i)tick(1);
     assert(fabsf(control_startup_scale-0.998f)<0.0001f);
-    tick(1);assert(control_startup_scale==1.0f && ground==-2000);
+    tick(1);assert(control_startup_scale==1.0f && ground==-3000);
     /* Verify requested flywheel defaults and unchanged ground limits. */
-    arm(5);assert(pitch_balance_rate_limit==100 && roll_rate_test_limit==8000);
-    assert(roll_rate_test_kp==36 && ground_rate_test_kp==20 && mono_params.balance_angle_y==-.5f && ground_rate_test_limit==4000);
+    arm(5);assert(pitch_balance_rate_limit==160 && roll_rate_test_limit==8000);
+    assert(roll_rate_test_kp==36 && pitch_balance_kp==40 && ground_rate_test_kp==30 && mono_params.balance_angle_y==-.25f && mono_params.balance_angle_x==2.5f && ground_rate_test_limit==4000);
     pitch_balance_rate_limit=ground_angle_rate_limit=200;
     roll_rate_test_limit=ground_rate_test_limit=8000;
     roll_rate_test_kp=ground_rate_test_kp=50;
