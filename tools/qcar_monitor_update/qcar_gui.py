@@ -23,7 +23,7 @@ PROFILES = {**PROFILES, 'pwm_debug': PWM_PROFILE}
 PROFILE_LABELS={'启动诊断 · 39通道':'startup','双轴直立 · 45通道':'dual',
                 '角度环 · 28通道':'angle','三轴姿态 · 3通道':'attitude',
                 'Mode8 PWM诊断 · 15通道':'pwm_debug','地轮编码器 · 15通道':'encoder',
-                'Mode2速度环 · 43通道':'speed','Mode2位置保持 · 48通道':'hold'}
+                'Mode2速度环 · 43通道':'speed','Mode2位置保持 · 48通道':'hold','IMU可信度 · 47通道':'imu_quality'}
 DEFAULT_PLOTS={'balance_actual_deg','balance_target_deg','rate_actual_dps','rate_target_dps',
                'dual_roll_actual_deg','dual_roll_target_deg','dual_pitch_actual_deg','dual_pitch_target_deg',
                'roll_deg','pitch_deg','yaw_deg','motor_left_pwm','motor_right_pwm','motor_ground_pwm',

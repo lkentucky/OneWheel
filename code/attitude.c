@@ -186,6 +186,7 @@ int ekf6_init(Ekf6 *s,const float a[3])
     Ekf6 next; unsigned i;
     memset(&next,0,sizeof(next));
     next.innovation_nis=-1.0f;
+    next.accept_ratio=1.0f; next.observation_r_scale=1.0f;
     if(!attitude_init(next.q,&next.accel_norm,a)) return 0;
     for(i=0;i<3;++i) { next.accel_lpf[i]=a[i]; next.covariance[i][i]=0.01f; }
     for(i=3;i<5;++i) next.covariance[i][i]=0.0001f;
@@ -197,6 +198,7 @@ int ekf6_update(Ekf6 *s,const float g[3],const float a[3],float dt)
     float f[5][5]={{0}},skew[3][3],angle[3],omega[3],h[3],res[3];
     float hmat[3][5]={{0}},pht[5][3]={{0}},smat[3][3]={{0}},inv[3][3];
     float gain[5][3]={{0}},dx[5]={0},norm,alpha,predicted_yaw,yaw_jac[3];
+    float residual_sq=0.0f,gyro_step_sq=0.0f,gyro_norm_sq=0.0f,r_variance;
     unsigned i,j,k;
     if(!finite_float(dt) || dt<=0 || dt>MAX_SAMPLE_DT) return 0;
     for(i=0;i<3;++i) if(!finite_float(g[i]) || !finite_float(a[i])) return 0;
@@ -208,8 +210,21 @@ int ekf6_update(Ekf6 *s,const float g[3],const float a[3],float dt)
     norm=sqrtf(a[0]*a[0]+a[1]*a[1]+a[2]*a[2]);
     if(!finite_float(norm)) return 0;
     next.accel_norm=norm; next.accel_used=0; next.innovation_nis=-1.0f;
+    next.reject_reason=EKF_REJECT_NONE; next.bias_learning=0; next.bias_slew_dps2=0;
+    next.observation_r_scale=1.0f;
     for(i=0;i<3;++i) { omega[i]=g[i]-(i<2?next.bias_xy[i]:0); angle[i]=omega[i]*dt; }
     if(!ekf_rotate(next.q,angle) || !ekf_transport_accel(next.accel_lpf,angle)) return 0;
+    /* Residual after transporting the previous gravity estimate: true body
+     * rotation is not itself counted as acceleration vibration. No gyro deadband. */
+    alpha=dt/(EKF_VIBRATION_TAU_S+dt);
+    for(i=0;i<3;++i) {
+        float d=a[i]-next.accel_lpf[i],dg=g[i]-next.previous_gyro[i];
+        residual_sq+=d*d; gyro_step_sq+=dg*dg; gyro_norm_sq+=omega[i]*omega[i];
+        next.previous_gyro[i]=g[i];
+    }
+    next.accel_vibration_sq+=alpha*(residual_sq-next.accel_vibration_sq);
+    if(next.have_gyro) next.gyro_step_sq+=alpha*(gyro_step_sq-next.gyro_step_sq);
+    next.have_gyro=1;
     predicted_yaw=ekf_yaw_rad(next.q);
     ekf_skew(omega,skew);
     for(i=0;i<5;++i) f[i][i]=1;
@@ -218,17 +233,17 @@ int ekf6_update(Ekf6 *s,const float g[3],const float a[3],float dt)
     ekf_cov_transform(next.covariance,f);
     for(i=0;i<5;++i) next.covariance[i][i]+=(i<3?EKF_GYRO_NOISE:EKF_BIAS_NOISE)*dt;
     /* Reject abnormal raw acceleration before it contaminates the LPF. */
-    if(norm<ACC_NORM_MIN || norm>ACC_NORM_MAX) goto commit;
+    if(norm<ACC_NORM_MIN || norm>ACC_NORM_MAX) { next.reject_reason=EKF_REJECT_NORM; goto commit; }
     alpha=dt/(EKF_ACCEL_LPF_TAU_S+dt);
     for(i=0;i<3;++i) next.accel_lpf[i]+=alpha*(a[i]-next.accel_lpf[i]);
     norm=sqrtf(next.accel_lpf[0]*next.accel_lpf[0]+next.accel_lpf[1]*next.accel_lpf[1]+next.accel_lpf[2]*next.accel_lpf[2]);
-    if(norm<1e-6f || !finite_float(norm)) goto commit;
+    if(norm<1e-6f || !finite_float(norm)) { next.reject_reason=EKF_REJECT_GEOMETRY; goto commit; }
     {
         float w=next.q[0],x=next.q[1],y=next.q[2],z=next.q[3];
         float sinp=2*(w*y-z*x),cp2=fmaxf(0.0f,1-sinp*sinp);
         h[0]=2*(x*z-w*y); h[1]=2*(w*x+y*z); h[2]=w*w-x*x-y*y+z*z;
         /* Euler heading becomes singular near vertical: gyro prediction only. */
-        if(cp2<0.01f) goto commit;
+        if(cp2<0.01f) { next.reject_reason=EKF_REJECT_GEOMETRY; goto commit; }
         yaw_jac[0]=0; yaw_jac[1]=h[1]/cp2; yaw_jac[2]=h[2]/cp2;
     }
     ekf_skew(h,skew);
@@ -246,7 +261,17 @@ int ekf6_update(Ekf6 *s,const float g[3],const float a[3],float dt)
     next.innovation_nis=0.0f;
     for(i=0;i<3;++i) for(j=0;j<3;++j) next.innovation_nis+=res[i]*inv[i][j]*res[j];
     if(!finite_float(next.innovation_nis)) return 0;
-    if(next.innovation_nis>EKF_CHI_SQUARE_LIMIT) goto commit;
+    /* Gate using BASE R, so increasing R cannot hide a bad observation. */
+    if(next.innovation_nis>EKF_CHI_SQUARE_LIMIT) { next.reject_reason=EKF_REJECT_NIS; goto commit; }
+    {
+        float n=fabsf(next.accel_norm-1.0f)/EKF_ACCEL_SOFT_ERROR_G;
+        float v=next.accel_vibration_sq/(EKF_ACCEL_SOFT_VIB_G*EKF_ACCEL_SOFT_VIB_G);
+        float nis=fmaxf(0.0f,next.innovation_nis/EKF_NIS_SOFT_LIMIT-1.0f);
+        next.observation_r_scale=attitude_clamp(1.0f+n*n+v+nis,1.0f,EKF_R_SCALE_MAX);
+    }
+    r_variance=EKF_ACCEL_VARIANCE*next.observation_r_scale;
+    for(i=0;i<3;++i) smat[i][i]+=r_variance-EKF_ACCEL_VARIANCE;
+    if(!ekf_inverse3(smat,inv)) return 0;
     for(i=0;i<5;++i) for(j=0;j<3;++j) for(k=0;k<3;++k) gain[i][j]+=pht[i][k]*inv[k][j];
     /* Project the angle gain onto zero Euler-yaw correction. Do this BEFORE
      * Joseph covariance update; do not pretend a gravity observation reduced
@@ -255,6 +280,22 @@ int ekf6_update(Ekf6 *s,const float g[3],const float a[3],float dt)
         float yaw_gain=0;
         for(i=0;i<3;++i) yaw_gain+=yaw_jac[i]*gain[i][j];
         for(i=0;i<3;++i) gain[i][j]-=h[i]*yaw_gain;
+    }
+    next.bias_learning=(fabsf(next.accel_norm-1.0f)<=EKF_ACCEL_SOFT_ERROR_G &&
+        next.accel_vibration_sq<=EKF_ACCEL_SOFT_VIB_G*EKF_ACCEL_SOFT_VIB_G &&
+        next.gyro_step_sq<=EKF_GYRO_STEP_MAX_RADPS*EKF_GYRO_STEP_MAX_RADPS &&
+        gyro_norm_sq<=EKF_BIAS_LEARN_MAX_RADPS*EKF_BIAS_LEARN_MAX_RADPS &&
+        next.innovation_nis<=EKF_NIS_SOFT_LIMIT);
+    /* Constrain gain BEFORE state AND Joseph covariance update. Frozen bias
+     * rows are zero (Schmidt-style); do not shrink bias variance as if learned. */
+    for(i=3;i<5;++i) {
+        float requested=0,limited,scale;
+        for(j=0;j<3;++j) requested+=gain[i][j]*res[j];
+        limited=next.bias_learning?attitude_clamp(requested,-EKF_BIAS_SLEW_RADPS2*dt,EKF_BIAS_SLEW_RADPS2*dt):0;
+        limited=attitude_clamp(next.bias_xy[i-3]+limited,-EKF_BIAS_LIMIT_RADPS,EKF_BIAS_LIMIT_RADPS)-next.bias_xy[i-3];
+        scale=requested!=0.0f?limited/requested:(next.bias_learning?1.0f:0.0f);
+        for(j=0;j<3;++j) gain[i][j]*=scale;
+        next.bias_slew_dps2=fmaxf(next.bias_slew_dps2,fabsf(limited)*RAD_TO_DEG/dt);
     }
     for(i=0;i<5;++i) for(j=0;j<3;++j) dx[i]+=gain[i][j]*res[j];
     /* Joseph form retains symmetry/positive variance with finite precision. */
@@ -265,7 +306,7 @@ int ekf6_update(Ekf6 *s,const float g[3],const float a[3],float dt)
     }
     ekf_cov_transform(next.covariance,f);
     for(i=0;i<5;++i) for(j=0;j<5;++j) for(k=0;k<3;++k)
-        next.covariance[i][j]+=EKF_ACCEL_VARIANCE*gain[i][k]*gain[j][k];
+        next.covariance[i][j]+=r_variance*gain[i][k]*gain[j][k];
     if(!ekf_rotate(next.q,dx)) return 0;
     ekf_preserve_yaw(next.q,predicted_yaw);
     for(i=0;i<2;++i) next.bias_xy[i]=attitude_clamp(next.bias_xy[i]+dx[i+3],-EKF_BIAS_LIMIT_RADPS,EKF_BIAS_LIMIT_RADPS);
@@ -276,6 +317,16 @@ int ekf6_update(Ekf6 *s,const float g[3],const float a[3],float dt)
     ekf_cov_transform(next.covariance,f);
     next.accel_used=1;
 commit:
+    next.reject_age_s=next.accel_used?0.0f:fminf(60.0f,next.reject_age_s+dt);
+    if(!next.accel_used && next.reject_count<0xffffffffu) ++next.reject_count;
+    next.accept_ratio+=(dt/(EKF_QUALITY_TAU_S+dt))*((next.accel_used?1.0f:0.0f)-next.accept_ratio);
+    next.poor_accept_s=(next.accept_ratio<IMU_POOR_ACCEPT_RATIO ||
+        next.observation_r_scale>=IMU_POOR_R_SCALE ||
+        next.gyro_step_sq>EKF_GYRO_STEP_MAX_RADPS*EKF_GYRO_STEP_MAX_RADPS)?
+        fminf(60.0f,next.poor_accept_s+dt):fmaxf(0.0f,next.poor_accept_s-2.0f*dt);
+    next.quality=(next.reject_age_s>=IMU_PREDICT_LIMIT_S || next.poor_accept_s>=IMU_POOR_ACCEPT_LIMIT_S)?
+        EKF_QUALITY_UNTRUSTED:(!next.accel_used?EKF_QUALITY_PREDICT:
+        (next.observation_r_scale>2.0f || next.accept_ratio<0.7f?EKF_QUALITY_WEAK:EKF_QUALITY_GOOD));
     for(i=0;i<5;++i) for(j=i;j<5;++j) {
         float v=0.5f*(next.covariance[i][j]+next.covariance[j][i]);
         if(!finite_float(v) || (i==j && v<0)) return 0;

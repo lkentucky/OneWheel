@@ -47,7 +47,7 @@ static uint32 ticks;
 static unsigned irq_disabled, init_calls, connect_calls, socket_calls, disconnect_calls;
 static unsigned fail_stage, fail_attempts, fail_send, fail_flush, rx_calls;
 /* Match the transport's 2000-byte text reply bound (binary frames stay <=196). */
-static uint8_t incoming[8192], outgoing[2000], datagrams[128][2000];
+static uint8_t incoming[8192], outgoing[4096], datagrams[128][4096];
 static size_t incoming_size, outgoing_size, sizes[128], packet_count;
 char wifi_spi_version[12], wifi_spi_ip_addr_port[25];
 volatile int32 imu_attitude_status=1, imu_accel_used=1;
@@ -58,6 +58,10 @@ volatile float imu_sample_dt_ms=5, imu_solve_us=21, imu_solve_max_us=35;
 volatile float imu_ekf_nis=0.25f, imu_ekf_bias_xy_dps[2]={0.1f,-0.2f};
 volatile uint32 imu_sample_sequence=1234;
 volatile uint32 imu_spi_timeouts,imu_not_ready_samples,imu_last_status_reg,imu_bad_bursts;
+volatile int32 imu_quality,imu_reject_reason,imu_bias_learning;
+volatile float imu_reject_ms,imu_accept_ratio=1,imu_accel_vibration_g;
+volatile float imu_gyro_step_dps,imu_r_scale=1,imu_bias_slew_dps2,imu_recovery_percent;
+volatile uint32 imu_reject_count,imu_gyro_clips,imu_accel_clips,imu_recovery_count;
 volatile uint8 rate_only_test;
 static unsigned trace_request_value,trace_request_calls;
 static const char *trace_mock_reply;
@@ -194,10 +198,11 @@ static void test_transport(void)
     assert(has_reply("MCAR RATE 1000\n") && rx_calls>0);
     { unsigned found=0;
       for (size_t i=0;i<packet_count;++i) if (sizes[i]>10 && !memcmp(datagrams[i],"MCAR LIST ",10)) {
-        assert(sizes[i]<2000 && datagrams[i][sizes[i]-1]=='\n');
+        assert(sizes[i]<sizeof(datagrams[i]) && datagrams[i][sizes[i]-1]=='\n');
         datagrams[i][sizes[i]]=0;
         assert(strstr((const char *)datagrams[i],",wheel_encoder_sign,"));
-        assert(strstr((const char *)datagrams[i],",wheel_speed_limit,step_state,step_ms,step_stage\n")); ++found;
+        assert(strstr((const char *)datagrams[i],",wheel_speed_limit,step_state,step_ms,step_stage,"));
+        assert(strstr((const char *)datagrams[i],",imu_recovery_pct,imu_recoveries\n")); ++found;
       }
       assert(found==1);
     }
@@ -437,6 +442,15 @@ static void test_transport(void)
     if (getenv("QCAR_WIFI_HOLD_FIXTURE")) {
         FILE *file=fopen(getenv("QCAR_WIFI_HOLD_FIXTURE"),"wb");assert(file);
         assert(fwrite(datagrams[packet_count-1],1,sizes[packet_count-1],file)==196);assert(fclose(file)==0);
+    }
+    /* Complete new diagnostic profile through the real subscription/packer. */
+    imu_quality=3;imu_attitude_status=-5;imu_reject_ms=600;imu_recovery_percent=42;
+    command("SUB telemetry_ms,control_mode,imu_status,rate_state,fault_reason,fault_imu_status,roll_deg,pitch_deg,gyro_x_dps,gyro_y_dps,gyro_z_dps,accel_x_g,accel_y_g,accel_z_g,accel_norm_g,imu_accel_used,ekf_nis,ekf_bias_x_dps,ekf_bias_y_dps,imu_dt_ms,imu_solve_us,imu_seq,motor_left_pwm,motor_right_pwm,motor_ground_pwm,flywheel_left_speed_raw,flywheel_right_speed_raw,driver_feedback_fresh,driver_feedback_age_ms,wheel_speed_cps,wheel_encoder_valid,imu_spi_timeouts,imu_bad_bursts,imu_quality,imu_reject_reason,imu_reject_ms,imu_accept_ratio,imu_reject_count,imu_accel_vib_g,imu_gyro_step_dps,imu_r_scale,imu_bias_learning,imu_bias_slew_dps2,imu_gyro_clips,imu_accel_clips,imu_recovery_pct,imu_recoveries\n");
+    ticks+=2000000u;wifispi_telemetry_service();
+    assert(wifi_telemetry_channel_count==47 && last_value(33,47)==3 && last_value(35,47)==600);
+    if(getenv("QCAR_WIFI_QUALITY_FIXTURE")) {
+        FILE *file=fopen(getenv("QCAR_WIFI_QUALITY_FIXTURE"),"wb");assert(file);
+        assert(fwrite(datagrams[packet_count-1],1,sizes[packet_count-1],file)==192);assert(fclose(file)==0);
     }
     unsigned previous_sockets=socket_calls;
     wifispi_set_progress_hook(cancel_during_join);

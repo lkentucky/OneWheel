@@ -25,6 +25,10 @@ volatile int32 imu_accel_used=-1;
 volatile float imu_ekf_nis=-1.0f, imu_ekf_bias_xy_dps[2];
 volatile uint32 imu_sample_sequence;
 volatile uint32 imu_spi_timeouts,imu_not_ready_samples,imu_last_status_reg,imu_bad_bursts;
+volatile int32 imu_quality,imu_reject_reason,imu_bias_learning;
+volatile float imu_reject_ms,imu_accept_ratio,imu_accel_vibration_g;
+volatile float imu_gyro_step_dps,imu_r_scale,imu_bias_slew_dps2,imu_recovery_percent;
+volatile uint32 imu_reject_count,imu_gyro_clips,imu_accel_clips,imu_recovery_count;
 volatile float imu_gyro_z_integral_deg;
 /* Stable telemetry protocol value: 3 = EKF. */
 const uint8 imu_attitude_method=3u;
@@ -35,6 +39,15 @@ static uint8 g_have_sample, g_calibrated;
 static volatile uint8 g_update_enabled, g_recalibration_requested;
 static imu_navigation_sample_t g_navigation_sample;
 static uint32 g_navigation_generation;
+static uint8 g_untrusted,g_sample_gyro_clip,g_recovery_allowed;
+static ImuCalibration g_recovery_cal;
+static float g_recovery_s;
+
+void imu_set_recovery_allowed(bool allowed) { g_recovery_allowed=allowed?1u:0u; }
+static void imu_recovery_reset(void)
+{
+    calibration_reset(&g_recovery_cal); g_recovery_s=0; imu_recovery_percent=0;
+}
 
 bool imu_get_navigation_sample(imu_navigation_sample_t *out)
 {
@@ -76,6 +89,16 @@ static void imu_publish_filter_diagnostics(uint32 started)
     imu_ekf_nis=g_attitude.innovation_nis;
     imu_ekf_bias_xy_dps[0]=g_attitude.bias_xy[0]*RAD_TO_DEG;
     imu_ekf_bias_xy_dps[1]=g_attitude.bias_xy[1]*RAD_TO_DEG;
+    imu_quality=g_untrusted?EKF_QUALITY_UNTRUSTED:g_attitude.quality;
+    imu_reject_reason=g_attitude.reject_reason;
+    imu_reject_ms=g_attitude.reject_age_s*1000.0f;
+    imu_accept_ratio=g_attitude.accept_ratio;
+    imu_reject_count=g_attitude.reject_count;
+    imu_accel_vibration_g=sqrtf(g_attitude.accel_vibration_sq);
+    imu_gyro_step_dps=sqrtf(g_attitude.gyro_step_sq)*RAD_TO_DEG;
+    imu_r_scale=g_attitude.observation_r_scale;
+    imu_bias_learning=g_attitude.bias_learning;
+    imu_bias_slew_dps2=g_attitude.bias_slew_dps2;
 }
 static void imu_reg_write(uint8 reg,uint8 value)
 {
@@ -102,6 +125,8 @@ static uint8 imu_read_sample(float gyro_dps[3],float accel_g[3])
     uint8 tx[13]={0},rx[13];
     float sensor_g[3],sensor_a[3];
     uint8 status=imu_reg_read(IMU_STATUS_REG);
+    uint8 accel_clip=0;
+    g_sample_gyro_clip=0;
     /* 单次读到 0xFF/无 ready 位多为总线毛刺，同一 tick 内重试一次。 */
     if (status==0xFFu || (status&0x03u)!=0x03u) status=imu_reg_read(IMU_STATUS_REG);
     imu_last_status_reg=status;
@@ -124,6 +149,8 @@ static uint8 imu_read_sample(float gyro_dps[3],float accel_g[3])
     for(i=0u;i<3u;++i) {
         int16 raw_g=(int16)((uint16)data[2u*i]|((uint16)data[2u*i+1u]<<8));
         int16 raw_a=(int16)((uint16)data[6u+2u*i]|((uint16)data[7u+2u*i]<<8));
+        if(raw_g>=IMU_RAW_CLIP_COUNTS || raw_g<=-IMU_RAW_CLIP_COUNTS) g_sample_gyro_clip=1;
+        if(raw_a>=IMU_RAW_CLIP_COUNTS || raw_a<=-IMU_RAW_CLIP_COUNTS) accel_clip=1;
         sensor_g[i]=imu660rb_gyro_transition(raw_g);
         sensor_a[i]=imu660rb_acc_transition(raw_a);
     }
@@ -133,6 +160,8 @@ static uint8 imu_read_sample(float gyro_dps[3],float accel_g[3])
     accel_g[0]=sensor_a[IMU_BODY_X_AXIS]*IMU_BODY_X_SIGN;
     accel_g[1]=sensor_a[IMU_BODY_Y_AXIS]*IMU_BODY_Y_SIGN;
     accel_g[2]=sensor_a[IMU_BODY_Z_AXIS]*IMU_BODY_Z_SIGN;
+    if(g_sample_gyro_clip) ++imu_gyro_clips;
+    if(accel_clip) ++imu_accel_clips;
     return 1u;
 }
 static uint8 imu_hardware_init(void)
@@ -161,6 +190,12 @@ static void imu_reset_pipeline(void)
     imu_ekf_bias_xy_dps[0]=imu_ekf_bias_xy_dps[1]=0.0f;
     imu_sample_sequence=0u;
     imu_gyro_z_integral_deg=0.0f;
+    g_untrusted=0; g_recovery_allowed=0;
+    imu_quality=imu_reject_reason=imu_bias_learning=0;
+    imu_reject_ms=imu_accel_vibration_g=imu_gyro_step_dps=imu_bias_slew_dps2=0;
+    imu_accept_ratio=imu_r_scale=1;
+    imu_reject_count=0;
+    imu_recovery_reset();
     attitude_reset_state();
     g_last_sample_ticks=imu_ticks();
     g_last_success_ticks=g_last_sample_ticks;
@@ -179,12 +214,14 @@ void imu_update(void)
 {
     float gyro_dps[3],accel_g[3],gyro_rad_s[3],euler[3],dt;
     uint32 now, solve_started;
-    uint8 i;
+    uint8 i,recovery_allowed=g_recovery_allowed;
+    g_recovery_allowed=0; /* Missing/stale external permission fails closed. */
     /* BAD_DT/FILTER_ERROR 保留原锁止行为；需重新标定恢复。 */
     if (!g_update_enabled || imu_attitude_status==IMU_ATTITUDE_BAD_DT ||
         imu_attitude_status==IMU_ATTITUDE_FILTER_ERROR) return;
     now=imu_ticks();
     if (!imu_read_sample(gyro_dps,accel_g)) {
+        imu_recovery_reset();
         if ((uint32)(now-g_last_success_ticks)>imu_ms_ticks(IMU_TIMEOUT_MS))
             imu_attitude_status=IMU_ATTITUDE_TIMEOUT;
         return;
@@ -196,15 +233,28 @@ void imu_update(void)
         imu_gyro_dps[i]=gyro_dps[i]; imu_accel_g[i]=accel_g[i];
     }
     imu_accel_norm_g=sqrtf(accel_g[0]*accel_g[0]+accel_g[1]*accel_g[1]+accel_g[2]*accel_g[2]);
+    /* A clipped gyro cannot bound the integration error; never integrate it.
+     * Keep raw telemetry, latch unhealthy, and await stopped recovery. */
+    if(g_sample_gyro_clip) {
+        if(!g_calibrated) {
+            calibration_reset(&g_calibration); imu_calibration_percent=0;
+            imu_attitude_status=IMU_ATTITUDE_CALIBRATING; return;
+        }
+        g_untrusted=1; imu_quality=EKF_QUALITY_UNTRUSTED;
+        imu_reject_reason=EKF_REJECT_CLIP; imu_accel_used=0;
+        imu_attitude_status=IMU_ATTITUDE_UNTRUSTED; imu_recovery_reset(); return;
+    }
     /* 第一帧只建立采样时间基准。 */
     if (!g_have_sample) { g_have_sample=1u; return; }
     imu_sample_dt_ms=dt*1000.0f;
     if (dt<=0.0f || dt>MAX_SAMPLE_DT) {
+        imu_recovery_reset();
         /* 短暂空档只丢这一帧（时间基准上面已重建）；真正卡死才锁止。 */
         if (dt>0.0f && dt<=MAX_SKIP_DT) return;
         imu_attitude_status=IMU_ATTITUDE_BAD_DT; return;
     }
     if (!g_calibrated) {
+        if(g_untrusted) { imu_attitude_status=IMU_ATTITUDE_UNTRUSTED; return; }
         if (calibration_push(&g_calibration,gyro_dps,accel_g)) {
             g_calibrated=(uint8)ekf6_init(&g_attitude,g_calibration.initial_accel);
             if (!g_calibrated) { imu_attitude_status=IMU_ATTITUDE_FILTER_ERROR; return; }
@@ -223,12 +273,41 @@ void imu_update(void)
     if (!ekf6_update(&g_attitude,gyro_rad_s,accel_g,dt)) {
         imu_attitude_status=IMU_ATTITUDE_FILTER_ERROR; return;
     }
+    if(g_attitude.quality==EKF_QUALITY_UNTRUSTED) g_untrusted=1;
+    if(g_untrusted) imu_attitude_status=IMU_ATTITUDE_UNTRUSTED;
+    if(g_untrusted) {
+        uint8 still=recovery_allowed && dt<=1.5f*(float)APP_IMU_PERIOD_US*0.000001f &&
+            fabsf(imu_accel_norm_g-1.0f)<=IMU_RECOVERY_ACCEL_G &&
+            g_attitude.accel_vibration_sq<=EKF_ACCEL_SOFT_VIB_G*EKF_ACCEL_SOFT_VIB_G &&
+            g_attitude.gyro_step_sq<=EKF_GYRO_STEP_MAX_RADPS*EKF_GYRO_STEP_MAX_RADPS;
+        for(i=0;i<3u;++i) if(fabsf(gyro_rad_s[i])*RAD_TO_DEG>IMU_RECOVERY_GYRO_DPS) still=0;
+        if(!still) imu_recovery_reset();
+        else {
+            unsigned old_count=g_recovery_cal.count;
+            int complete=calibration_push(&g_recovery_cal,gyro_dps,accel_g);
+            if(g_recovery_cal.count<=old_count) imu_recovery_reset();
+            else g_recovery_s+=dt;
+            imu_recovery_percent=fminf(99.0f,100.0f*fminf(g_recovery_s/IMU_RECOVERY_TIME_S,
+                (float)g_recovery_cal.count/(float)CALIBRATION_SAMPLES));
+            if(complete && g_recovery_s>=IMU_RECOVERY_TIME_S) {
+                /* Only stopped recovery may replace tilt and bias. A new
+                 * navigation generation invalidates any old position reference. */
+                if(!ekf6_init(&g_attitude,g_recovery_cal.initial_accel)) {
+                    imu_attitude_status=IMU_ATTITUDE_FILTER_ERROR; return;
+                }
+                g_calibration=g_recovery_cal; g_untrusted=0; ++g_navigation_generation;
+                imu_gyro_bias_z_dps=g_calibration.bias_dps[2];
+                ++imu_recovery_count; imu_recovery_reset(); imu_recovery_percent=100;
+                for(i=0;i<3u;++i) gyro_rad_s[i]=(gyro_dps[i]-g_calibration.bias_dps[i])*DEG_TO_RAD;
+            }
+        }
+    } else imu_recovery_reset();
     ekf6_euler(&g_attitude,euler);
     imu_publish_filter_diagnostics(solve_started);
     imu_gyro_z_integral_deg += gyro_rad_s[2]*RAD_TO_DEG*dt;
     imu_roll_deg=euler[0]; imu_pitch_deg=euler[1]; imu_yaw_deg=euler[2];
     imu_accel_norm_g=g_attitude.accel_norm;
-    imu_attitude_status=IMU_ATTITUDE_RUNNING;
+    imu_attitude_status=g_untrusted?IMU_ATTITUDE_UNTRUSTED:IMU_ATTITUDE_RUNNING;
     imu_publish_navigation(gyro_dps,accel_g,dt);
 }
 void imu_request_recalibration(void) { g_recalibration_requested=1u; }
@@ -236,6 +315,7 @@ void imu_request_recalibration(void) { g_recalibration_requested=1u; }
  * Gate motors until the first new fused sample is published. */
 void imu_prepare_start(void)
 {
+    if(g_untrusted) { imu_attitude_status=IMU_ATTITUDE_UNTRUSTED; return; }
     uint32 primask = interrupt_global_disable();
     uint8 reusable = g_calibrated && !g_recalibration_requested &&
                      imu_attitude_status == IMU_ATTITUDE_RUNNING;
@@ -257,7 +337,7 @@ void imu_recover_after_stall(void)
     g_last_sample_ticks=imu_ticks();
     g_last_success_ticks=g_last_sample_ticks;
     g_have_sample=0u;                 /* 下一帧只重建时间基准 */
-    imu_attitude_status=g_calibrated?IMU_ATTITUDE_RUNNING:IMU_ATTITUDE_CALIBRATING;
+    imu_attitude_status=g_untrusted?IMU_ATTITUDE_UNTRUSTED:(g_calibrated?IMU_ATTITUDE_RUNNING:IMU_ATTITUDE_CALIBRATING);
     interrupt_global_enable(primask);
 }
 /* 主循环服务；只在短临界区更新状态，硬件初始化在开中断时执行。 */
@@ -266,6 +346,9 @@ void imu_service(void)
     uint32 primask;
     uint8 need_hardware_init;
     if (!g_recalibration_requested) return;
+    /* An explicit recalibration must not bypass a vibration fault while the
+     * flywheels are still moving. Sample ISR performs qualified recovery. */
+    if(g_untrusted) { g_recalibration_requested=0; return; }
     primask=interrupt_global_disable();
     g_recalibration_requested=0u; g_update_enabled=0u;
     need_hardware_init=(imu_attitude_status==IMU_ATTITUDE_INIT_FAILED)?1u:0u;

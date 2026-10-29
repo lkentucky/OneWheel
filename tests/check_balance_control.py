@@ -91,6 +91,12 @@ int main(void){
     imu_roll_deg=0;tick(1);assert(roll_rate_test_state==-2 && !ground);
     arm(5);imu_pitch_deg=NAN;tick(1);assert(roll_rate_test_state==-1 && !fly_l && !ground);
     arm(5);imu_attitude_status=-2;tick(1);assert(control_fault_reason==1 && !ground && !fly_l);
+    for(int mode=3;mode<=7;mode++) {
+        arm(mode);attitude_state.gyro.y=attitude_state.gyro.x=5;tick(1);
+        imu_attitude_status=-5;tick(1);
+        assert(roll_rate_test_state==-1 && control_fault_imu_status==-5 && !ground && !fly_l && !fly_r);
+        imu_attitude_status=1;tick(1);assert(roll_rate_test_state==-1 && !ground && !fly_l);
+    }
     arm(5);
     for(unsigned elapsed=APP_IMU_PERIOD_US/1000u;elapsed<BALANCE_IMU_STALE_MS;elapsed+=APP_IMU_PERIOD_US/1000u)tick(0);
     assert(roll_rate_test_state==2 && control_fault_reason==0);

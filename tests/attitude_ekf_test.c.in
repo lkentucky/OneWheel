@@ -78,6 +78,40 @@ int main(void) {
     }
     /* Reset removes old bias/covariance/filter history. */
     a[0]=a[1]=0; a[2]=1; assert(ekf6_init(&s,a)); assert(s.bias_xy[0]==0 && s.bias_xy[1]==0); check(&s);
-    puts("EKF: static, variable dt, slow/multi-turn yaw, tilt, bias, acceleration gating, invalid input/reset passed");
+    /* Real slow roll/pitch must remain observable: no deadband or added angle lag. */
+    for(int axis=0;axis<2;++axis) {
+        a[0]=a[1]=0;a[2]=1;g[0]=g[1]=g[2]=0; assert(ekf6_init(&s,a));
+        g[axis]=.004f;
+        for(i=0;i<5000;++i) {
+            float t=(i+1)*.002f*.004f;
+            a[0]=axis==1?-sinf(t):0; a[1]=axis==0?sinf(t):0; a[2]=cosf(t);
+            assert(ekf6_update(&s,g,a,.002f));check(&s);
+            assert(s.quality!=EKF_QUALITY_UNTRUSTED);
+        }
+        ekf6_euler(&s,e);assert(fabsf(e[axis]-.04f*RAD_TO_DEG)<.05f);
+    }
+    a[0]=a[1]=0;a[2]=1;g[0]=g[1]=g[2]=0;assert(ekf6_init(&s,a));
+    for(i=0;i<500;++i)assert(ekf6_update(&s,g,a,.002f));
+    a[2]=1.3f;g[1]=2*DEG_TO_RAD;
+    for(i=0;i<50;++i)assert(ekf6_update(&s,g,a,.002f));
+    assert(s.quality==EKF_QUALITY_PREDICT && s.reject_reason==EKF_REJECT_NORM);
+    for(i=0;i<220;++i)assert(ekf6_update(&s,g,a,.002f));
+    assert(s.quality==EKF_QUALITY_UNTRUSTED && s.reject_age_s>=.5f);
+    /* Bias must not learn rejected vibration; limit before covariance update. */
+    assert(s.bias_xy[0]==0 && s.bias_xy[1]==0 && s.bias_learning==0);
+    a[2]=1;g[1]=0;assert(ekf6_init(&s,a));
+    for(i=0;i<4000;++i) {
+        float old=s.bias_xy[0];g[0]=.03f;
+        assert(ekf6_update(&s,g,a,.002f));check(&s);
+        assert(fabsf(s.bias_xy[0]-old)<=EKF_BIAS_SLEW_RADPS2*.002f+1e-8f);
+    }
+    g[0]=g[1]=g[2]=0;a[2]=1;assert(ekf6_init(&s,a));
+    /* 80% rejected frames cannot evade health detection using brief good frames. */
+    for(i=0;i<2000;++i){a[2]=i%5?1.3f:1;assert(ekf6_update(&s,g,a,.002f));}
+    assert(s.quality==EKF_QUALITY_UNTRUSTED && s.accept_ratio<.3f);
+    a[2]=1;assert(ekf6_init(&s,a));
+    for(i=0;i<1500;++i){g[0]=(i%2?1:-1)*.8f;assert(ekf6_update(&s,g,a,.002f));check(&s);}
+    assert(s.quality==EKF_QUALITY_UNTRUSTED && !s.bias_learning);
+    puts("EKF: trajectories, slow tilt, variable dt, bias slew, adaptive R, covariance, short/continuous/intermittent disturbance and recovery diagnostics passed");
     return 0;
 }

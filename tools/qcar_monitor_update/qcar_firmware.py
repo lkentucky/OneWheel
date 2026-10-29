@@ -122,7 +122,21 @@ FIELDS = ('roll_deg',
  'wheel_speed_limit',
  'step_state',
  'step_ms',
- 'step_stage')
+ 'step_stage',
+ 'imu_quality',
+ 'imu_reject_reason',
+ 'imu_reject_ms',
+ 'imu_accept_ratio',
+ 'imu_reject_count',
+ 'imu_accel_vib_g',
+ 'imu_gyro_step_dps',
+ 'imu_r_scale',
+ 'imu_bias_learning',
+ 'imu_bias_slew_dps2',
+ 'imu_gyro_clips',
+ 'imu_accel_clips',
+ 'imu_recovery_pct',
+ 'imu_recoveries')
 PROFILES = {'startup': ['telemetry_ms',
              'rate_seq',
              'imu_seq',
@@ -342,3 +356,6 @@ PROFILES = {'startup': ['telemetry_ms',
           'wheel_pos_kp',
           'wheel_speed_limit',
           'wheel_position_valid']}
+
+# IMU quality profile: raw input, estimator trust and actuator context.
+PROFILES["imu_quality"] = ['telemetry_ms', 'control_mode', 'imu_status', 'rate_state', 'fault_reason', 'fault_imu_status', 'roll_deg', 'pitch_deg', 'gyro_x_dps', 'gyro_y_dps', 'gyro_z_dps', 'accel_x_g', 'accel_y_g', 'accel_z_g', 'accel_norm_g', 'imu_accel_used', 'ekf_nis', 'ekf_bias_x_dps', 'ekf_bias_y_dps', 'imu_dt_ms', 'imu_solve_us', 'imu_seq', 'motor_left_pwm', 'motor_right_pwm', 'motor_ground_pwm', 'flywheel_left_speed_raw', 'flywheel_right_speed_raw', 'driver_feedback_fresh', 'driver_feedback_age_ms', 'wheel_speed_cps', 'wheel_encoder_valid', 'imu_spi_timeouts', 'imu_bad_bursts', 'imu_quality', 'imu_reject_reason', 'imu_reject_ms', 'imu_accept_ratio', 'imu_reject_count', 'imu_accel_vib_g', 'imu_gyro_step_dps', 'imu_r_scale', 'imu_bias_learning', 'imu_bias_slew_dps2', 'imu_gyro_clips', 'imu_accel_clips', 'imu_recovery_pct', 'imu_recoveries']

@@ -100,6 +100,36 @@ int main(void) {
     fail_spi=1;for(unsigned n=0;n<=IMU_TIMEOUT_MS*1000u/APP_IMU_PERIOD_US;n++)tick();
     assert(imu_spi_timeouts>0 && imu_not_ready_samples>0 && imu_attitude_status==IMU_ATTITUDE_TIMEOUT);
     fail_spi=0;
+    /* Continuous rejection is latched; Start and recalibration cannot bypass it. */
+    raw_g[0]=14;raw_g[1]=-28;raw_g[2]=42;
+    imu_request_recalibration();imu_service();calibrate();
+    raw_a[0]=5327;
+    for(unsigned n=0;n<300;n++)tick();
+    assert(imu_attitude_status==IMU_ATTITUDE_UNTRUSTED && imu_quality==3);
+    assert(imu_reject_ms>=500 && imu_reject_count>=250);
+    imu_prepare_start();imu_request_recalibration();imu_service();
+    assert(imu_attitude_status==IMU_ATTITUDE_UNTRUSTED);
+    raw_a[0]=4098;
+    for(unsigned n=0;n<1500;n++)tick();
+    assert(imu_attitude_status==IMU_ATTITUDE_UNTRUSTED && imu_recovery_count==0);
+    /* One stale permission is insufficient; running/missing feedback fails closed. */
+    imu_set_recovery_allowed(true);tick();
+    for(unsigned n=0;n<600;n++)tick();
+    assert(imu_recovery_count==0 && imu_recovery_percent==0);
+    for(unsigned n=0;n<300;n++){imu_set_recovery_allowed(true);tick();}
+    assert(imu_recovery_percent>0 && imu_attitude_status==IMU_ATTITUDE_UNTRUSTED);
+    imu_set_recovery_allowed(false);tick();assert(imu_recovery_percent==0);
+    for(unsigned n=0;n<600;n++){imu_set_recovery_allowed(true);tick();}
+    assert(imu_recovery_count==1 && imu_attitude_status==IMU_ATTITUDE_RUNNING);
+    assert(fabsf(imu_roll_deg)+fabsf(imu_pitch_deg)<.05f);
+    assert(imu_get_navigation_sample(&frame));uint32 generation=frame.generation;
+    /* Clipped gyro raw data is visible but is not integrated or published as fresh. */
+    raw_g[2]=32767;uint32 seq=imu_sample_sequence;float angle=imu_roll_deg;tick();
+    assert(imu_gyro_clips==1 && imu_attitude_status==IMU_ATTITUDE_UNTRUSTED);
+    assert(imu_reject_reason==4 && imu_sample_sequence==seq && imu_roll_deg==angle);
+    raw_g[2]=42;
+    for(unsigned n=0;n<800;n++){imu_set_recovery_allowed(true);tick();}
+    assert(imu_recovery_count==2 && imu_get_navigation_sample(&frame) && frame.generation>generation);
     init_result=1;imu_init();assert(imu_attitude_status==IMU_ATTITUDE_INIT_FAILED);
     printf("RB pipeline method %u: burst/mapping/scaling, calibration, dt rollover, gating, timeout/recovery, yaw passed\n",imu_attitude_method);
 }

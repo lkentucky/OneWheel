@@ -32,7 +32,16 @@ typedef struct {
     float q[4], bias_xy[2], covariance[5][5], accel_lpf[3];
     float accel_norm, innovation_nis;
     int accel_used;
+    float accel_vibration_sq, gyro_step_sq, previous_gyro[3];
+    float observation_r_scale, bias_slew_dps2;
+    float reject_age_s, accept_ratio, poor_accept_s;
+    unsigned reject_count;
+    int reject_reason, quality, have_gyro, bias_learning;
 } Ekf6;
+enum { EKF_REJECT_NONE=0, EKF_REJECT_NORM=1, EKF_REJECT_NIS=2,
+       EKF_REJECT_GEOMETRY=3, EKF_REJECT_CLIP=4 };
+enum { EKF_QUALITY_GOOD=0, EKF_QUALITY_PREDICT=1,
+       EKF_QUALITY_WEAK=2, EKF_QUALITY_UNTRUSTED=3 };
 int ekf6_init(Ekf6 *s, const float a[3]);
 int ekf6_update(Ekf6 *s, const float g[3], const float a[3], float dt);
 void ekf6_euler(const Ekf6 *s, float e[3]);

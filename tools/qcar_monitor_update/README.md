@@ -20,3 +20,5 @@ Mode2位置保持适配：新增48通道hold profile，保留43通道speed。显
 必须一起覆盖qcar_parameters.py；六项外环参数只存RAM/config，不保存旧板载Flash。Position KP默认0.5、目标速度限幅300计数/秒，位置更新约100ms、速度约20ms、姿态2ms；Speed KP默认0.001、KI=0，二者同时为0时不会有倾角修正。Position KP或目标速度限幅为0仅关闭位置环，仍有零速度控制。
 
 Scheme V4共21项，兼容旧V1/V2/V3；导入只修改本地草稿，不自动发送。新增test_qcar_position.py、test_qcar_speed.py、test_qcar_pwm.py及qcar_hold.bin/qcar_speed.bin，check_qcar_packaged.py验证五种profile。网络端口8081/5001和原用户数据目录不变。
+
+2026-10-29：追加14个IMU质量字段，保留既有字段顺序与profile。新增“IMU可信度 · 47通道”，含实际C生成的qcar_quality.bin及解析回归；完整上位机221项测试通过。LIST元数据缓冲扩至4096字节，仅主循环使用静态存储；订阅最大48通道和SUB命令缓冲保持兼容。Start会切换固件默认方案，需要在Start后重新请求IMU方案。

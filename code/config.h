@@ -140,6 +140,27 @@
 #define EKF_CHI_SQUARE_LIMIT     11.345f
 #define EKF_ACCEL_LPF_TAU_S      0.01f
 #define EKF_BIAS_LIMIT_RADPS     0.08726646f
+/* IMU quality: seconds, g and rad/s. Independent of the control-rate LPF. */
+#define EKF_QUALITY_TAU_S         1.0f
+#define EKF_VIBRATION_TAU_S       0.05f
+#define EKF_ACCEL_SOFT_ERROR_G    0.04f
+#define EKF_ACCEL_SOFT_VIB_G      0.05f
+#define EKF_NIS_SOFT_LIMIT        3.0f
+#define EKF_R_SCALE_MAX           16.0f
+#define EKF_BIAS_LEARN_MAX_RADPS  0.17453293f
+#define EKF_BIAS_SLEW_RADPS2      0.01f
+#define EKF_GYRO_STEP_MAX_RADPS   0.34906585f
+#define IMU_PREDICT_LIMIT_S       0.5f
+#define IMU_POOR_ACCEPT_RATIO     0.5f
+#define IMU_POOR_ACCEPT_LIMIT_S   1.0f
+#define IMU_POOR_R_SCALE          8.0f
+#define IMU_RAW_CLIP_COUNTS       32000
+#define IMU_RECOVERY_TIME_S       1.0f
+#define IMU_RECOVERY_GYRO_DPS     3.0f
+#define IMU_RECOVERY_ACCEL_G      0.04f
+#define IMU_RECOVERY_FLY_RAW      5.0f
+#define IMU_RECOVERY_WHEEL_CPS    5.0f
+#define IMU_RECOVERY_FEEDBACK_MS  50u
 
 #define ACC_NORM_MIN             0.85f
 #define ACC_NORM_MAX             1.15f

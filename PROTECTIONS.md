@@ -79,3 +79,5 @@
 - 当前地轮输出没有旧版的先清PWM、切方向、等待建立时间的换向流程；PWM限幅不等于已包含换向时序保护。
 
 主要源码：`code/balance_control.c`、`code/menu.c`、`code/imu.c`、`code/attitude.c`、`code/flash.c`、`code/pid.c`、`code/small_driver_uart_control.c`及`code/config.h`。
+
+IMU可信度锁止：imu_status=-5时平衡模式2～7经原IMU异常路径停止输出。持续拒绝0.5s或持续弱观测约1s触发；Stop后只有有效停稳反馈及约1s静稳IMU才能恢复，恢复不自动Start。参见IMU.md。

@@ -141,7 +141,14 @@ static float g_telemetry_ms;
     X(wheel_tilt_limit, wheel_tilt_limit) X(wheel_i_limit, wheel_i_limit) \
     X(wheel_ref_count, wheel_ref_count) X(wheel_pos_error, wheel_pos_error) \
     X(wheel_pos_kp, wheel_pos_kp) X(wheel_speed_limit, wheel_speed_limit) \
-    X(step_state, pwm_step_state) X(step_ms, pwm_step_ms) X(step_stage, pwm_step_stage)
+    X(step_state, pwm_step_state) X(step_ms, pwm_step_ms) X(step_stage, pwm_step_stage) \
+    X(imu_quality, imu_quality) X(imu_reject_reason, imu_reject_reason) \
+    X(imu_reject_ms, imu_reject_ms) X(imu_accept_ratio, imu_accept_ratio) \
+    X(imu_reject_count, imu_reject_count) X(imu_accel_vib_g, imu_accel_vibration_g) \
+    X(imu_gyro_step_dps, imu_gyro_step_dps) X(imu_r_scale, imu_r_scale) \
+    X(imu_bias_learning, imu_bias_learning) X(imu_bias_slew_dps2, imu_bias_slew_dps2) \
+    X(imu_gyro_clips, imu_gyro_clips) X(imu_accel_clips, imu_accel_clips) \
+    X(imu_recovery_pct, imu_recovery_percent) X(imu_recoveries, imu_recovery_count)
 
 #define VARIABLE_ID(name, expr) TV_##name,
 enum { TELEMETRY_VARIABLES(VARIABLE_ID) TV_COUNT };
@@ -317,7 +324,7 @@ bad_packet:
 static void reply_names(int all)
 {
     /* Maximum names + delimiters are checked at append time. One UDP datagram. */
-    char reply[2000];
+    static char reply[4096]; /* Main-loop only; keep metadata off the ISR-shared stack. */
     size_t used=0, i, count=all?TV_COUNT:wifi_telemetry_channel_count;
     int n=snprintf(reply,sizeof(reply),all?"MCAR LIST ":"MCAR SUB ");
     used=(size_t)n;
