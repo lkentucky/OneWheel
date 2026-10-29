@@ -3,6 +3,8 @@
 #include "menu_tree.h"
 #include "wifispi.h"
 #include "IfxStm.h"
+#include "wheel_encoder.h"
+#include "wheel_hold.h"
 char txt[256];
 
 
@@ -84,6 +86,7 @@ static void start_car(void)
     shacheflag = 1;
     running = 1;
     if (run_mode != 8) imu_prepare_start();
+    if (run_mode == 2) speed_balance_arm();
     if (run_mode == 3) roll_rate_test_arm();
     if (run_mode == 4) ground_rate_test_arm();
     if (run_mode == 5) dual_balance_arm();
@@ -91,7 +94,8 @@ static void start_car(void)
     if (run_mode == 7) ground_rate_only_arm();
     if (run_mode == 8) pwm_debug_arm();
     if (wifispi_is_ready()) {
-        if (run_mode==5 || run_mode==8) wifispi_telemetry_dual_profile();
+        if (run_mode==2) wifispi_telemetry_hold_profile();
+        else if (run_mode==5 || run_mode==8) wifispi_telemetry_dual_profile();
         else wifispi_telemetry_startup_profile();
     }
     if (imu_ready) pit_init(CCU60_CH1, APP_IMU_PERIOD_US);
@@ -132,6 +136,11 @@ static void imu_preview(void)
 
 static void wheel_pwm_test(void)
 {
+    if (run_mode == 2) {
+        stop_car();
+        message = "Mode2: use Start, not Open loop";
+        return;
+    }
     if (preview == 3) return;
     stop_car();
     ensure_wheel();
@@ -146,7 +155,7 @@ void Menu_Create(void)
     Menu_Item *pid=Create_Menu_Folder_dynamic(&Root,"PID");
     Menu_Item *storage=Create_Menu_Folder_dynamic(&Root,"Storage");
     Menu_Item *debug=Create_Menu_Folder_dynamic(&Root,"PWM debug");
-    Create_Menu_File_dynamic(startup,"Mode 3..8",&run_mode,uint8_Box);
+    Create_Menu_File_dynamic(startup,"Mode 2..8",&run_mode,uint8_Box);
     Create_Menu_File_dynamic(startup,"Start",&start_switch,bool_Box);
     Create_Menu_File_dynamic(startup,"Stop",&stop_switch,bool_Box);
     Create_Menu_File_dynamic(startup,"IMU",&imu_switch,bool_Box);
@@ -169,6 +178,16 @@ void Menu_Create(void)
     Create_Menu_File_dynamic(ground,"Angle KP",&ground_angle_kp,float_Box);
     Create_Menu_File_dynamic(ground,"Rate limit",&ground_angle_rate_limit,float_Box);
     Create_Menu_File_dynamic(ground,"Balance X",&mono_params.balance_angle_x,float_Box);
+    Menu_Item *speed=Create_Menu_Folder_dynamic(pid,"Speed hold RAM");
+    Create_Menu_File_dynamic(speed,"Speed KP",&wheel_speed_kp,float_Box);
+    speed->First_Son->step_scale=0.001f;
+    Create_Menu_File_dynamic(speed,"Speed KI",&wheel_speed_ki,float_Box);
+    speed->First_Son->Next_Brother->step_scale=0.001f;
+    Create_Menu_File_dynamic(speed,"Tilt limit deg",&wheel_tilt_limit,float_Box);
+    Create_Menu_File_dynamic(speed,"I limit deg",&wheel_i_limit,float_Box);
+    Create_Menu_File_dynamic(speed,"Position KP",&wheel_pos_kp,float_Box);
+    Create_Menu_File_dynamic(speed,"Speed limit cps",&wheel_speed_limit,float_Box);
+    speed->First_Son->Next_Brother->Next_Brother->Next_Brother->Next_Brother->step_scale=0.1f;
     /* 左右无刷开环测试：停车状态下直接给占空比，用于单独排查飞轮通道。
      * 与 WiFi 滑杆 fly_test_left/right 是同一组变量，两处都能改。 */
     Menu_Item *fly_test=Create_Menu_Folder_dynamic(pid,"Flywheel");
@@ -259,7 +278,8 @@ static void menu_wifi_connect(void)
     message=wifispi_is_ready()?"WiFi UDP connected":
             imu_wifi_status==-6?"WiFi connection cancelled":"WiFi failed; retry Connect";
     if (wifispi_is_ready() && !wifi_deferred_item) {
-        if (run_mode==5 || run_mode==8) wifispi_telemetry_dual_profile();
+        if (run_mode==2) wifispi_telemetry_hold_profile();
+        else if (run_mode==5 || run_mode==8) wifispi_telemetry_dual_profile();
         else wifispi_telemetry_startup_profile();
         menu_wifi_announce();
     }
@@ -347,8 +367,8 @@ static bool Menu_Handle_Control_Uint8(Menu_Item *item, int16 delta)
     if (item->data == &run_mode) {
         int value = run_mode + delta;
         if (wifi_connecting) {message="Wait for WiFi then change Mode";return true;}
-        if (running || preview) stop_car();
-        run_mode = (uint8)(value < 3 ? 3 : value > 8 ? 8 : value);
+        if (running || preview || value <= 2) stop_car();
+        run_mode = (uint8)(value < 2 ? 2 : value > 8 ? 8 : value);
         return true;
     }
     return false;
@@ -359,6 +379,9 @@ static bool Menu_Handle_Control_Uint8(Menu_Item *item, int16 delta)
 /* Copy ISR-owned values before formatting; never hold interrupts off for LCD IO. */
 static const char *control_error_text(int32 state,int32 imu_status)
 {
+    if (state==-4 && control_fault_reason==10) return "ERR -4: Position lost; Stop/Start";
+    if (state==-4) return control_fault_reason==8 ? "ERR -4: Encoder stale; Stop/Start" : "ERR -4: Encoder invalid; Stop/Start";
+    if (state==-3 && control_fault_reason==9) return "ERR -3: Speed config/target invalid";
     if (state==-2) return "ERR -2: Tilt >30; Stop/Start";
     if (state==-3) return "ERR -3: invalid parameter/PWM";
     if (state==-1) {
@@ -402,6 +425,12 @@ static void Menu_Show_Attitude(void)
         return;
     }
 #endif
+    if (run_mode == 2 && !roll_rate_test_enabled) {
+        ips200_show_string(0,152,"Mode2: POSITION hold; stopped           ");
+        ips200_show_string(0,172,"Hand-turn encoder; Start enables PWM    ");
+        ips200_show_string(0,192,"Start resets position reference         ");
+        return;
+    }
     uint32 irq = interrupt_global_disable();
     roll = imu_roll_deg;
     pitch = imu_pitch_deg;
@@ -438,17 +467,22 @@ static void Menu_Show_Attitude(void)
             return;
         }
         if (dual_balance_enabled) {
-            float pitch_rate,pitch_pwm;
+            float pitch_rate,pitch_pwm,speed,target,offset,pitch_target;
             irq=interrupt_global_disable();
             rate=dual_rate[0];pitch_rate=dual_rate[1];
             output=dual_pwm[0];pitch_pwm=dual_pwm[1];rate_state=roll_rate_test_state;
+            speed=wheel_speed_cps;target=wheel_target_cps;offset=wheel_tilt_offset;pitch_target=dual_target[1];
             interrupt_global_enable(irq);
-            snprintf(line,sizeof(line),"Rate R:%6.1f P:%6.1f             ",rate,pitch_rate);
+            if (wheel_hold_enabled) snprintf(line,sizeof(line),"V:%6.0f T:%6.0f O:%+.2f        ",speed,target,offset);
+            else snprintf(line,sizeof(line),"Rate R:%6.1f P:%6.1f             ",rate,pitch_rate);
             ips200_show_string(0,152,line);
-            snprintf(line,sizeof(line),"Roll:%6.1f Pitch:%6.1f           ",pitch,roll);
+            if (wheel_hold_enabled) snprintf(line,sizeof(line),"Pitch:%6.2f Target:%6.2f         ",roll,pitch_target);
+            else snprintf(line,sizeof(line),"Roll:%6.1f Pitch:%6.1f           ",pitch,roll);
             ips200_show_string(0,172,line);
             if (rate_state<0)
                 snprintf(line,sizeof(line),"%-39.39s",control_error_text(rate_state,status));
+            else if (rate_state==1 && wheel_hold_enabled && status!=IMU_ATTITUDE_CALIBRATING)
+                snprintf(line,sizeof(line),"WAIT encoder window; motors OFF         ");
             else if (rate_state==1)
                 snprintf(line,sizeof(line),"CAL %5.1f%%: keep still               ",progress);
             else
@@ -498,6 +532,7 @@ static void Menu_Show_Attitude(void)
 static const char *test_mode_name(void)
 {
     switch(run_mode) {
+    case 2:return "DUAL + POSITION hold";
     case 3:return "Roll angle: flywheel";case 4:return "Pitch angle: wheel";
     case 5:return "DUAL angle: both";case 6:return "Roll RATE ONLY: flywheel";
     case 7:return "Pitch RATE ONLY: wheel";case 8:return "PWM DEBUG: fly + wheel";
@@ -516,6 +551,10 @@ void Key_Down(void)
     Menu_Request_Redraw();
     if (pointer->Next_Brother != NULL)
         pointer = pointer->Next_Brother;
+}
+static float menu_edit_step(void)
+{
+    return steps[step_index]*(pointer->step_scale>0.0f?pointer->step_scale:1.0f);
 }
 void Key_Plus(void)
 {
@@ -544,7 +583,7 @@ void Key_Plus(void)
         }
         break;
     case float_Box:
-        *(float *)pointer->data += steps[step_index];
+        *(float *)pointer->data += menu_edit_step();
         break;
     case bool_Box:
         if (!Menu_Handle_Control_Bool(pointer, true))
@@ -583,7 +622,7 @@ void Key_Sub(void)
         }
         break;
     case float_Box:
-        *(float *)pointer->data -= steps[step_index];
+        *(float *)pointer->data -= menu_edit_step();
         break;
     case bool_Box:
         if (!Menu_Handle_Control_Bool(pointer, false))
@@ -714,7 +753,7 @@ void Menu_Show(void)
     if (++refresh_divider < APP_DISPLAY_DIVIDER) return;
     refresh_divider = 0;
     if (redraw) { ips200_clear(); redraw = 0; }
-    snprintf(line, sizeof(line), "%-20.20s <%6.2f>", pointer->Father->name, steps[step_index]);
+    snprintf(line, sizeof(line), "%-20.20s <%8.5g>", pointer->Father->name, menu_edit_step());
     ips200_show_string(0, 0, line);
         page = (pointer->rank - 1) / 7;
         item = pointer->Father->First_Son;
@@ -723,7 +762,7 @@ void Menu_Show(void)
             char value[16] = "";
             if (item->kind == MENU_Folder) strcpy(value, ">>");
             else if (item->kind == bool_Box) strcpy(value, *(bool *)item->data ? "On" : "Off");
-            else if (item->kind == float_Box) snprintf(value, sizeof(value), "%.3f", *(float *)item->data);
+            else if (item->kind == float_Box) snprintf(value, sizeof(value), "%.6g", *(float *)item->data);
             else if (item->kind == int32_Box) snprintf(value, sizeof(value), "%ld", (long)*(int32_t *)item->data);
             else if (item->kind == uint32_Box) snprintf(value, sizeof(value), "%lu", (unsigned long)*(uint32_t *)item->data);
             else if (item->kind == int16_Box) snprintf(value, sizeof(value), "%d", (int)*(int16_t *)item->data);
@@ -744,6 +783,27 @@ void Menu_Show(void)
     ips200_show_string(0,266,line);
     snprintf(line,sizeof(line),"SPI:%lu NR:%lu Reg:%02lX           ",(unsigned long)imu_spi_timeouts,(unsigned long)imu_not_ready_samples,(unsigned long)imu_last_status_reg);
     ips200_show_string(0,282,line);
+    /* Read-only observation stays visible after Stop. */
+    {
+        int32 delta,position,position_error;
+        uint32 seq,errors,irq;
+        uint8 valid,position_valid;
+        float speed;
+        irq=interrupt_global_disable();
+        delta=wheel_encoder_delta;position=wheel_position_count;
+        seq=wheel_encoder_seq;errors=wheel_encoder_errors;
+        valid=wheel_encoder_valid;position_valid=wheel_position_valid;
+        speed=wheel_speed_cps;
+        position_error=wheel_pos_error;
+        interrupt_global_enable(irq);
+        snprintf(line,sizeof(line),"Enc d:%ld v:%.0f/s E:%lu",(long)delta,speed,(unsigned long)errors);
+        ips200_show_string(0,298,"                                       ");
+        ips200_show_string(0,298,line);
+        if (wheel_hold_enabled) snprintf(line,sizeof(line),"P:%ld E:%ld OK:%u/%u",(long)position,(long)position_error,(unsigned)valid,(unsigned)position_valid);
+        else snprintf(line,sizeof(line),"P:%ld S:%lu OK:%u/%u",(long)position,(unsigned long)seq,(unsigned)valid,(unsigned)position_valid);
+        ips200_show_string(0,310,"                                       ");
+        ips200_show_string(0,310,line);
+    }
 }
 
 void menu_poll(void)
@@ -760,8 +820,10 @@ void menu_poll(void)
     if (preview == 3) motor_m_ctrl(wheel_test_pwm);
     /* 停车时按滑杆开环驱动左右无刷，用于单独排查飞轮通道；
      * 运行中主循环不参与，控制中断独占驱动。 */
-    if (!running && !preview && driver_ready)
+    if (!running && !preview && driver_ready) {
+        if (run_mode == 2) small_driver_test_left=small_driver_test_right=0;
         small_driver_set_duty((int16)small_driver_test_left, (int16)small_driver_test_right);
+    }
     wifi_switch=wifispi_is_ready() && imu_wifi_status!=-4;
     menu_auto_wifi_service();
     menu_wifi_poll();

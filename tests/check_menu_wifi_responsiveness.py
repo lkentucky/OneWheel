@@ -57,6 +57,7 @@ static void wifispi_set_progress_hook(void (*p)(void)) {progress=p;}
 static void wifispi_telemetry_stop(void) {assert(!in_driver);ready=0;}
 static void wifispi_telemetry_dual_profile(void) {}
 static void wifispi_telemetry_startup_profile(void) {}
+static void wifispi_telemetry_hold_profile(void) {}
 static void wifispi_telemetry_announce(void) {assert(!in_driver);}
 static uint32 IfxStm_getLower(int *stm) {(void)stm;return ticks;}
 static void wifispi_telemetry_init(void);

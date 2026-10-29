@@ -11,6 +11,8 @@
 #include "zf_driver_delay.h"
 #include "balance_control.h"
 #include "small_driver_uart_control.h"
+#include "wheel_encoder.h"
+#include "wheel_hold.h"
 #include <errno.h>
 #include <math.h>
 #include <stdio.h>
@@ -126,6 +128,19 @@ static float g_telemetry_ms;
     X(pwm_debug_enabled, pwm_debug_enabled) \
     X(debug_fly_left_pwm, pwm_debug_fly_left) X(debug_fly_right_pwm, pwm_debug_fly_right) \
     X(debug_ground_pwm, pwm_debug_ground) \
+    X(wheel_encoder_raw, wheel_encoder_raw) X(wheel_encoder_delta, wheel_encoder_delta) \
+    X(wheel_speed_cps, wheel_speed_cps) X(wheel_position_count, wheel_position_count) \
+    X(wheel_encoder_seq, wheel_encoder_seq) X(wheel_encoder_dt_ms, wheel_encoder_dt_ms) \
+    X(wheel_encoder_valid, wheel_encoder_valid) X(wheel_position_valid, wheel_position_valid) \
+    X(wheel_encoder_errors, wheel_encoder_errors) X(wheel_encoder_sign, WHEEL_ENCODER_SIGN) \
+    X(control_mode, balance_control_mode) X(wheel_hold_state, wheel_hold_state) \
+    X(wheel_target_cps, wheel_target_cps) X(wheel_speed_error, wheel_speed_error) \
+    X(wheel_tilt_offset, wheel_tilt_offset) X(wheel_speed_integral, wheel_speed_integral) \
+    X(wheel_feedback_age_ms, wheel_feedback_age_ms) X(wheel_feedback_valid, wheel_feedback_valid) \
+    X(wheel_speed_kp, wheel_speed_kp) X(wheel_speed_ki, wheel_speed_ki) \
+    X(wheel_tilt_limit, wheel_tilt_limit) X(wheel_i_limit, wheel_i_limit) \
+    X(wheel_ref_count, wheel_ref_count) X(wheel_pos_error, wheel_pos_error) \
+    X(wheel_pos_kp, wheel_pos_kp) X(wheel_speed_limit, wheel_speed_limit) \
     X(step_state, pwm_step_state) X(step_ms, pwm_step_ms) X(step_stage, pwm_step_stage)
 
 #define VARIABLE_ID(name, expr) TV_##name,
@@ -170,7 +185,14 @@ static const slider_parameter_t g_slider_parameters[] = {
     {"debug_ground_pwm", &pwm_debug_ground, -DEBUG_PWM_LIMIT, DEBUG_PWM_LIMIT},
     {"ground_rate_limit_dps", &ground_angle_rate_limit, 0.1f, BALANCE_RATE_LIMIT_MAX_DPS},
     {"balance_angle_x", &mono_params.balance_angle_x, -20.0f, 20.0f},
-    {"balance_angle_y", &mono_params.balance_angle_y, -20.0f, 20.0f}
+    {"balance_angle_y", &mono_params.balance_angle_y, -20.0f, 20.0f},
+    /* Mode2 only; RAM tuning, not part of the existing upright Flash record. */
+    {"wheel_speed_kp", &wheel_speed_kp, 0.0f, WHEEL_SPEED_GAIN_MAX},
+    {"wheel_speed_ki", &wheel_speed_ki, 0.0f, WHEEL_SPEED_GAIN_MAX},
+    {"wheel_tilt_limit", &wheel_tilt_limit, 0.0f, WHEEL_SPEED_TILT_MAX_DEG},
+    {"wheel_i_limit", &wheel_i_limit, 0.0f, WHEEL_SPEED_TILT_MAX_DEG},
+    {"wheel_pos_kp", &wheel_pos_kp, 0.0f, WHEEL_POSITION_GAIN_MAX},
+    {"wheel_speed_limit", &wheel_speed_limit, 0.0f, WHEEL_POSITION_SPEED_MAX_CPS}
 };
 
 static void telemetry_reset(void)
@@ -600,6 +622,28 @@ void wifispi_telemetry_dual_profile(void)
     static const uint8_t channels[]={TV_telemetry_ms,TV_rate_seq,TV_imu_seq,TV_imu_status,TV_rate_state,TV_dual_enabled,TV_dual_roll_actual_deg,TV_dual_roll_target_deg,TV_dual_roll_error_deg,TV_dual_roll_target_rate_dps,TV_dual_roll_rate_dps,TV_dual_roll_rate_error_dps,TV_dual_roll_pwm,TV_dual_pitch_actual_deg,TV_dual_pitch_target_deg,TV_dual_pitch_error_deg,TV_dual_pitch_target_rate_dps,TV_dual_pitch_rate_dps,TV_dual_pitch_rate_error_dps,TV_dual_pitch_pwm,TV_fly_angle_kp,TV_fly_rate_kp,TV_fly_sign,TV_fly_rate_limit_dps,TV_fly_pwm_limit,TV_ground_angle_kp,TV_ground_rate_kp,TV_ground_sign,TV_ground_rate_limit_dps,TV_ground_pwm_limit,TV_motor_left_pwm,TV_motor_right_pwm,TV_motor_ground_pwm,TV_imu_dt_ms,TV_fault_reason,TV_fault_imu_status,TV_fault_imu_dt_ms,TV_imu_spi_timeouts,TV_imu_not_ready,TV_startup_scale,TV_flywheel_left_speed_raw,TV_flywheel_right_speed_raw,TV_driver_speed_frames,TV_driver_feedback_age_ms,TV_driver_feedback_fresh};
     memcpy(g_channels,channels,sizeof(channels));
     wifi_telemetry_channel_count=sizeof(channels)/sizeof(channels[0]);wifi_telemetry_period_ms=APP_TELEMETRY_PROFILE_MS;
+    wifi_telemetry_stream_enabled=1;g_announce_pending=1;
+#endif
+}
+
+void wifispi_telemetry_speed_profile(void)
+{
+#if QCAR_WIFI_ENABLED
+    static const uint8_t channels[]={TV_control_mode,TV_telemetry_ms,TV_imu_status,TV_rate_state,TV_fault_reason,TV_startup_scale,TV_rate_seq,TV_wheel_hold_state,TV_wheel_speed_cps,TV_wheel_target_cps,TV_wheel_speed_error,TV_wheel_tilt_offset,TV_wheel_speed_integral,TV_wheel_feedback_age_ms,TV_wheel_feedback_valid,TV_wheel_encoder_seq,TV_wheel_encoder_dt_ms,TV_wheel_encoder_valid,TV_wheel_position_count,TV_wheel_speed_kp,TV_wheel_speed_ki,TV_wheel_tilt_limit,TV_wheel_i_limit,TV_dual_pitch_actual_deg,TV_dual_pitch_target_deg,TV_dual_pitch_target_rate_dps,TV_dual_pitch_rate_dps,TV_dual_pitch_pwm,TV_dual_roll_actual_deg,TV_dual_roll_target_deg,TV_dual_roll_target_rate_dps,TV_dual_roll_rate_dps,TV_dual_roll_pwm,TV_motor_left_pwm,TV_motor_right_pwm,TV_motor_ground_pwm,TV_flywheel_left_speed_raw,TV_flywheel_right_speed_raw,TV_driver_feedback_fresh,TV_ground_angle_kp,TV_ground_rate_kp,TV_ground_rate_limit_dps,TV_ground_pwm_limit};
+    memcpy(g_channels,channels,sizeof(channels));
+    wifi_telemetry_channel_count=sizeof(channels)/sizeof(channels[0]);
+    wifi_telemetry_period_ms=APP_TELEMETRY_PROFILE_MS;
+    wifi_telemetry_stream_enabled=1;g_announce_pending=1;
+#endif
+}
+
+void wifispi_telemetry_hold_profile(void)
+{
+#if QCAR_WIFI_ENABLED
+    static const uint8_t channels[]={TV_control_mode,TV_telemetry_ms,TV_imu_status,TV_rate_state,TV_fault_reason,TV_startup_scale,TV_rate_seq,TV_wheel_hold_state,TV_wheel_speed_cps,TV_wheel_target_cps,TV_wheel_speed_error,TV_wheel_tilt_offset,TV_wheel_speed_integral,TV_wheel_feedback_age_ms,TV_wheel_feedback_valid,TV_wheel_encoder_seq,TV_wheel_encoder_dt_ms,TV_wheel_encoder_valid,TV_wheel_position_count,TV_wheel_speed_kp,TV_wheel_speed_ki,TV_wheel_tilt_limit,TV_wheel_i_limit,TV_dual_pitch_actual_deg,TV_dual_pitch_target_deg,TV_dual_pitch_target_rate_dps,TV_dual_pitch_rate_dps,TV_dual_pitch_pwm,TV_dual_roll_actual_deg,TV_dual_roll_target_deg,TV_dual_roll_target_rate_dps,TV_dual_roll_rate_dps,TV_dual_roll_pwm,TV_motor_left_pwm,TV_motor_right_pwm,TV_motor_ground_pwm,TV_flywheel_left_speed_raw,TV_flywheel_right_speed_raw,TV_driver_feedback_fresh,TV_ground_angle_kp,TV_ground_rate_kp,TV_ground_rate_limit_dps,TV_ground_pwm_limit,TV_wheel_ref_count,TV_wheel_pos_error,TV_wheel_pos_kp,TV_wheel_speed_limit,TV_wheel_position_valid};
+    memcpy(g_channels,channels,sizeof(channels));
+    wifi_telemetry_channel_count=sizeof(channels)/sizeof(channels[0]);
+    wifi_telemetry_period_ms=APP_TELEMETRY_PROFILE_MS;
     wifi_telemetry_stream_enabled=1;g_announce_pending=1;
 #endif
 }

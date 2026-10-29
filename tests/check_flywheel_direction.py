@@ -51,7 +51,7 @@ int main(void){
         imu_roll_deg=BALANCE_ZERO_X_DEG;imu_pitch_deg=BALANCE_ZERO_Y_DEG;
         attitude_state.gyro.x=4;attitude_state.gyro.y=10;
         if(mode==5)dual_balance_arm();else if(mode==6)roll_rate_only_arm();else roll_rate_test_arm();
-        tick();expect(-430,430,mode==5?-120:0);
+        tick();expect(-(int)(10*FLY_RATE_KP),(int)(10*FLY_RATE_KP),mode==5?-120:0);
     }
     roll_rate_test_stop();clear_all_cascade_out();balance_control_tick_1ms();expect(0,0,0);
     printf("PASS: protocol=%d, left sign=%d, right sign=%d; Mode3/5/6/8 and stop\n",
@@ -68,7 +68,7 @@ with tempfile.TemporaryDirectory(prefix='onewheel-direction-') as directory:
             for right in (-1,1):
                 defines=[f'-DQCAR_DRIVER_TEXT_DUTY={protocol}',f'-DQCAR_FLYWHEEL_LEFT_SIGN={left}',f'-DQCAR_FLYWHEEL_RIGHT_SIGN={right}']
                 exe=work/'direction.exe'
-                subprocess.run(['gcc','-std=c99',*includes,*defines,str(root/'code/balance_control.c'),str(root/'code/pid.c'),str(root/'code/small_driver_uart_control.c'),str(work/'test.c'),'-lm','-o',str(exe)],check=True)
+                subprocess.run(['gcc','-std=c99',*includes,*defines,str(root/'code/balance_control.c'),str(root/'code/wheel_hold.c'),str(root/'tests/encoder_snapshot_stub.c'),str(root/'code/pid.c'),str(root/'code/small_driver_uart_control.c'),str(work/'test.c'),'-lm','-o',str(exe)],check=True)
                 subprocess.run([str(exe)],check=True,timeout=5)
     for side in ('LEFT','RIGHT'):
         name='QCAR_FLYWHEEL_'+side+'_SIGN'

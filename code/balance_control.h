@@ -23,6 +23,7 @@ extern volatile uint8 ground_rate_test_enabled;
 extern float ground_rate_test_kp, ground_rate_test_limit, ground_rate_test_sign;
 extern float ground_angle_kp, ground_angle_rate_limit;
 extern volatile uint8 dual_balance_enabled;
+extern volatile uint8 balance_control_mode; /* Armed mode, 0 after Stop. */
 extern volatile float dual_angle[2],dual_target[2],dual_angle_error[2];
 extern volatile float dual_rate[2],dual_target_rate[2],dual_rate_error[2],dual_pwm[2];
 extern volatile uint8 rate_only_test;
@@ -40,6 +41,7 @@ extern uint32 control_startup_ramp_ms;
 void roll_rate_only_arm(void);
 void ground_rate_only_arm(void);
 void dual_balance_arm(void);
+void speed_balance_arm(void); /* Mode2: dual attitude + ground speed outer loop. */
 void ground_rate_test_arm(void);
 void roll_rate_test_arm(void);
 void roll_rate_test_stop(void);

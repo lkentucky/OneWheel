@@ -54,6 +54,15 @@ int main(void) {
 #else
     assert(fabsf(dual_rate[0]-step1)<0.001f && fly_l==(int)roundf(-FLY_RATE_KP*step1));
 #endif
+    /* Mode2 shares the same filtered flywheel path while position hold stays active. */
+    arm(5);speed_balance_arm();attitude_state.gyro.y=10;tick(1);
+    attitude_state.gyro.y=0;tick(1);
+#if FILTER_BYPASS
+    assert(dual_rate[0]==0 && fly_l==0);
+#else
+    assert(fabsf(dual_rate[0]-step1)<0.001f && fly_l==(int)roundf(-FLY_RATE_KP*step1));
+#endif
+    assert(balance_control_mode==2 && wheel_hold_enabled && roll_rate_test_state==2);
     /* Raw faults are never hidden by a healthy filter history. */
     arm(6);tick(1);attitude_state.gyro.y=NAN;tick(0);
     assert(roll_rate_test_state==-1 && !fly_l && !fly_r);
@@ -70,13 +79,13 @@ int main(void) {
 with tempfile.TemporaryDirectory(prefix='onewheel-rate-filter-') as directory:
     work = Path(directory)
     (work / 'zf_common_headfile.h').write_text(boundary, encoding='utf-8')
-    (work / 'test.c').write_text('#include <stdlib.h>\n' + fixture + test, encoding='utf-8')
+    (work / 'test.c').write_text('#include <stdlib.h>\n#include "wheel_hold.h"\n' + fixture + test, encoding='utf-8')
     for bypass in (0, 1):
         defines = ['-DFILTER_BYPASS=' + str(bypass)]
         if bypass:
             defines += ['-DFLY_RATE_LPF_TAU_S=0.0f']
         exe = work / 'filter.exe'
         subprocess.run(['gcc', '-std=c99', *defines, '-I'+str(work), '-I'+str(root/'code'),
-                        str(root/'code/balance_control.c'), str(root/'code/pid.c'),
+                        str(root/'code/balance_control.c'),str(root/'code/wheel_hold.c'),str(root/'tests/encoder_snapshot_stub.c'), str(root/'code/pid.c'),
                         str(work/'test.c'), '-lm', '-o', str(exe)], check=True)
         subprocess.run([str(exe)], check=True, timeout=5)

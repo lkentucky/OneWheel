@@ -61,6 +61,10 @@ int main(void) {
     Menu_Item item={0}; pointer=&item; step_index=2;
     for(int i=0;i<6;i++) { item.kind=kinds[i]; item.data=values[i]; Key_Plus(); Key_Sub(); }
     assert(i32==0 && u32==0 && i16==0 && u16==0 && i8==0 && u8==0);
+    item.kind=float_Box;item.data=&value;item.step_scale=.001f;value=0;
+    Key_Plus();assert(value>.00099f && value<.00101f);
+    Key_Sub();assert(value<.000001f && value>-.000001f);
+    step_index=0;Key_Plus();assert(value>.0000099f && value<.0000101f);
     puts("PASS: updated key mapping, navigation, editing, step cycle, bool, types, priority and clearing");
 }
 '''

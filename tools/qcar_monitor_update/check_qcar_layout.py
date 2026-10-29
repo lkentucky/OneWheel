@@ -114,15 +114,70 @@ def check(width,height,output):
         assert 'Mode=8' in dpg.get_value('qcar_state')
         assert '右下发: -700' in dpg.get_value('qcar_pwm_diagnostic')
         assert dpg.get_value('qcar_edit_debug_fly_left_pwm')==0 # telemetry never applies editor commands
+        # Encoder subscription is observation only; real firmware-produced frame.
+        monitor.subscribe_encoder()
+        assert sent[-1][0]==('SUB '+','.join(PROFILES['encoder'])+'\nRATE 20\n').encode()
+        inject(schema('encoder'))
+        assert '等待' in dpg.get_value('qcar_encoder_diagnostic')
+        inject((ROOT/'tests/fixtures/qcar_encoder.bin').read_bytes())
+        assert 'speed(cnt/s): -1000' in dpg.get_value('qcar_encoder_diagnostic')
+        assert 'position(count): -1000' in dpg.get_value('qcar_encoder_diagnostic')
+        assert '不证明编码器接线正常' in dpg.get_value('qcar_encoder_diagnostic')
+        assert dpg.get_value('qcar_profile')=='地轮编码器 · 15通道'
+        monitor.show_page('plot');monitor._last_plot=0;render(monitor)
+        assert dpg.get_value('series_wheel_speed_cps')[1][-1]==-1000
+        monitor.last_data=time.time()-2;monitor.refresh_tuning()
+        assert '等待' in dpg.get_value('qcar_encoder_diagnostic')
+        inject(schema('pwm_debug') if 'pwm_debug' in PROFILES else ('MCAR SUB '+','.join(PWM_PROFILE)+'\n').encode())
+        assert '等待' in dpg.get_value('qcar_encoder_diagnostic')
+        monitor.show_page('tuning');render(monitor)
         monitor.save_qcar_scheme()
         dpg.set_value('qcar_edit_balance_angle_x',0);monitor.load_qcar_scheme()
-        assert dpg.get_value('qcar_edit_balance_angle_x')==3.9
+        assert abs(dpg.get_value('qcar_edit_balance_angle_x')-4.2)<1e-5
         saved=json.loads(monitor._scheme_path().read_text('utf-8'))
-        assert saved['version']=='QCAR_JUSTFLOAT_2' and len(saved['values'])==15
+        assert saved['version']=='QCAR_JUSTFLOAT_4' and len(saved['values'])==21
+        count_before_v3=len(sent)
+        old_v3={key:saved['values'][key] for key in qcar_gui.V3_PARAMETERS}
+        monitor._scheme_path().write_text(json.dumps(dict(version='QCAR_JUSTFLOAT_3',values=old_v3)),encoding='utf-8')
+        monitor.load_qcar_scheme();assert len(sent)==count_before_v3
+        count_sent=len(sent)
+        old_v2={key:saved['values'][key] for key in qcar_gui.V2_PARAMETERS}
+        monitor._scheme_path().write_text(json.dumps(dict(version='QCAR_JUSTFLOAT_2',values=old_v2)),encoding='utf-8')
+        monitor.load_qcar_scheme();assert len(sent)==count_sent
         legacy={key:saved['values'][key] for key in qcar_gui.LEGACY_PARAMETERS}
         monitor._scheme_path().write_text(json.dumps(dict(version='QCAR_JUSTFLOAT_1',values=legacy)),encoding='utf-8')
         monitor.load_qcar_scheme()
         assert dpg.get_value('qcar_edit_debug_fly_right_pwm')==0
+        assert len(sent)==count_sent
+        monitor.subscribe_speed()
+        assert sent[-1][0]==('SUB '+','.join(PROFILES['speed'])+'\nRATE 20\n').encode()
+        inject(schema('speed'));assert '等待' in dpg.get_value('qcar_speed_diagnostic')
+        speed_frame=(ROOT/'tests/fixtures/qcar_speed.bin').read_bytes()
+        inject(speed_frame)
+        assert '实际ControlMode=2' in dpg.get_value('qcar_state') and '推得Mode=5' not in dpg.get_value('qcar_state')
+        assert '实际速度=500 cnt/s' in dpg.get_value('qcar_speed_diagnostic')
+        assert '倾角修正=0.5°' in dpg.get_value('qcar_speed_diagnostic')
+        dpg.set_value('qcar_edit_wheel_speed_kp',.002);monitor.apply_qcar('wheel_speed_kp')
+        assert sent[-1][0]==b'[slider,wheel_speed_kp,0.002]\n'
+        inject(b'MCAR SLIDER wheel_speed_kp 0.002\n');assert monitor.confirmed['wheel_speed_kp']==.002
+        bad=bytearray(speed_frame);struct.pack_into('<f',bad,4*PROFILES['speed'].index('rate_state'),-4)
+        inject(bytes(bad));assert '编码器故障' in dpg.get_value('qcar_state')
+        monitor.last_data=time.time()-2;monitor.refresh_tuning()
+        assert '等待' in dpg.get_value('qcar_speed_diagnostic')
+        monitor.subscribe_hold()
+        assert sent[-1][0]==('SUB '+','.join(PROFILES['hold'])+'\nRATE 20\n').encode()
+        inject(schema('hold'));assert '等待' in dpg.get_value('qcar_hold_diagnostic')
+        hold_frame=(ROOT/'tests/fixtures/qcar_hold.bin').read_bytes();inject(hold_frame)
+        assert '参考位置=0 count' in dpg.get_value('qcar_hold_diagnostic')
+        assert '位置误差=-512 count' in dpg.get_value('qcar_hold_diagnostic')
+        assert '目标速度=-252 cnt/s' in dpg.get_value('qcar_hold_diagnostic')
+        dpg.set_value('qcar_edit_wheel_pos_kp',.5);monitor.apply_qcar('wheel_pos_kp')
+        assert sent[-1][0]==b'[slider,wheel_pos_kp,0.5]\n'
+        inject(b'MCAR SLIDER wheel_pos_kp 0.5\n');assert monitor.confirmed['wheel_pos_kp']==.5
+        monitor.show_page('plot');monitor._last_plot=0;render(monitor)
+        assert dpg.get_value('series_wheel_pos_error')[1][-1]==-512
+        monitor.last_data=time.time()-2;monitor.refresh_tuning()
+        assert '等待' in dpg.get_value('qcar_hold_diagnostic')
         monitor.show_page('imu');render(monitor)
         assert '不含完整三轴' in dpg.get_value('angles')
         inject(schema('attitude'));inject(struct.pack('<3f',1,2,3)+b'\x00\x00\x80\x7f')
@@ -134,7 +189,8 @@ def check(width,height,output):
         return dict(viewport=[width,height],auto_schema=True,dual_plot=True,matched_ack=True,
                     timeout_rejected=True,range_checked=True,foreign_peer_rejected=True,
                     full_names=True,local_scheme=True,independent_pwm=True,pwm_zero_ack=True,
-                    pwm_diagnostics=True,vehicle_contacted=False)
+                    pwm_diagnostics=True,encoder_diagnostics=True,encoder_plot=True,encoder_stale_rejected=True,
+                    mode2_speed=True,mode2_ack=True,scheme_v2_v3=True,scheme_v4=True,position_hold=True,vehicle_contacted=False)
     finally:
         qcar_gui.send_udp=original
         monitor.stop();monitor.log_file.close();monitor.data_file.close();dpg.destroy_context()

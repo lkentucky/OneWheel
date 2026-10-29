@@ -27,11 +27,27 @@ static void test_pack(void)
 
 #if QCAR_WIFI_ENABLED
 #include "zf_device_wifi_spi.h"
+#include "wheel_encoder.h"
+#include "wheel_hold.h"
+volatile uint8 balance_control_mode;
+volatile uint8_t wheel_hold_enabled,wheel_feedback_valid;
+volatile int32_t wheel_hold_state;
+volatile uint32_t wheel_feedback_age_ms;
+volatile float wheel_target_cps,wheel_speed_error,wheel_tilt_offset,wheel_speed_integral;
+float wheel_speed_kp=WHEEL_SPEED_KP,wheel_speed_ki=WHEEL_SPEED_KI;
+float wheel_tilt_limit=WHEEL_SPEED_TILT_LIMIT_DEG,wheel_i_limit=WHEEL_SPEED_I_LIMIT_DEG;
+volatile int32_t wheel_ref_count,wheel_pos_error;
+float wheel_pos_kp=WHEEL_POSITION_KP,wheel_speed_limit=WHEEL_POSITION_SPEED_LIMIT_CPS;
+volatile uint32_t wheel_encoder_raw=65530,wheel_encoder_seq=42,wheel_encoder_errors;
+volatile int32_t wheel_encoder_delta=-20,wheel_position_count=-1000;
+volatile float wheel_speed_cps=-1000,wheel_encoder_dt_ms=20;
+volatile uint8_t wheel_encoder_valid=1,wheel_position_valid=1;
 int host_stm;
 static uint32 ticks;
 static unsigned irq_disabled, init_calls, connect_calls, socket_calls, disconnect_calls;
 static unsigned fail_stage, fail_attempts, fail_send, fail_flush, rx_calls;
-static uint8_t incoming[8192], outgoing[1600], datagrams[128][1600];
+/* Match the transport's 2000-byte text reply bound (binary frames stay <=196). */
+static uint8_t incoming[8192], outgoing[2000], datagrams[128][2000];
 static size_t incoming_size, outgoing_size, sizes[128], packet_count;
 char wifi_spi_version[12], wifi_spi_ip_addr_port[25];
 volatile int32 imu_attitude_status=1, imu_accel_used=1;
@@ -176,6 +192,15 @@ static void test_transport(void)
     command("GET?\nLIST?\nRATE 1000\n");
     assert(has_reply("MCAR RATE 10\n") && has_reply("MCAR STREAM 0\n"));
     assert(has_reply("MCAR RATE 1000\n") && rx_calls>0);
+    { unsigned found=0;
+      for (size_t i=0;i<packet_count;++i) if (sizes[i]>10 && !memcmp(datagrams[i],"MCAR LIST ",10)) {
+        assert(sizes[i]<2000 && datagrams[i][sizes[i]-1]=='\n');
+        datagrams[i][sizes[i]]=0;
+        assert(strstr((const char *)datagrams[i],",wheel_encoder_sign,"));
+        assert(strstr((const char *)datagrams[i],",wheel_speed_limit,step_state,step_ms,step_stage\n")); ++found;
+      }
+      assert(found==1);
+    }
     command("STREAM 1\nRATE 2\n"); assert(wifi_telemetry_stream_enabled && wifi_telemetry_period_ms==2);
     command("[slider,ground_angle_kp,2.5]");
     assert(ground_angle_kp==2.5f && has_reply("MCAR SLIDER ground_angle_kp 2.5\n"));
@@ -352,6 +377,66 @@ static void test_transport(void)
     if (getenv("QCAR_WIFI_STARTUP_FIXTURE")) {
         FILE *file=fopen(getenv("QCAR_WIFI_STARTUP_FIXTURE"),"wb");assert(file);
         assert(fwrite(datagrams[packet_count-1],1,sizes[packet_count-1],file)==160);assert(fclose(file)==0);
+    }
+    packet_count=0;
+    command("SUB telemetry_ms,imu_status,rate_state,fault_reason,motor_ground_pwm,wheel_encoder_raw,wheel_encoder_delta,wheel_speed_cps,wheel_position_count,wheel_encoder_seq,wheel_encoder_dt_ms,wheel_encoder_valid,wheel_position_valid,wheel_encoder_errors,wheel_encoder_sign\n");
+    assert(wifi_telemetry_channel_count==15 && sizes[packet_count-1]==64);
+    assert(last_value(5,15)==65530 && last_value(6,15)==-20 && last_value(7,15)==-1000);
+    assert(last_value(8,15)==-1000 && last_value(9,15)==42 && last_value(10,15)==20);
+    assert(last_value(11,15)==1 && last_value(12,15)==1 && last_value(13,15)==0 && last_value(14,15)==WHEEL_ENCODER_SIGN);
+    if (getenv("QCAR_WIFI_ENCODER_FIXTURE")) {
+        FILE *file=fopen(getenv("QCAR_WIFI_ENCODER_FIXTURE"),"wb");assert(file);
+        assert(fwrite(datagrams[packet_count-1],1,sizes[packet_count-1],file)==64);assert(fclose(file)==0);
+    }
+    wheel_encoder_valid=wheel_position_valid=0;wheel_encoder_errors=1;
+    wheel_encoder_delta=0;wheel_speed_cps=0;advance(20);
+    assert(last_value(6,15)==0 && last_value(7,15)==0 && last_value(8,15)==-1000);
+    assert(last_value(11,15)==0 && last_value(12,15)==0 && last_value(13,15)==1);
+    wheel_encoder_valid=1;advance(20);
+    assert(last_value(11,15)==1 && last_value(12,15)==0); /* Speed recovery does not invent lost position. */
+    command("[slider,wheel_speed_kp,0.002][slider,wheel_speed_ki,0.001][slider,wheel_tilt_limit,1][slider,wheel_i_limit,0.5]");
+    assert(wheel_speed_kp==.002f && wheel_speed_ki==.001f && wheel_tilt_limit==1 && wheel_i_limit==.5f);
+    command("[slider,wheel_speed_kp,0.1001][slider,wheel_speed_ki,-0.01][slider,wheel_tilt_limit,5.1][slider,wheel_i_limit,-1]");
+    assert(wheel_speed_kp==.002f && wheel_speed_ki==.001f && wheel_tilt_limit==1 && wheel_i_limit==.5f);
+    balance_control_mode=2;wheel_hold_enabled=1;wheel_hold_state=2;
+    wheel_speed_cps=500;wheel_target_cps=0;wheel_speed_error=-500;wheel_tilt_offset=.5f;wheel_speed_integral=0;
+    wheel_feedback_age_ms=2;wheel_feedback_valid=1;wheel_encoder_valid=1;
+    dual_angle[1]=2.5f;dual_target[1]=3;dual_pwm[1]=600;costrained_wheel_speed=600;
+    wifispi_telemetry_speed_profile();packet_count=0;advance(20);
+    assert(wifi_telemetry_channel_count==43 && sizes[packet_count-1]==176);
+    assert(last_value(0,43)==2);
+    assert(last_value(7,43)==2);
+    assert(last_value(8,43)==500);
+    assert(last_value(9,43)==0);
+    assert(last_value(11,43)==.5f);
+    assert(last_value(13,43)==2);
+    assert(last_value(14,43)==1);
+    assert(last_value(24,43)==3);
+    assert(last_value(35,43)==600);
+    if (getenv("QCAR_WIFI_SPEED_FIXTURE")) {
+        FILE *file=fopen(getenv("QCAR_WIFI_SPEED_FIXTURE"),"wb");assert(file);
+        assert(fwrite(datagrams[packet_count-1],1,sizes[packet_count-1],file)==176);assert(fclose(file)==0);
+    }
+    command("[slider,wheel_pos_kp,0.5][slider,wheel_speed_limit,300]");
+    assert(wheel_pos_kp==.5f && wheel_speed_limit==300);
+    command("[slider,wheel_pos_kp,5.1][slider,wheel_speed_limit,2000.1]");
+    assert(wheel_pos_kp==.5f && wheel_speed_limit==300);
+    wheel_position_count=512;wheel_ref_count=0;wheel_pos_error=-512;wheel_position_valid=1;
+    wheel_target_cps=-252;wheel_speed_cps=0;wheel_speed_error=-252;
+    wheel_speed_kp=.001f;wheel_speed_ki=0;wheel_tilt_offset=.252f;
+    dual_angle[1]=5;dual_target[1]=5.252f;dual_pwm[1]=302;costrained_wheel_speed=302;
+    wifispi_telemetry_hold_profile();packet_count=0;advance(20);
+    assert(wifi_telemetry_channel_count==48 && sizes[packet_count-1]==196);
+    assert(last_value(43,48)==0);
+    assert(last_value(44,48)==-512);
+    assert(last_value(45,48)==.5f);
+    assert(last_value(46,48)==300);
+    assert(last_value(47,48)==1);
+    assert(last_value(9,48)==-252);
+    assert(last_value(11,48)==.252f);
+    if (getenv("QCAR_WIFI_HOLD_FIXTURE")) {
+        FILE *file=fopen(getenv("QCAR_WIFI_HOLD_FIXTURE"),"wb");assert(file);
+        assert(fwrite(datagrams[packet_count-1],1,sizes[packet_count-1],file)==196);assert(fclose(file)==0);
     }
     unsigned previous_sockets=socket_calls;
     wifispi_set_progress_hook(cancel_during_join);

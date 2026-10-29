@@ -12,6 +12,9 @@ from qcar_protocol import Protocol, slider_command
     ('startup','fault_reason',4),
     ('dual','dual_pitch_pwm',-3000),
     ('angle','balance_actual_deg',1.7),
+    ('encoder','wheel_speed_cps',-1000),
+    ('speed','control_mode',2),
+    ('hold','wheel_pos_error',-512),
 ])
 def test_actual_firmware_frames(profile,key,expected):
     protocol=Protocol()
@@ -38,6 +41,24 @@ def test_schema_profile_order(profile):
     assert result == {"kind": "schema", "fields": tuple(names)}
     assert isinstance(result["fields"], tuple)
     assert protocol.fields == tuple(names)
+
+
+def test_encoder_firmware_units_and_continuity_flags():
+    protocol=Protocol()
+    protocol.feed(sub(PROFILES['encoder']))
+    data=(Path(__file__).parent/'fixtures/qcar_encoder.bin').read_bytes()
+    values=protocol.feed(data)['values']
+    assert values['wheel_encoder_raw']==65530
+    assert values['wheel_encoder_delta']==-20
+    assert values['wheel_encoder_dt_ms']==20
+    assert values['wheel_speed_cps']==values['wheel_encoder_delta']*1000/values['wheel_encoder_dt_ms']
+    assert values['wheel_position_count']==-1000 and values['wheel_encoder_seq']==42
+    assert values['wheel_encoder_valid']==values['wheel_position_valid']==1
+    assert values['wheel_encoder_errors']==0 and values['wheel_encoder_sign']==1
+    # Timing recovery must never be mistaken for recovery of a lost position interval.
+    values.update(wheel_encoder_valid=1,wheel_position_valid=0,wheel_encoder_errors=1)
+    recovered=protocol.feed(frame([values[key] for key in PROFILES['encoder']]))['values']
+    assert recovered['wheel_encoder_valid']==1 and recovered['wheel_position_valid']==0
 
 
 def test_subscription_limits_and_validation():
@@ -201,7 +222,7 @@ def test_slider_command_ranges_and_rejections():
 
     for name, bad_values in (
         ("rate_kp", (-0.001, 500.001)),
-        ("rate_pwm_limit", (-1, 4001)),
+        ("rate_pwm_limit", (-1, 8001)),
         ("rate_sign", (0, 2, -2, 1.0001)),
         ("balance_angle_x", (-20.001, 20.001)),
         ("balance_angle_y", (-21, 21)),

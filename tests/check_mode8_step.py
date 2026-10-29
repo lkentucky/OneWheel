@@ -34,5 +34,5 @@ int main(void) {
 with tempfile.TemporaryDirectory(prefix='qcar-step-') as d:
     w=Path(d);(w/'zf_common_headfile.h').write_text(boundary,encoding='utf-8')
     (w/'test.c').write_text(fixture+test,encoding='utf-8')
-    subprocess.run(['gcc','-std=c99','-UNDEBUG','-I'+str(w),'-I'+str(root/'code'),str(root/'code/balance_control.c'),str(root/'code/pid.c'),str(w/'test.c'),'-lm','-o',str(w/'test.exe')],check=True)
+    subprocess.run(['gcc','-std=c99','-UNDEBUG','-I'+str(w),'-I'+str(root/'code'),str(root/'code/balance_control.c'),str(root/'code/wheel_hold.c'),str(root/'tests/encoder_snapshot_stub.c'),str(root/'code/pid.c'),str(w/'test.c'),'-lm','-o',str(w/'test.exe')],check=True)
     subprocess.run([str(w/'test.exe')],check=True,timeout=5)

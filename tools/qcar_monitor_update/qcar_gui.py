@@ -16,16 +16,20 @@ from quick_commands import new_command
 from transport import send_udp,MultiplexReceiver
 from qcar_firmware import PROFILES
 from qcar_protocol import Protocol,slider_command
-from qcar_parameters import PARAMETERS, DEBUG_PARAMETERS, LEGACY_PARAMETERS, PWM_PROFILE
+from qcar_parameters import (PARAMETERS, DEBUG_PARAMETERS, LEGACY_PARAMETERS, V2_PARAMETERS, V3_PARAMETERS,
+                             PWM_PROFILE, validate_parameter)
 
 PROFILES = {**PROFILES, 'pwm_debug': PWM_PROFILE}
 PROFILE_LABELS={'启动诊断 · 39通道':'startup','双轴直立 · 45通道':'dual',
                 '角度环 · 28通道':'angle','三轴姿态 · 3通道':'attitude',
-                'Mode8 PWM诊断 · 15通道':'pwm_debug'}
+                'Mode8 PWM诊断 · 15通道':'pwm_debug','地轮编码器 · 15通道':'encoder',
+                'Mode2速度环 · 43通道':'speed','Mode2位置保持 · 48通道':'hold'}
 DEFAULT_PLOTS={'balance_actual_deg','balance_target_deg','rate_actual_dps','rate_target_dps',
                'dual_roll_actual_deg','dual_roll_target_deg','dual_pitch_actual_deg','dual_pitch_target_deg',
                'roll_deg','pitch_deg','yaw_deg','motor_left_pwm','motor_right_pwm','motor_ground_pwm',
-               'debug_fly_left_pwm','debug_fly_right_pwm','debug_ground_pwm'}
+               'debug_fly_left_pwm','debug_fly_right_pwm','debug_ground_pwm',
+               'wheel_speed_cps','wheel_target_cps','wheel_tilt_offset','wheel_position_count',
+               'wheel_pos_error'}
 
 
 class QuietLink(LinkHealth):
@@ -52,14 +56,14 @@ class QcarMonitor(app.Monitor):
         if self.multiplex is None:
             self.multiplex=MultiplexReceiver();self.receivers=self.multiplex.channels
         super()._build()
-        dpg.configure_viewport(0,title='OneWheel TC264 Monitor - Mode8 Independent PWM')
+        dpg.configure_viewport(0,title='OneWheel TC264 Monitor - Mode2 Speed/Position Hold')
         dpg.configure_item('receive_mode',items=['Qcar JustFloat UDP'],enabled=False)
         dpg.set_value('receive_mode','Qcar JustFloat UDP')
         dpg.set_value('remote_port',self.settings.get('remote_port',5001))
         dpg.set_value('remote_ip',self.settings.get('remote_ip',''))
         self.qcar_target=(dpg.get_value('remote_ip'),dpg.get_value('remote_port'))
         dpg.set_value('listen_note','电脑监听8081；模块命令端口默认5001。数据与MCAR文本共用一个UDP端口，自动识别模块地址；不发送旧版ALIVE。')
-        dpg.set_value('params_intro','适配cd3ba05：JustFloat + MCAR SUB，支持Mode8左右独立PWM。开始监听不启动电机；Start/Stop、模式和Flash保存使用板载菜单。')
+        dpg.set_value('params_intro','OneWheel JustFloat + MCAR SUB：Mode2双轴平衡、地轮速度环与位置保持、Mode8独立PWM及编码器观测；开始监听不启动电机，Start/Stop、模式和Flash保存使用板载菜单。位置保持参数仅RAM，不保存板载Flash；位置环100ms、速度环约20ms，首次就绪锁定位置，Stop→Start重设保持点。位置环需实车调试，不宣称已解决平衡。')
         dpg.configure_item('image_connection',show=False)
         dpg.configure_item('nav_camera',enabled=False,label='04  图像（固件未发送）')
         dpg.set_value('camera_intro','当前Qcar UDP协议未发送摄像头图像。')
@@ -89,6 +93,16 @@ class QcarMonitor(app.Monitor):
                 dpg.add_button(label='订阅Mode8设定/实际输出',callback=self.guard(self.subscribe_pwm_debug))
                 dpg.add_button(label='三路PWM归零（非Stop）',callback=self.guard(self.zero_pwm_debug))
             dpg.add_text('',tag='qcar_pwm_diagnostic',wrap=1250)
+            with dpg.group(horizontal=True):
+                dpg.add_button(label='订阅地轮编码器（停车手转）',callback=self.guard(self.subscribe_encoder))
+            dpg.add_text('',tag='qcar_encoder_diagnostic',wrap=1250)
+            with dpg.group(horizontal=True):
+                dpg.add_button(label='订阅Mode2速度环（43通道）',callback=self.guard(self.subscribe_speed))
+            dpg.add_text('',tag='qcar_speed_diagnostic',wrap=1250)
+            with dpg.group(horizontal=True):
+                dpg.add_button(label='订阅Mode2位置保持（48通道）',callback=self.guard(self.subscribe_hold))
+            dpg.add_text('位置环100ms、速度环约20ms；首次就绪锁定位置，Stop→Start重设保持点；速度环KP和KI都为0时位置环不产生倾角修正。',tag='qcar_hold_note',wrap=1250)
+            dpg.add_text('',tag='qcar_hold_diagnostic',wrap=1250)
             dpg.add_text('',tag='qcar_readonly',wrap=1250)
             with dpg.group(horizontal=True):
                 dpg.add_input_text(tag='qcar_scheme',hint='本地方案路径；留空使用数据目录/qcar_scheme.json',width=650)
@@ -144,7 +158,8 @@ class QcarMonitor(app.Monitor):
         mode_width=max(dpg.get_text_size(t)[0] for t in ('UTF-8 文字','十六进制'))
         dpg.configure_item('send_mode',width=max(220,round(mode_width)+55))
         for tag in ('params_intro','plot_intro','quick_intro','quick_target','quick_help','quick_binary_help','quick_status',
-                    'qcar_state','qcar_readonly','qcar_tuning_message','qcar_connection','qcar_pwm_diagnostic'):
+                    'qcar_state','qcar_readonly','qcar_tuning_message','qcar_connection','qcar_pwm_diagnostic',
+                    'qcar_encoder_diagnostic','qcar_speed_diagnostic','qcar_hold_diagnostic','qcar_hold_note'):
             dpg.configure_item(tag,wrap=content)
         dpg.configure_item('quick_file_path',width=max(220,content-400))
         plot_height=max(500,int(height)-140)
@@ -266,6 +281,15 @@ class QcarMonitor(app.Monitor):
     def subscribe_pwm_debug(self):
         self.command('SUB '+','.join(PWM_PROFILE)+'\nRATE 20')
 
+    def subscribe_encoder(self):
+        self.command('SUB '+','.join(PROFILES['encoder'])+'\nRATE 20')
+
+    def subscribe_speed(self):
+        self.command('SUB '+','.join(PROFILES['speed'])+'\nRATE 20')
+
+    def subscribe_hold(self):
+        self.command('SUB '+','.join(PROFILES['hold'])+'\nRATE 20')
+
     def zero_pwm_debug(self):
         # Clear outputs; this neither switches mode nor disables the controller.
         if self.pending:raise ValueError('等待上一项回执或超时后再归零')
@@ -291,11 +315,19 @@ class QcarMonitor(app.Monitor):
                 self.qcar_states[key]='回执超时，不能确认；未自动重发';del self.pending[key]
         fresh=self.last_data and time.time()-self.last_data<1 and any(r.running for r in self.receivers.values())
         if fresh:
-            axis=self.latest.get('rate_axis')
-            mode=8 if self.latest.get('pwm_debug_enabled')==1 else 5 if self.latest.get('dual_enabled')==1 else (7 if axis==1 else 6) if axis in (0,1) and self.latest.get('rate_only')==1 else (4 if axis==1 else 3) if axis in (0,1) and self.latest.get('rate_only')==0 else '未订阅模式判据'
+            control_mode=self.latest.get('control_mode')
+            if control_mode is not None:
+                try:shown_mode=f'{control_mode:g}'
+                except (TypeError,ValueError):shown_mode=str(control_mode)
+                mode_text='实际ControlMode='+shown_mode+('（未启动）' if control_mode==0 else '')
+            else:
+                axis=self.latest.get('rate_axis')
+                mode=8 if self.latest.get('pwm_debug_enabled')==1 else 5 if self.latest.get('dual_enabled')==1 else (7 if axis==1 else 6) if axis in (0,1) and self.latest.get('rate_only')==1 else (4 if axis==1 else 3) if axis in (0,1) and self.latest.get('rate_only')==0 else '未订阅模式判据'
+                mode_text=f'推得Mode={mode}'
             control=self.latest.get('rate_state')
-            meaning={0:'停止',1:'等待IMU',2:'控制运行',-1:'IMU/样本故障',-2:'倾角保护',-3:'参数故障'}.get(control,'未订阅')
-            state=f'推得Mode={mode}；设备State={control}（{meaning}）；IMU={self.latest.get("imu_status","未订阅")}；F={self.latest.get("fault_reason","未订阅")}'
+            meaning={0:'停止',1:'等待IMU',2:'控制运行',-1:'IMU/样本故障',-2:'倾角保护',-3:'参数故障',-4:'编码器故障/位置不连续'}.get(control,'未订阅')
+            if control==1 and control_mode==2:meaning='等待IMU/编码器窗口'
+            state=f'{mode_text}；设备State={control}（{meaning}）；IMU={self.latest.get("imu_status","未订阅")}；F={self.latest.get("fault_reason","未订阅")}'
         else:state='遥测未到达或已过期，当前控制/IMU状态未知'
         dpg.set_value('qcar_state',state+'；屏幕Roll=内部pitch，屏幕Pitch=内部roll。')
         def value_text(name):
@@ -306,6 +338,59 @@ class QcarMonitor(app.Monitor):
             ('左下发','motor_left_pwm'),('右下发','motor_right_pwm'),('地轮下发','motor_ground_pwm'),
             ('左转速反馈','flywheel_left_speed_raw'),('右转速反馈','flywheel_right_speed_raw')))
         dpg.set_value('qcar_pwm_diagnostic',diagnostic)
+        encoder_fields=('wheel_encoder_delta','wheel_speed_cps','wheel_position_count','wheel_encoder_seq',
+                        'wheel_encoder_valid','wheel_position_valid','wheel_encoder_errors')
+        if fresh and any(name in self.latest for name in encoder_fields):
+            def encoder_text(name):
+                value=self.latest.get(name)
+                return f'{value:g}' if value is not None else '等待接收'
+            encoder='；'.join(label+': '+encoder_text(name) for label,name in (
+                ('delta','wheel_encoder_delta'),('speed(cnt/s)','wheel_speed_cps'),
+                ('position(count)','wheel_position_count'),('seq','wheel_encoder_seq'),
+                ('valid','wheel_encoder_valid'),('pos_valid','wheel_position_valid'),
+                ('errors','wheel_encoder_errors')))
+            encoder+='。valid只表示采样时序有效，不证明编码器接线正常；pos_valid=0表示长停顿等造成累计位置不连续；此观测不启动电机。'
+        else:
+            encoder='等待“地轮编码器”订阅的新鲜数据；未收到时显示等待而非0。此观测不启动电机。'
+        dpg.set_value('qcar_encoder_diagnostic',encoder)
+        speed_fields=('wheel_target_cps','wheel_speed_cps','wheel_tilt_offset','wheel_speed_integral',
+                      'wheel_feedback_age_ms','wheel_feedback_valid','wheel_hold_state')
+        if fresh and any(name in self.latest for name in speed_fields):
+            valid=self.latest.get('wheel_feedback_valid')
+            valid_text=({1:'有效',0:'无效'}.get(valid,'等待接收') if valid is not None else '未订阅')
+            speed='；'.join((
+                '速度目标='+value_text('wheel_target_cps')+' cnt/s',
+                '实际速度='+value_text('wheel_speed_cps')+' cnt/s',
+                '倾角修正='+value_text('wheel_tilt_offset')+'°',
+                'PI积分='+value_text('wheel_speed_integral'),
+                '反馈年龄='+value_text('wheel_feedback_age_ms')+'ms',
+                '反馈有效='+valid_text,
+                '外环状态='+value_text('wheel_hold_state')))
+        else:
+            speed='等待“Mode2速度环”订阅的新鲜数据（速度目标/实际、倾角修正、PI积分、反馈年龄/有效性、外环状态）；未收到或过期不显示0。'
+        dpg.set_value('qcar_speed_diagnostic',speed)
+        hold_markers=('wheel_ref_count','wheel_pos_error','wheel_pos_kp','wheel_speed_limit')
+        if fresh and any(name in self.latest for name in hold_markers):
+            def hold_text(name):
+                value=self.latest.get(name)
+                return f'{value:g}' if value is not None else '等待接收'
+            pos_valid=self.latest.get('wheel_position_valid')
+            pos_valid_text=({1:'有效',0:'无效'}.get(pos_valid,'等待接收') if pos_valid is not None else '未订阅')
+            reference=hold_text('wheel_ref_count')+' count'
+            if self.latest.get('control_mode')==0 or self.latest.get('rate_state')==1:
+                reference='未锁定（停车/等待就绪）'
+            hold='；'.join((
+                '累计位置='+hold_text('wheel_position_count')+' count',
+                '参考位置='+reference,
+                '控制位置误差='+hold_text('wheel_pos_error')+' count',
+                '目标速度='+hold_text('wheel_target_cps')+' cnt/s',
+                '位置有效='+pos_valid_text))
+            hold+='。F10表示位置不连续；State=-4也可能是编码器无效/过期，请结合F判断。'
+            if self.latest.get('wheel_speed_kp')==0 and self.latest.get('wheel_speed_ki')==0:
+                hold+='速度PI已关闭，位置请求不会产生倾角修正。'
+        else:
+            hold='等待“Mode2位置保持”订阅的新鲜数据（累计位置/参考位置/误差/目标速度/位置有效标志）；F10表示位置不连续。'
+        dpg.set_value('qcar_hold_diagnostic',hold)
         fields=('balance_kp','rate_kp','rate_sign','balance_rate_limit_dps','rate_pwm_limit',
                 'fly_angle_kp','fly_rate_kp','fly_sign','fly_rate_limit_dps','ground_angle_kp','ground_rate_kp','ground_sign','ground_rate_limit_dps')
         readonly='；'.join(f'{key}={self.latest.get(key,"未订阅")}' for key in fields) if fresh else '等待新鲜遥测；设备参数不能从编辑默认值推断。'
@@ -326,20 +411,28 @@ class QcarMonitor(app.Monitor):
         return Path(dpg.get_value('qcar_scheme').strip()) if dpg.get_value('qcar_scheme').strip() else app.STORE/'qcar_scheme.json'
 
     def save_qcar_scheme(self):
-        values={key:dpg.get_value('qcar_edit_'+key) for key in PARAMETERS}
-        for key,value in values.items():slider_command(key,value)
+        values={key:validate_parameter(key,dpg.get_value('qcar_edit_'+key)) for key in PARAMETERS}
         path=self._scheme_path();path.parent.mkdir(parents=True,exist_ok=True)
-        path.write_text(json.dumps(dict(version='QCAR_JUSTFLOAT_2',values=values),ensure_ascii=False,indent=2),encoding='utf-8')
-        self.qcar_message='仅保存本地方案，没有发送参数或保存板载Flash。'
+        path.write_text(json.dumps(dict(version='QCAR_JUSTFLOAT_4',values=values),ensure_ascii=False,indent=2),encoding='utf-8')
+        self.qcar_message='仅保存本地方案（21项），没有发送参数或保存板载Flash。'
 
     def load_qcar_scheme(self):
-        value=json.loads(self._scheme_path().read_text('utf-8-sig'))
-        names=set(value.get('values',{}))
-        valid=(value.get('version')=='QCAR_JUSTFLOAT_2' and names==set(PARAMETERS)) or (value.get('version')=='QCAR_JUSTFLOAT_1' and names==LEGACY_PARAMETERS)
-        if not valid:raise ValueError('需要当前15项参数方案，或旧版5项QCAR_JUSTFLOAT_1方案')
-        for key,number in value['values'].items():slider_command(key,number)
-        for key,number in value['values'].items():dpg.set_value('qcar_edit_'+key,number)
-        self.qcar_message='方案仅导入编辑栏，没有发送修改。'
+        data=json.loads(self._scheme_path().read_text('utf-8-sig'))
+        if not isinstance(data,dict):raise ValueError('方案文件必须是JSON对象')
+        version=data.get('version');values=data.get('values')
+        if version=='QCAR_JUSTFLOAT_4':expected=frozenset(PARAMETERS)
+        elif version=='QCAR_JUSTFLOAT_3':expected=V3_PARAMETERS
+        elif version=='QCAR_JUSTFLOAT_2':expected=V2_PARAMETERS
+        elif version=='QCAR_JUSTFLOAT_1':expected=LEGACY_PARAMETERS
+        else:raise ValueError('仅支持QCAR_JUSTFLOAT_4（21项）、V3（原19项）、V2（原15项）或V1（5项）方案')
+        if not isinstance(values,dict) or frozenset(values)!=expected:
+            raise ValueError(f'{version}方案必须恰好包含{len(expected)}项且不能有多余字段')
+        checked={}
+        for key in expected:
+            try:checked[key]=validate_parameter(key,values[key])
+            except ValueError as exc:raise ValueError(f'{key} 无效：{exc}') from None
+        for key,number in checked.items():dpg.set_value('qcar_edit_'+key,number)
+        self.qcar_message=f'已导入{version}（{len(checked)}项）到编辑栏，没有发送修改。'
 
     def run(self):
         dpg.show_viewport();started=time.monotonic()

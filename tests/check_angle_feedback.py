@@ -78,6 +78,7 @@ with tempfile.TemporaryDirectory(prefix='qcar-angle-feedback-') as d:
     (work / 'test.c').write_text(fixture + test)
     exe = work / 'test.exe'
     subprocess.run(['gcc', '-std=c99', '-I' + str(work), '-I' + str(root / 'code'),
-                    str(root / 'code/balance_control.c'), str(root / 'code/pid.c'),
+                    str(root / 'code/balance_control.c'), str(root / 'code/wheel_hold.c'),
+                    str(root / 'tests/encoder_snapshot_stub.c'), str(root / 'code/pid.c'),
                     str(work / 'test.c'), '-lm', '-o', str(exe)], check=True)
     subprocess.run([str(exe)], check=True)

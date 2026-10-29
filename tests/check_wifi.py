@@ -64,6 +64,7 @@ extern volatile float small_driver_test_left,small_driver_test_right;
     with (work/'balance_control.h').open('a') as header:
         header.write("""
 extern volatile uint8 rate_only_test;
+extern volatile uint8 balance_control_mode;
 extern volatile uint8 pwm_debug_enabled;
 extern volatile int32 pwm_step_state;
 extern volatile uint32 pwm_step_ms,pwm_step_stage;

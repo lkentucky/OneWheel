@@ -6,7 +6,12 @@ spec=importlib.util.spec_from_file_location('driver_trace_client',r/'tools/drive
 m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
 with tempfile.TemporaryDirectory(prefix='trace-client-test-') as d:
     w=Path(d);fixture=w/'simulated-wire.txt'
-    subprocess.run([sys.executable,str(r/'tests/check_driver_trace.py'),str(fixture)],check=True)
+    import runpy
+    old_argv=sys.argv[:]
+    try:
+        sys.argv=[str(r/'tests/check_driver_trace.py'),str(fixture)]
+        runpy.run_path(sys.argv[0],run_name='__main__')
+    finally:sys.argv=old_argv
     packets=[b'MCAR TRACE '+p+b'\n' for p in fixture.read_bytes().splitlines()]
     decoded=[]
     for p in packets:

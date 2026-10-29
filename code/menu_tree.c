@@ -13,6 +13,7 @@ static void Create_Menu_Item(Menu_Item *Father, Menu_Item *me,
     me->data = data;
     me->kind = kind;
     me->selected = false;
+    me->step_scale = 1.0f;
     me->sons = 0;
     me->Father = Father;
     me->First_Son = NULL;

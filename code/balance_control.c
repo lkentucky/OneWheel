@@ -4,6 +4,7 @@
  */
 #include "balance_control.h"
 #include "pid.h"
+#include "wheel_hold.h"
 
 uint8_t shacheflag;
 int16 costrained_flywheel_speed_left, costrained_flywheel_speed_right, costrained_wheel_speed;
@@ -99,6 +100,7 @@ static float balance_rate_pid(unsigned axis,float target,float rate,float kp,flo
 volatile uint8 roll_rate_test_enabled;
 volatile uint8 ground_rate_test_enabled;
 volatile uint8 dual_balance_enabled;
+volatile uint8 balance_control_mode;
 volatile uint8 rate_only_test;
 volatile uint8 pwm_debug_enabled;
 volatile float pwm_debug_fly_left, pwm_debug_fly_right, pwm_debug_ground;
@@ -193,6 +195,7 @@ static float angle_lpf_update(float *state, float value)
 void roll_rate_test_stop(void)
 {
     balance_pid_reset();
+    wheel_hold_enabled=0;wheel_hold_reset();balance_control_mode=0;
     roll_rate_test_enabled = 0;
     ground_rate_test_enabled = 0;
     dual_balance_enabled=0;rate_only_test=0;
@@ -224,6 +227,7 @@ void roll_rate_test_arm(void)
     angle_lpf[0] = imu_pitch_deg; angle_lpf[1] = imu_roll_deg;
     roll_rate_test_state = 1;
     roll_rate_test_enabled = 1;
+    balance_control_mode=3;
 }
 
 // 函数简介：周期性更新飞轮角速度测试控制量并驱动电机。
@@ -236,16 +240,17 @@ void ground_rate_test_arm(void)
 {
     roll_rate_test_arm();
     ground_rate_test_enabled=1;
+    balance_control_mode=4;
 }
 
 // 函数简介：启动仅角速度反馈的飞轮测试模式。
 // 参数说明：无。
 // 返回值：无。
-void roll_rate_only_arm(void) {roll_rate_test_arm();rate_only_test=1;}
+void roll_rate_only_arm(void) {roll_rate_test_arm();rate_only_test=1;balance_control_mode=6;}
 // 函数简介：启动仅角速度反馈的地轮测试模式。
 // 参数说明：无。
 // 返回值：无。
-void ground_rate_only_arm(void) {ground_rate_test_arm();rate_only_test=1;}
+void ground_rate_only_arm(void) {ground_rate_test_arm();rate_only_test=1;balance_control_mode=7;}
 // 函数简介：锁存控制故障并记录故障发生时的控制状态。
 // 参数说明：state 为故障状态码；reason 为故障原因码。
 // 返回值：无。
@@ -275,6 +280,14 @@ void dual_balance_arm(void)
 {
     ground_rate_test_arm();
     dual_balance_enabled=1;
+    balance_control_mode=5;
+}
+
+void speed_balance_arm(void)
+{
+    dual_balance_arm();
+    (void)wheel_encoder_rebase_position();
+    wheel_hold_enabled=1;balance_control_mode=2;
 }
 
 /* Bench mode: direct signed PWM, no attitude controller or IMU interlock.
@@ -288,6 +301,7 @@ void pwm_debug_arm(void)
     pwm_debug_enabled=1;
     roll_rate_test_enabled=1;
     roll_rate_test_state=2;
+    balance_control_mode=8;
 }
 
 // 函数简介：读取三路调试 PWM，限幅后直接驱动飞轮和地轮。
@@ -394,9 +408,27 @@ static void dual_balance_update(void)
             else {rate_stale_ms=0;rate_sequence=seq;}
             if (rate_stale_ms>=BALANCE_IMU_STALE_MS) control_latch_fault(-1,4);
             else {
-                roll_rate_test_state=2;
-                control_startup_advance();
-                for(unsigned i=0;i<2;i++) {
+                int ready=1;
+                if (wheel_hold_enabled) {
+                    wheel_encoder_sample_t encoder;
+                    int result;
+                    wheel_encoder_snapshot(&encoder);
+                    result=wheel_hold_update(&encoder,control_startup_scale<1.0f ||
+                        a[1].angle_kp<=0.0f || a[1].rate_kp<=0.0f ||
+                        fabsf((float)costrained_wheel_speed)>=a[1].pwm_limit*control_startup_scale-0.5f);
+                    if (result<0) {control_latch_fault(result==-9?-3:-4,-result);ready=0;}
+                    else if (!result) {roll_rate_test_state=1;ready=0;}
+                    else {
+                        a[1].target+=wheel_tilt_offset;
+                        if (!isfinite(a[1].target) || fabsf(a[1].target)>20.0f) {
+                            control_latch_fault(-3,9);ready=0;
+                        }
+                        dual_target[1]=a[1].target;
+                        dual_angle_error[1]=a[1].target-a[1].angle;
+                    }
+                }
+                if (ready) {roll_rate_test_state=2;control_startup_advance();}
+                for(unsigned i=0;ready && i<2;i++) {
                     if (i==0u) {
                         a[i].rate=fly_rate_filter_update(a[i].rate,seq);
                         dual_rate[i]=a[i].rate;
@@ -410,6 +442,7 @@ static void dual_balance_update(void)
             }
         }
     }
+    if (wheel_hold_enabled && roll_rate_test_state!=2) wheel_hold_suspend();
     /* Generic test channels continue to describe the ground/Pitch axis. */
     pitch_balance_actual_angle=dual_angle[1];pitch_balance_target_angle=dual_target[1];
     pitch_balance_error=dual_angle_error[1];pitch_balance_target_rate=dual_target_rate[1];
@@ -535,6 +568,7 @@ void clear_all_cascade_out(void)
 void balance_control_defaults(void)
 {
     roll_rate_test_stop(); clear_all_cascade_out();
+    wheel_hold_defaults();
     mono_params.balance_angle_x=BALANCE_ZERO_X_DEG;
     mono_params.balance_angle_y=BALANCE_ZERO_Y_DEG;
     roll_rate_test_kp=FLY_RATE_KP;roll_rate_test_limit=FLY_PWM_LIMIT;roll_rate_test_sign=FLY_OUTPUT_SIGN;

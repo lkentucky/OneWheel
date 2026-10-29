@@ -165,6 +165,6 @@ with tempfile.TemporaryDirectory(prefix='onewheel-driver-link-') as directory:
         actual=''.join(function(driver,n) for n in names).replace('small_device_value_struct','vendor_device')
         (work/'test.c').write_text(prefix+types+glue+actual+main,encoding='utf-8')
         exe=work/'test.exe'
-        subprocess.run(['gcc','-std=c99','-DQCAR_DRIVER_TEXT_DUTY='+str(text),'-DSTOCK_DRIVER='+str(int(stock)),'-I'+str(work),'-I'+str(root/'code'),str(root/'code/balance_control.c'),str(root/'code/pid.c'),str(root/'code/small_driver_uart_control.c'),str(work/'test.c'),'-lm','-o',str(exe)],check=True)
+        subprocess.run(['gcc','-std=c99','-DQCAR_DRIVER_TEXT_DUTY='+str(text),'-DSTOCK_DRIVER='+str(int(stock)),'-I'+str(work),'-I'+str(root/'code'),str(root/'code/balance_control.c'),str(root/'code/wheel_hold.c'),str(root/'tests/encoder_snapshot_stub.c'),str(root/'code/pid.c'),str(root/'code/small_driver_uart_control.c'),str(work/'test.c'),'-lm','-o',str(exe)],check=True)
         print('PARSER', 'stock' if stock else 'fixed', 'TX', 'text' if text else 'binary',flush=True)
         subprocess.run([str(exe)],check=True,timeout=15)

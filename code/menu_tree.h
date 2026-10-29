@@ -33,6 +33,7 @@ typedef struct Menu_Item
     uint8_t sons;                       //记录子文件数量
     uint8_t rank;                       //记录当前所处文件夹下的位次
     bool selected;                      //记录是否被选中
+    float step_scale;                    // float edit step multiplier; 0 means 1 for static items
 
     struct Menu_Item *Father;           //所处文件夹节点
     struct Menu_Item *First_Son;        //第一个子文件/子文件夹节点

@@ -50,9 +50,9 @@ int main(void){
     arm(6);attitude_state.gyro.y=10;
     uint32 before_sequence=roll_rate_test_sequence;
     balance_control_tick_1ms();assert(roll_rate_test_sequence==before_sequence && !fly_l);
-    balance_control_tick_1ms();assert(roll_rate_test_sequence==before_sequence+1 && fly_l==-430);
+    balance_control_tick_1ms();assert(roll_rate_test_sequence==before_sequence+1 && fly_l==-(int)(10*FLY_RATE_KP));
     /* Rate-only axis ownership, signs, output limits and P-only equivalence. */
-    arm(6);attitude_state.gyro.y=10;tick(1);assert(fly_l==-430 && fly_r==430 && ground==0);
+    arm(6);attitude_state.gyro.y=10;tick(1);assert(fly_l==-(int)(10*FLY_RATE_KP) && fly_r==(int)(10*FLY_RATE_KP) && ground==0);
     arm(7);attitude_state.gyro.x=10;tick(1);assert(ground==-300 && fly_l==0 && fly_r==0);
     ground_rate_test_sign=-1;tick(1);assert(ground==300);
     ground_rate_test_limit=100;tick(1);assert(ground==100);
@@ -104,7 +104,7 @@ int main(void){
     tick(1);assert(control_startup_scale==1.0f && ground==-3000);
     /* Verify requested flywheel defaults and unchanged ground limits. */
     arm(5);assert(pitch_balance_rate_limit==FLY_RATE_LIMIT_DPS && roll_rate_test_limit==8000);
-    assert(roll_rate_test_kp==43 && pitch_balance_kp==50 && ground_rate_test_kp==30 && mono_params.balance_angle_y==BALANCE_ZERO_Y_DEG && mono_params.balance_angle_x==BALANCE_ZERO_X_DEG && ground_rate_test_limit==4000);
+    assert(roll_rate_test_kp==FLY_RATE_KP && pitch_balance_kp==FLY_ANGLE_KP && ground_rate_test_kp==30 && mono_params.balance_angle_y==BALANCE_ZERO_Y_DEG && mono_params.balance_angle_x==BALANCE_ZERO_X_DEG && ground_rate_test_limit==4000);
     pitch_balance_rate_limit=ground_angle_rate_limit=200;
     roll_rate_test_limit=ground_rate_test_limit=8000;
     roll_rate_test_kp=ground_rate_test_kp=50;
@@ -153,5 +153,5 @@ int main(void){
 }
 ''')
     exe=work/'balance.exe'
-    subprocess.run([compiler,'-I'+str(work),'-I'+str(root/'code'),str(root/'code/balance_control.c'),str(root/'code/pid.c'),str(work/'test.c'),'-lm','-o',str(exe)],check=True)
+    subprocess.run([compiler,'-I'+str(work),'-I'+str(root/'code'),str(root/'code/balance_control.c'),str(root/'code/wheel_hold.c'),str(root/'tests/encoder_snapshot_stub.c'),str(root/'code/pid.c'),str(work/'test.c'),'-lm','-o',str(exe)],check=True)
     subprocess.run([str(exe)],check=True)

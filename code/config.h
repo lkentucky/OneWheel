@@ -62,7 +62,7 @@
 #define QCAR_WIFI_PASSWORD "zyz520520"
 #endif
 #ifndef QCAR_WIFI_TARGET_IP
-#define QCAR_WIFI_TARGET_IP "192.168.0.117"
+#define QCAR_WIFI_TARGET_IP "192.168.0.113"
 #endif
 #ifndef QCAR_WIFI_TARGET_PORT
 #define QCAR_WIFI_TARGET_PORT "8081"
@@ -174,15 +174,15 @@
  * displayed Pitch = ground wheel = imu_roll_deg / gyro.x
  * 零点采用本车静止扶稳读数；不要套用旧版原始量零点 -100 / 190。
  */
-#define BALANCE_ZERO_X_DEG           5.0f
+#define BALANCE_ZERO_X_DEG           4.2f
 #define BALANCE_ZERO_Y_DEG           1.0f
-#define FLY_RATE_KP                 43.0f
+#define FLY_RATE_KP                 36.0f
 #define FLY_RATE_KI                  0.0f
 #define FLY_RATE_KD                  0.0f
-#define FLY_ANGLE_KP                50.0f
+#define FLY_ANGLE_KP                40.0f
 #define FLY_ANGLE_KI                 0.0f
 #define FLY_ANGLE_KD                 0.0f
-#define FLY_RATE_LIMIT_DPS         200.0f
+#define FLY_RATE_LIMIT_DPS         160.0f
 #define FLY_PWM_LIMIT             8000.0f
 #define FLY_OUTPUT_SIGN              1.0f
 #define GROUND_RATE_KP              30.0f
@@ -194,6 +194,24 @@
 #define GROUND_RATE_LIMIT_DPS      100.0f
 #define GROUND_PWM_LIMIT          4000.0f
 #define GROUND_OUTPUT_SIGN           1.0f
+/* Mode2 speed outer loop: rightward travel has +counts, right tilt lowers
+ * displayed Pitch. Negative PI output therefore adds a positive target tilt.
+ * These four defaults/menu RAM values are not stored in the existing Flash. */
+#define WHEEL_SPEED_KP               0.001f
+#define WHEEL_SPEED_KI               0.0f
+#define WHEEL_SPEED_TILT_LIMIT_DEG    1.0f
+#define WHEEL_SPEED_I_LIMIT_DEG       0.5f
+#define WHEEL_SPEED_TILT_SIGN        -1.0f
+#define WHEEL_SPEED_GAIN_MAX          0.1f
+#define WHEEL_SPEED_TILT_MAX_DEG      5.0f
+#define WHEEL_SPEED_ENCODER_TIMEOUT_MS 60u
+/* Position P -> limited target speed, in encoder counts (4096/wheel rev). */
+#define WHEEL_POSITION_KP              0.5f
+#define WHEEL_POSITION_SPEED_LIMIT_CPS 300.0f
+#define WHEEL_POSITION_GAIN_MAX        5.0f
+#define WHEEL_POSITION_SPEED_MAX_CPS 2000.0f
+#define WHEEL_POSITION_PERIOD_MS      100u
+#define WHEEL_POSITION_DEADBAND_COUNT   8u
 /* Allowed tuning ranges, separate from the active/default limits above. */
 #define BALANCE_RATE_LIMIT_MAX_DPS  200.0f
 #define BALANCE_PWM_LIMIT_MAX      8000.0f
@@ -203,12 +221,14 @@
 #define BALANCE_RATE_PID_INCREMENTAL  0
 #define BALANCE_ANGLE_I_LIMIT_DPS     0.0f
 #define BALANCE_RATE_I_LIMIT_PWM      0.0f
-/* Flywheel body-rate feedback only (Modes 3/5/6), before the rate PID.
- * tau=5ms, dt=2ms. Set to 0 to bypass; rebuild required. */
+/* Control loops use EKF angles and corrected gyro rates directly.
+ * EKF estimation, its internal accel LPF and validity gates remain enabled. */
+/* Flywheel rate LPF, Modes 2/3/5/6; dt=2ms. 0 bypasses.
+ * Ground rate stays raw; the post-EKF angle LPF remains disabled. */
 #ifndef FLY_RATE_LPF_TAU_S
 #define FLY_RATE_LPF_TAU_S            0.005f
 #endif
-#define BALANCE_ANGLE_LPF_TAU_S       0.0f  /* 0 disables; bypass post-EKF angle LPF lag */
+#define BALANCE_ANGLE_LPF_TAU_S       0.0f
 /* Flywheel angle-error -> PWM, Modes 3/5 only. PWM per degree; 0 disables.
  * Compile-time setting, independent of Flash/RAM PID gains. */
 #ifndef FLY_ANGLE_FF_KP
@@ -217,7 +237,7 @@
 #define BALANCE_TILT_LIMIT_DEG       30.0f
 #define BALANCE_IMU_STALE_MS         25u
 #define BALANCE_STARTUP_RAMP_MS    1000u
-#define APP_DEFAULT_MODE               5u /* 3/4/5 angle; 6/7 rate-only; 8 PWM debug */
+#define APP_DEFAULT_MODE               5u /* 2 dual + ground speed; 3/4/5 angle; 6/7 rate-only; 8 PWM debug */
 /* Mode8 signed raw duty commands; 10000 means 100% duty. Starts at zero.
  * No PID, IMU readiness or tilt interlock in this bench-test mode. */
 #define DEBUG_PWM_LIMIT             4000.0f
@@ -234,13 +254,32 @@
 #define MOTOR_ENCODER_TIM           TIM2_ENCODER
 #define MOTOR_ENCODER_COUNT_PIN     TIM2_ENCODER_CH1_P33_7
 #define MOTOR_ENCODER_DIR_PIN       TIM2_ENCODER_CH2_P33_6
+/* Rising-edge counting (1x): 1024 pulses/encoder rev, 4 encoder revs/wheel rev. */
+#define WHEEL_ENCODER_PULSES_PER_REV          1024u
+#define WHEEL_ENCODER_REVS_PER_WHEEL_REV         4u
+#define WHEEL_ENCODER_COUNTS_PER_WHEEL_REV \
+    (WHEEL_ENCODER_PULSES_PER_REV * WHEEL_ENCODER_REVS_PER_WHEEL_REV)
+/* Ground-wheel observation only; sign affects counts, never PWM. */
+#ifndef WHEEL_ENCODER_SIGN
+#define WHEEL_ENCODER_SIGN             1
+#endif
+#define WHEEL_ENCODER_READ_MS          2u
+#define WHEEL_ENCODER_SPEED_MS        20u
+#define WHEEL_ENCODER_MAX_GAP_MS      10u
+#define WHEEL_ENCODER_POSITION_LIMIT 16777215L
+#if WHEEL_ENCODER_SIGN != 1 && WHEEL_ENCODER_SIGN != -1
+#error WHEEL_ENCODER_SIGN must be +1 or -1
+#endif
+#if WHEEL_ENCODER_READ_MS < 1 || WHEEL_ENCODER_READ_MS > WHEEL_ENCODER_MAX_GAP_MS || WHEEL_ENCODER_MAX_GAP_MS > WHEEL_ENCODER_SPEED_MS || WHEEL_ENCODER_SPEED_MS > 1000
+#error Invalid wheel encoder sampling periods
+#endif
 #define APP_KEY_DEBOUNCE_MS            10u
 #define APP_KEY_LONG_PRESS_MS        1000u
 #define APP_MENU_CAPACITY             64u
 #define APP_MENU_STEPS {0.01f,0.1f,1.0f,10.0f,100.0f}
 
-#if APP_DEFAULT_MODE < 3 || APP_DEFAULT_MODE > 8
-#error APP_DEFAULT_MODE must be 3..8
+#if APP_DEFAULT_MODE < 2 || APP_DEFAULT_MODE > 8
+#error APP_DEFAULT_MODE must be 2..8
 #endif
 #if APP_CONTROL_TICK_US * APP_CONTROL_DIVIDER != APP_IMU_PERIOD_US
 #error Control and IMU update periods must match

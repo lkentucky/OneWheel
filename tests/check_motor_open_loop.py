@@ -114,7 +114,12 @@ int main(void) {
     wheel_pwm_test(); menu_poll(); assert(output == 700);
     driver_ready = 1; small_driver_test_left=500;small_driver_test_right=-500;stop_car(); assert(output == 0 && driver_stops == 1 && small_driver_test_left==0 && small_driver_test_right==0);
     wheel_test_pwm = 20000; menu_poll(); assert(output == 0 && wheel_test_pwm == 10000);
-    puts("PASS: preset enable, live PWM, reverse, clamp, zero, repeated enable, stop and re-enable");
+    run_mode=2;wheel_test_pwm=600;
+    wheel_pwm_test();menu_poll();assert(!preview && !wheel_switch && !output);
+    assert(strstr(message,"use Start"));
+    small_driver_test_left=500;small_driver_test_right=-500;menu_poll();
+    assert(!small_driver_test_left && !small_driver_test_right && !output);
+    puts("PASS: preset enable, live PWM, reverse, clamp, zero, repeated enable, stop/re-enable; Mode2 blocks ground/flywheel open-loop commands");
 }
 '''
 parts = [function(s) for s in ('static void ensure_wheel(void)',
