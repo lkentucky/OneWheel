@@ -233,6 +233,46 @@ def check_hold(exe, output):
         if process.poll() is None:process.kill();process.wait(timeout=5)
 
 
+def check_imu_profiles(exe, output):
+    """New estimator diagnostics through the real executable, loopback only."""
+    for profile,fixture in [('imu_quality','qcar_quality.bin'),('imu_input','qcar_input.bin')]:
+        folder=output/profile;folder.mkdir(parents=True,exist_ok=True)
+        startup=folder/'startup.json';report=folder/'report.json'
+        for path in (startup,report):path.unlink(missing_ok=True)
+        environment=os.environ.copy();environment['LOCALAPPDATA']=str(folder/'appdata')
+        process=subprocess.Popen([str(exe),'--data-dir',str(folder/'state'),'--test-ports','--listen-test',
+            '--page','plot','--exit-after','6','--startup-report',str(startup),'--test-report',str(report)],
+            env=environment,creationflags=subprocess.CREATE_NO_WINDOW)
+        try:
+            deadline=time.monotonic()+30
+            while not startup.exists() and process.poll() is None and time.monotonic()<deadline:time.sleep(.1)
+            assert startup.exists(),('No startup report',profile,process.poll())
+            names=PROFILES[profile];frame=(ROOT/'tests/fixtures'/fixture).read_bytes()
+            with socket.socket(socket.AF_INET,socket.SOCK_DGRAM) as sender:
+                sender.bind(('127.0.0.1',0))
+                sender.sendto(('MCAR SUB '+','.join(names)+'\n').encode(),('127.0.0.1',18081))
+                for _ in range(30):sender.sendto(frame,('127.0.0.1',18081));time.sleep(.01)
+            process.wait(timeout=20)
+            assert process.returncode==0
+            result=json.loads(report.read_text('utf-8'))
+            assert result['records']==30 and result['parse_errors']==0 and result['fields']==names,result
+            assert result['latest']['imu_status']==1,result
+            if profile=='imu_quality':
+                assert result['latest']['imu_quality']==3 and result['latest']['imu_recovery_pct']==0,result
+            else:
+                assert result['latest']['imu_pre_gy_dps']==1 and result['latest']['gyro_y_dps']==2,result
+                assert result['latest']['imu_reacquiring']==1,result
+                assert result['plotted_points']['imu_pre_gy_dps']==30,result
+            saved=list(Path(result['output']).glob('*.csv'));assert len(saved)==1
+            with saved[0].open(encoding='utf-8-sig',newline='') as stream:rows=list(csv.DictReader(stream))
+            assert len(rows)==30 and float(rows[-1]['imu_status'])==1
+            proof=dict(profile=profile,fields=len(names),records=30,parse_errors=0,csv_rows=30,
+                       raw_and_preprocessed=profile=='imu_input',firmware_transport_frame=True,vehicle_contacted=False)
+            (folder/'proof.json').write_text(json.dumps(proof,indent=2),encoding='utf-8');print(json.dumps(proof))
+        finally:
+            if process.poll() is None:process.kill();process.wait(timeout=5)
+
+
 if __name__=='__main__':
     parser=argparse.ArgumentParser();parser.add_argument('exe',type=Path);parser.add_argument('output',type=Path)
-    args=parser.parse_args();check(args.exe.resolve(),args.output.resolve())
+    args=parser.parse_args();check(args.exe.resolve(),args.output.resolve());check_imu_profiles(args.exe.resolve(),args.output.resolve())

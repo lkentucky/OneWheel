@@ -1,0 +1,40 @@
+#include "attitude.h"
+#include <assert.h>
+#include <math.h>
+#include <stdio.h>
+static void step(Ekf6 *s,float g[3],float a[3]) { assert(ekf6_update(s,g,a,.002f)); }
+int main(void) {
+    Ekf6 s;float a[3]={0,0,1},g[3]={0,0,0},e[3];
+    assert(ekf6_init(&s,a));step(&s,g,a);
+    g[0]=600*DEG_TO_RAD;step(&s,g,a);assert(fabsf(s.gyro_lpf[0])<1e-6f);
+    step(&s,g,a);assert(fabsf(s.gyro_lpf[0]*RAD_TO_DEG-300)<.01f);
+    step(&s,g,a);assert(fabsf(s.gyro_lpf[0]*RAD_TO_DEG-450)<.01f);
+    step(&s,g,a);assert(fabsf(s.gyro_lpf[0]*RAD_TO_DEG-525)<.01f);
+    g[0]=0;assert(ekf6_init(&s,a));step(&s,g,a);
+    g[0]=600*DEG_TO_RAD;step(&s,g,a);g[0]=0;step(&s,g,a);
+    assert(fabsf(s.gyro_lpf[0])<1e-6f);
+    /* Gravity +/-0.3g vibration: raw hard gates reject every frame. The single
+     * vector input stage recovers usable gravity; small gyro bias stays bounded. */
+    assert(ekf6_init(&s,a));step(&s,g,a);g[1]=2*DEG_TO_RAD;
+    unsigned used=0;
+    for(unsigned i=0;i<6000;i++) { a[2]=i%2?1.3f:.7f;step(&s,g,a);used+=s.accel_used; }
+    ekf6_euler(&s,e);fprintf(stderr,"vibration12s: pitch=%.4f used=%u/6000\n",e[1],used);
+    assert(fabsf(e[1])<1 && used>5500);
+    /* An existing wrong online bias must not prevent gravity re-acquisition. */
+    float tilt=22*DEG_TO_RAD;
+    a[0]=-sinf(tilt);a[2]=cosf(tilt);assert(ekf6_init(&s,a));
+    g[1]=0;for(unsigned i=0;i<3000;i++)step(&s,g,a);
+    s.bias_xy[1]=3*DEG_TO_RAD;
+    a[0]=0;a[2]=1;g[0]=g[1]=g[2]=0;
+    unsigned reacquired=0;
+    for(unsigned i=0;i<20000;i++) { step(&s,g,a);reacquired+=s.reacquiring; }
+    ekf6_euler(&s,e);fprintf(stderr,"wrongBias3dps: pitch=%.4f biasY=%.4f reacquiring=%u\n",e[1],s.bias_xy[1]*RAD_TO_DEG,reacquired);
+    assert(fabsf(e[1])<1 && fabsf(s.bias_xy[1])*RAD_TO_DEG<1 && reacquired>0);
+    /* Reacquisition may not create a single large attitude jump. */
+    a[0]=-sinf(tilt);a[2]=cosf(tilt);assert(ekf6_init(&s,a));
+    a[0]=0;a[2]=1;
+    float last=22;
+    for(unsigned i=0;i<3000;i++) {step(&s,g,a);ekf6_euler(&s,e);assert(fabsf(e[1]-last)<.041f);last=e[1];}
+    assert(fabsf(last)<1);
+    puts("PASS: isolated spike, sustained motion, vibratory gravity, wrong-bias recovery and bounded angle correction");
+}

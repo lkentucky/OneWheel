@@ -26,7 +26,7 @@ void attitude_cube_euler(const float q[4], float xyz_deg[3]);
 
 /* 更新函数成功返回 1，失败返回 0；失败不提交新状态。 */
 /* Quaternion nominal state, local angle error + X/Y residual gyro bias.
- * Z bias remains handled by wheel-confirmed stationary calibration in imu.c.
+ * Z bias is determined by startup stationary calibration in imu.c.
  * Fixed-size storage; no allocator or matrix library required. */
 typedef struct {
     float q[4], bias_xy[2], covariance[5][5], accel_lpf[3];
@@ -37,6 +37,10 @@ typedef struct {
     float reject_age_s, accept_ratio, poor_accept_s;
     unsigned reject_count;
     int reject_reason, quality, have_gyro, bias_learning;
+    float gyro_lpf[3], gyro_reference[3], previous_accel[3], input_accel_norm, gravity_stable_s;
+    unsigned gyro_hold_mask, accel_hold_mask;
+    int input_ready, reacquiring;
+    float gravity_vibration_sq;
 } Ekf6;
 enum { EKF_REJECT_NONE=0, EKF_REJECT_NORM=1, EKF_REJECT_NIS=2,
        EKF_REJECT_GEOMETRY=3, EKF_REJECT_CLIP=4 };

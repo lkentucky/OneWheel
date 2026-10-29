@@ -138,7 +138,16 @@
 #define EKF_BIAS_NOISE           0.00000001f
 #define EKF_ACCEL_VARIANCE       0.0025f
 #define EKF_CHI_SQUARE_LIMIT     11.345f
-#define EKF_ACCEL_LPF_TAU_S      0.01f
+/* Single software preprocessing stage BEFORE fusion. No post-EKF LPF. */
+#define IMU_GYRO_INPUT_TAU_S     0.002f
+#define IMU_ACCEL_INPUT_TAU_S    0.004f
+#define IMU_GYRO_SPIKE_DPS       300.0f
+#define IMU_ACCEL_SPIKE_G        2.0f
+#define EKF_REACQUIRE_STABLE_S   0.5f
+#define EKF_REACQUIRE_GYRO_RADPS 0.03490659f
+#define EKF_REACQUIRE_VIB_G      0.015f
+#define EKF_REACQUIRE_NORM_G     0.03f
+#define EKF_CORRECTION_MAX_RADPS 0.34906585f
 #define EKF_BIAS_LIMIT_RADPS     0.08726646f
 /* IMU quality: seconds, g and rad/s. Independent of the control-rate LPF. */
 #define EKF_QUALITY_TAU_S         1.0f
@@ -155,12 +164,6 @@
 #define IMU_POOR_ACCEPT_LIMIT_S   1.0f
 #define IMU_POOR_R_SCALE          8.0f
 #define IMU_RAW_CLIP_COUNTS       32000
-#define IMU_RECOVERY_TIME_S       1.0f
-#define IMU_RECOVERY_GYRO_DPS     3.0f
-#define IMU_RECOVERY_ACCEL_G      0.04f
-#define IMU_RECOVERY_FLY_RAW      5.0f
-#define IMU_RECOVERY_WHEEL_CPS    5.0f
-#define IMU_RECOVERY_FEEDBACK_MS  50u
 
 #define ACC_NORM_MIN             0.85f
 #define ACC_NORM_MAX             1.15f
@@ -169,8 +172,13 @@
 #define MAX_SKIP_DT              0.050f
 
 #define CALIBRATION_SAMPLES      500u /* 500Hz: keep a 1 second stillness window. */
-#define IMU_CTRL1_XL_CONFIG      0x7Cu /* 833Hz accelerometer, +/-8g. */
+#define IMU_CTRL1_XL_CONFIG      0x7Eu /* 833Hz accelerometer, +/-8g. */
 #define IMU_CTRL2_G_CONFIG       0x7Cu /* 833Hz gyroscope, +/-2000dps. */
+#define IMU_CTRL3_C_CONFIG       0x44u /* BDU + address increment, NOT a filter. */
+#define IMU_CTRL4_C_CONFIG       0x02u /* Enable gyro LPF1. */
+#define IMU_CTRL6_C_CONFIG       0x02u /* FTYPE=010: 140Hz at 833Hz ODR. */
+#define IMU_CTRL7_G_CONFIG       0x00u /* Gyro high performance, HPF disabled. */
+#define IMU_CTRL8_XL_CONFIG      0x00u /* No acceleration high pass/user offset. */
 #define CAL_GYRO_LIMIT_DPS       10.0f
 #define CAL_GYRO_SPAN_DPS        6.0f
 #define CAL_ACCEL_SPAN_G         0.12f
@@ -242,13 +250,9 @@
 #define BALANCE_RATE_PID_INCREMENTAL  0
 #define BALANCE_ANGLE_I_LIMIT_DPS     0.0f
 #define BALANCE_RATE_I_LIMIT_PWM      0.0f
-/* Control loops use EKF angles and corrected gyro rates directly.
- * EKF estimation, its internal accel LPF and validity gates remain enabled. */
-/* Flywheel rate LPF, Modes 2/3/5/6; dt=2ms. 0 bypasses.
- * Ground rate stays raw; the post-EKF angle LPF remains disabled. */
-#ifndef FLY_RATE_LPF_TAU_S
-#define FLY_RATE_LPF_TAU_S            0.005f
-#endif
+/* Control uses EKF angles and the SAME prepared gyro used by EKF prediction.
+ * Legacy zero constants only support old external test/tools; no post-filter code. */
+#define FLY_RATE_LPF_TAU_S            0.0f
 #define BALANCE_ANGLE_LPF_TAU_S       0.0f
 /* Flywheel angle-error -> PWM, Modes 3/5 only. PWM per degree; 0 disables.
  * Compile-time setting, independent of Flash/RAM PID gains. */

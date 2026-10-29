@@ -62,6 +62,8 @@ volatile int32 imu_quality,imu_reject_reason,imu_bias_learning;
 volatile float imu_reject_ms,imu_accept_ratio=1,imu_accel_vibration_g;
 volatile float imu_gyro_step_dps,imu_r_scale=1,imu_bias_slew_dps2,imu_recovery_percent;
 volatile uint32 imu_reject_count,imu_gyro_clips,imu_accel_clips,imu_recovery_count;
+volatile float imu_pre_gyro_dps[3],imu_pre_accel_g[3],imu_pre_norm_g;
+volatile int32 imu_reacquiring;
 volatile uint8 rate_only_test;
 static unsigned trace_request_value,trace_request_calls;
 static const char *trace_mock_reply;
@@ -202,7 +204,8 @@ static void test_transport(void)
         datagrams[i][sizes[i]]=0;
         assert(strstr((const char *)datagrams[i],",wheel_encoder_sign,"));
         assert(strstr((const char *)datagrams[i],",wheel_speed_limit,step_state,step_ms,step_stage,"));
-        assert(strstr((const char *)datagrams[i],",imu_recovery_pct,imu_recoveries\n")); ++found;
+        assert(strstr((const char *)datagrams[i],",imu_recovery_pct,imu_recoveries,"));
+        assert(strstr((const char *)datagrams[i],",imu_pre_norm_g,imu_reacquiring\n")); ++found;
       }
       assert(found==1);
     }
@@ -444,13 +447,23 @@ static void test_transport(void)
         assert(fwrite(datagrams[packet_count-1],1,sizes[packet_count-1],file)==196);assert(fclose(file)==0);
     }
     /* Complete new diagnostic profile through the real subscription/packer. */
-    imu_quality=3;imu_attitude_status=-5;imu_reject_ms=600;imu_recovery_percent=42;
+    imu_quality=3;imu_attitude_status=1;imu_reject_ms=600;imu_recovery_percent=0;
     command("SUB telemetry_ms,control_mode,imu_status,rate_state,fault_reason,fault_imu_status,roll_deg,pitch_deg,gyro_x_dps,gyro_y_dps,gyro_z_dps,accel_x_g,accel_y_g,accel_z_g,accel_norm_g,imu_accel_used,ekf_nis,ekf_bias_x_dps,ekf_bias_y_dps,imu_dt_ms,imu_solve_us,imu_seq,motor_left_pwm,motor_right_pwm,motor_ground_pwm,flywheel_left_speed_raw,flywheel_right_speed_raw,driver_feedback_fresh,driver_feedback_age_ms,wheel_speed_cps,wheel_encoder_valid,imu_spi_timeouts,imu_bad_bursts,imu_quality,imu_reject_reason,imu_reject_ms,imu_accept_ratio,imu_reject_count,imu_accel_vib_g,imu_gyro_step_dps,imu_r_scale,imu_bias_learning,imu_bias_slew_dps2,imu_gyro_clips,imu_accel_clips,imu_recovery_pct,imu_recoveries\n");
     ticks+=2000000u;wifispi_telemetry_service();
     assert(wifi_telemetry_channel_count==47 && last_value(33,47)==3 && last_value(35,47)==600);
     if(getenv("QCAR_WIFI_QUALITY_FIXTURE")) {
         FILE *file=fopen(getenv("QCAR_WIFI_QUALITY_FIXTURE"),"wb");assert(file);
         assert(fwrite(datagrams[packet_count-1],1,sizes[packet_count-1],file)==192);assert(fclose(file)==0);
+    }
+    imu_pre_gyro_dps[0]=.5f;imu_pre_gyro_dps[1]=1;imu_pre_gyro_dps[2]=1.5f;
+    imu_pre_accel_g[0]=.01f;imu_pre_accel_g[1]=-.02f;imu_pre_accel_g[2]=.99f;
+    imu_pre_norm_g=.99025f;imu_reacquiring=1;
+    command("SUB telemetry_ms,control_mode,imu_status,rate_state,fault_reason,imu_seq,imu_dt_ms,imu_solve_us,roll_deg,pitch_deg,yaw_deg,gyro_x_dps,gyro_y_dps,gyro_z_dps,accel_x_g,accel_y_g,accel_z_g,imu_pre_gx_dps,imu_pre_gy_dps,imu_pre_gz_dps,imu_pre_ax_g,imu_pre_ay_g,imu_pre_az_g,imu_pre_norm_g,imu_reacquiring,accel_norm_g,imu_accel_used,ekf_nis,ekf_bias_x_dps,ekf_bias_y_dps,imu_quality,imu_reject_reason,imu_reject_ms,imu_accept_ratio,imu_reject_count,imu_accel_vib_g,imu_gyro_step_dps,imu_r_scale,imu_bias_learning,imu_bias_slew_dps2,imu_gyro_clips,imu_accel_clips,motor_left_pwm,motor_right_pwm,motor_ground_pwm,flywheel_left_speed_raw,flywheel_right_speed_raw,driver_feedback_fresh\n");
+    ticks+=2000000u;wifispi_telemetry_service();
+    assert(wifi_telemetry_channel_count==48 && last_value(17,48)==.5f && last_value(24,48)==1);
+    if(getenv("QCAR_WIFI_INPUT_FIXTURE")) {
+        FILE *file=fopen(getenv("QCAR_WIFI_INPUT_FIXTURE"),"wb");assert(file);
+        assert(fwrite(datagrams[packet_count-1],1,sizes[packet_count-1],file)==196);assert(fclose(file)==0);
     }
     unsigned previous_sockets=socket_calls;
     wifispi_set_progress_hook(cancel_during_join);

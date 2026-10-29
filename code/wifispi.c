@@ -148,7 +148,10 @@ static float g_telemetry_ms;
     X(imu_gyro_step_dps, imu_gyro_step_dps) X(imu_r_scale, imu_r_scale) \
     X(imu_bias_learning, imu_bias_learning) X(imu_bias_slew_dps2, imu_bias_slew_dps2) \
     X(imu_gyro_clips, imu_gyro_clips) X(imu_accel_clips, imu_accel_clips) \
-    X(imu_recovery_pct, imu_recovery_percent) X(imu_recoveries, imu_recovery_count)
+    X(imu_recovery_pct, imu_recovery_percent) X(imu_recoveries, imu_recovery_count) \
+    X(imu_pre_gx_dps, imu_pre_gyro_dps[0]) X(imu_pre_gy_dps, imu_pre_gyro_dps[1]) X(imu_pre_gz_dps, imu_pre_gyro_dps[2]) \
+    X(imu_pre_ax_g, imu_pre_accel_g[0]) X(imu_pre_ay_g, imu_pre_accel_g[1]) X(imu_pre_az_g, imu_pre_accel_g[2]) \
+    X(imu_pre_norm_g, imu_pre_norm_g) X(imu_reacquiring, imu_reacquiring)
 
 #define VARIABLE_ID(name, expr) TV_##name,
 enum { TELEMETRY_VARIABLES(VARIABLE_ID) TV_COUNT };

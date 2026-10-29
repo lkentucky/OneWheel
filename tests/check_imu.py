@@ -31,6 +31,10 @@ typedef int16_t int16; typedef int32_t int32;
       str(work/'imu.c'),str(work/'attitude_algorithm.c'),str(root/'code/attitude.c'),
       str(root/'tests/imu_rb_test.c.in'),'-lm','-o',str(exe)],check=True)
     subprocess.run([str(exe)],check=True)
+    exe=work/'preprocess.exe'
+    subprocess.run(['gcc','-x','c','-std=c99','-O2','-Wall','-Wextra','-I'+str(root/'code'),
+      str(root/'code/attitude.c'),str(root/'tests/imu_preprocess_test.c.in'),'-lm','-o',str(exe)],check=True)
+    subprocess.run([str(exe)],check=True)
     exe=work/'ekf.exe'
     subprocess.run(['gcc','-x','c','-std=c99','-O2','-Wall','-Wextra','-I'+str(root/'code'),
       str(root/'code/attitude.c'),str(root/'tests/attitude_ekf_test.c.in'),'-lm','-o',str(exe)],check=True)

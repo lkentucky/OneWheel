@@ -52,22 +52,6 @@ IFX_INTERRUPT(cc60_pit_ch1_isr, 0, CCU6_0_CH1_ISR_PRIORITY)
 {
     interrupt_global_enable(0);                     // 开启中断嵌套
     pit_clear_flag(CCU60_CH1);
-    {
-        wheel_encoder_sample_t wheel;
-        uint32 irq;
-        bool allowed;
-        wheel_encoder_snapshot(&wheel);
-        irq=interrupt_global_disable();
-        allowed=menu_imu_recovery_stopped() &&
-            small_driver_feedback_fresh && small_driver_speed_frames>0u &&
-            small_driver_feedback_age_ms<=IMU_RECOVERY_FEEDBACK_MS &&
-            fabsf((float)motor_value.receive_left_speed_data)<=IMU_RECOVERY_FLY_RAW &&
-            fabsf((float)motor_value.receive_right_speed_data)<=IMU_RECOVERY_FLY_RAW &&
-            wheel.valid && wheel.sequence && wheel.age_ms<=IMU_RECOVERY_FEEDBACK_MS &&
-            isfinite(wheel.speed_cps) && fabsf(wheel.speed_cps)<=IMU_RECOVERY_WHEEL_CPS;
-        imu_set_recovery_allowed(allowed);
-        interrupt_global_enable(irq);
-    }
     imu_update();
 
 

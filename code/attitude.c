@@ -198,7 +198,7 @@ int ekf6_update(Ekf6 *s,const float g[3],const float a[3],float dt)
     float f[5][5]={{0}},skew[3][3],angle[3],omega[3],h[3],res[3];
     float hmat[3][5]={{0}},pht[5][3]={{0}},smat[3][3]={{0}},inv[3][3];
     float gain[5][3]={{0}},dx[5]={0},norm,alpha,predicted_yaw,yaw_jac[3];
-    float residual_sq=0.0f,gyro_step_sq=0.0f,gyro_norm_sq=0.0f,r_variance;
+    float residual_sq=0.0f,gyro_step_sq=0.0f,gyro_norm_sq=0.0f,input_gyro_norm_sq=0.0f,r_variance;
     unsigned i,j,k;
     if(!finite_float(dt) || dt<=0 || dt>MAX_SAMPLE_DT) return 0;
     for(i=0;i<3;++i) if(!finite_float(g[i]) || !finite_float(a[i])) return 0;
@@ -212,10 +212,23 @@ int ekf6_update(Ekf6 *s,const float g[3],const float a[3],float dt)
     next.accel_norm=norm; next.accel_used=0; next.innovation_nis=-1.0f;
     next.reject_reason=EKF_REJECT_NONE; next.bias_learning=0; next.bias_slew_dps2=0;
     next.observation_r_scale=1.0f;
-    for(i=0;i<3;++i) { omega[i]=g[i]-(i<2?next.bias_xy[i]:0); angle[i]=omega[i]*dt; }
+    /* One causal preprocessing stage. A lone extreme excursion is held for
+     * one frame; a persistent large motion is admitted on the second frame. */
+    if(!next.input_ready) {
+        for(i=0;i<3;++i) { next.gyro_lpf[i]=next.gyro_reference[i]=g[i]; next.previous_accel[i]=a[i]; }
+        next.input_ready=1;
+    }
+    alpha=dt/(IMU_GYRO_INPUT_TAU_S+dt);
+    for(i=0;i<3;++i) {
+        float candidate=g[i]; unsigned bit=1u<<i;
+        if(fabsf(candidate-next.gyro_reference[i])>IMU_GYRO_SPIKE_DPS*DEG_TO_RAD && !(next.gyro_hold_mask&bit)) {
+            candidate=next.gyro_lpf[i];next.gyro_hold_mask|=bit;
+        } else { next.gyro_hold_mask&=~bit;next.gyro_reference[i]=candidate; }
+        next.gyro_lpf[i]+=alpha*(candidate-next.gyro_lpf[i]);
+        input_gyro_norm_sq+=next.gyro_lpf[i]*next.gyro_lpf[i];
+        omega[i]=next.gyro_lpf[i]-(i<2?next.bias_xy[i]:0); angle[i]=omega[i]*dt;
+    }
     if(!ekf_rotate(next.q,angle) || !ekf_transport_accel(next.accel_lpf,angle)) return 0;
-    /* Residual after transporting the previous gravity estimate: true body
-     * rotation is not itself counted as acceleration vibration. No gyro deadband. */
     alpha=dt/(EKF_VIBRATION_TAU_S+dt);
     for(i=0;i<3;++i) {
         float d=a[i]-next.accel_lpf[i],dg=g[i]-next.previous_gyro[i];
@@ -223,8 +236,34 @@ int ekf6_update(Ekf6 *s,const float g[3],const float a[3],float dt)
         next.previous_gyro[i]=g[i];
     }
     next.accel_vibration_sq+=alpha*(residual_sq-next.accel_vibration_sq);
+    {
+        float dot=0,n2=0;
+        for(i=0;i<3;++i) { dot+=(a[i]-next.accel_lpf[i])*next.accel_lpf[i];n2+=next.accel_lpf[i]*next.accel_lpf[i]; }
+        /* Longitudinal vibration changes magnitude, not gravity direction.
+         * Do not throw away reliable tilt direction solely for vertical shaking. */
+        float transverse=fmaxf(0.0f,residual_sq-dot*dot/fmaxf(n2,1e-6f));
+        next.gravity_vibration_sq+=alpha*(transverse-next.gravity_vibration_sq);
+    }
     if(next.have_gyro) next.gyro_step_sq+=alpha*(gyro_step_sq-next.gyro_step_sq);
     next.have_gyro=1;
+    /* Keep ALL finite non-clipped acceleration samples for vector smoothing.
+     * Evaluate gravity usefulness AFTER smoothing, not on individual vibration peaks. */
+    alpha=dt/(IMU_ACCEL_INPUT_TAU_S+dt);
+    for(i=0;i<3;++i) {
+        float candidate=a[i];unsigned bit=1u<<i;
+        if(fabsf(candidate-next.previous_accel[i])>IMU_ACCEL_SPIKE_G && !(next.accel_hold_mask&bit)) {
+            candidate=next.previous_accel[i];next.accel_hold_mask|=bit;
+        } else { next.accel_hold_mask&=~bit;next.previous_accel[i]=candidate; }
+        next.accel_lpf[i]+=alpha*(candidate-next.accel_lpf[i]);
+    }
+    norm=sqrtf(next.accel_lpf[0]*next.accel_lpf[0]+next.accel_lpf[1]*next.accel_lpf[1]+next.accel_lpf[2]*next.accel_lpf[2]);
+    next.input_accel_norm=norm;
+    next.reacquiring=0;
+    if(fabsf(norm-1.0f)<=EKF_REACQUIRE_NORM_G &&
+       next.accel_vibration_sq<EKF_REACQUIRE_VIB_G*EKF_REACQUIRE_VIB_G &&
+       input_gyro_norm_sq<EKF_REACQUIRE_GYRO_RADPS*EKF_REACQUIRE_GYRO_RADPS)
+        next.gravity_stable_s=fminf(2.0f,next.gravity_stable_s+dt);
+    else next.gravity_stable_s=0;
     predicted_yaw=ekf_yaw_rad(next.q);
     ekf_skew(omega,skew);
     for(i=0;i<5;++i) f[i][i]=1;
@@ -232,11 +271,7 @@ int ekf6_update(Ekf6 *s,const float g[3],const float a[3],float dt)
     f[0][3]=-dt; f[1][4]=-dt;
     ekf_cov_transform(next.covariance,f);
     for(i=0;i<5;++i) next.covariance[i][i]+=(i<3?EKF_GYRO_NOISE:EKF_BIAS_NOISE)*dt;
-    /* Reject abnormal raw acceleration before it contaminates the LPF. */
     if(norm<ACC_NORM_MIN || norm>ACC_NORM_MAX) { next.reject_reason=EKF_REJECT_NORM; goto commit; }
-    alpha=dt/(EKF_ACCEL_LPF_TAU_S+dt);
-    for(i=0;i<3;++i) next.accel_lpf[i]+=alpha*(a[i]-next.accel_lpf[i]);
-    norm=sqrtf(next.accel_lpf[0]*next.accel_lpf[0]+next.accel_lpf[1]*next.accel_lpf[1]+next.accel_lpf[2]*next.accel_lpf[2]);
     if(norm<1e-6f || !finite_float(norm)) { next.reject_reason=EKF_REJECT_GEOMETRY; goto commit; }
     {
         float w=next.q[0],x=next.q[1],y=next.q[2],z=next.q[3];
@@ -262,10 +297,13 @@ int ekf6_update(Ekf6 *s,const float g[3],const float a[3],float dt)
     for(i=0;i<3;++i) for(j=0;j<3;++j) next.innovation_nis+=res[i]*inv[i][j]*res[j];
     if(!finite_float(next.innovation_nis)) return 0;
     /* Gate using BASE R, so increasing R cannot hide a bad observation. */
-    if(next.innovation_nis>EKF_CHI_SQUARE_LIMIT) { next.reject_reason=EKF_REJECT_NIS; goto commit; }
+    if(next.innovation_nis>EKF_CHI_SQUARE_LIMIT) {
+        if(next.gravity_stable_s<EKF_REACQUIRE_STABLE_S) { next.reject_reason=EKF_REJECT_NIS; goto commit; }
+        next.reacquiring=1; /* Stable gravity can gradually recover an erroneous prediction. */
+    }
     {
-        float n=fabsf(next.accel_norm-1.0f)/EKF_ACCEL_SOFT_ERROR_G;
-        float v=next.accel_vibration_sq/(EKF_ACCEL_SOFT_VIB_G*EKF_ACCEL_SOFT_VIB_G);
+        float n=fabsf(next.input_accel_norm-1.0f)/EKF_ACCEL_SOFT_ERROR_G;
+        float v=next.gravity_vibration_sq/(EKF_ACCEL_SOFT_VIB_G*EKF_ACCEL_SOFT_VIB_G);
         float nis=fmaxf(0.0f,next.innovation_nis/EKF_NIS_SOFT_LIMIT-1.0f);
         next.observation_r_scale=attitude_clamp(1.0f+n*n+v+nis,1.0f,EKF_R_SCALE_MAX);
     }
@@ -281,7 +319,13 @@ int ekf6_update(Ekf6 *s,const float g[3],const float a[3],float dt)
         for(i=0;i<3;++i) yaw_gain+=yaw_jac[i]*gain[i][j];
         for(i=0;i<3;++i) gain[i][j]-=h[i]*yaw_gain;
     }
-    next.bias_learning=(fabsf(next.accel_norm-1.0f)<=EKF_ACCEL_SOFT_ERROR_G &&
+    {
+        float correction[3]={0},length=0,scale;
+        for(i=0;i<3;++i) { for(j=0;j<3;++j) correction[i]+=gain[i][j]*res[j];length+=correction[i]*correction[i]; }
+        length=sqrtf(length);scale=length>EKF_CORRECTION_MAX_RADPS*dt?EKF_CORRECTION_MAX_RADPS*dt/length:1.0f;
+        for(i=0;i<3;++i) for(j=0;j<3;++j) gain[i][j]*=scale;
+    }
+    next.bias_learning=(!next.reacquiring && fabsf(next.input_accel_norm-1.0f)<=EKF_ACCEL_SOFT_ERROR_G &&
         next.accel_vibration_sq<=EKF_ACCEL_SOFT_VIB_G*EKF_ACCEL_SOFT_VIB_G &&
         next.gyro_step_sq<=EKF_GYRO_STEP_MAX_RADPS*EKF_GYRO_STEP_MAX_RADPS &&
         gyro_norm_sq<=EKF_BIAS_LEARN_MAX_RADPS*EKF_BIAS_LEARN_MAX_RADPS &&

@@ -136,7 +136,15 @@ FIELDS = ('roll_deg',
  'imu_gyro_clips',
  'imu_accel_clips',
  'imu_recovery_pct',
- 'imu_recoveries')
+ 'imu_recoveries',
+ 'imu_pre_gx_dps',
+ 'imu_pre_gy_dps',
+ 'imu_pre_gz_dps',
+ 'imu_pre_ax_g',
+ 'imu_pre_ay_g',
+ 'imu_pre_az_g',
+ 'imu_pre_norm_g',
+ 'imu_reacquiring')
 PROFILES = {'startup': ['telemetry_ms',
              'rate_seq',
              'imu_seq',
@@ -359,3 +367,6 @@ PROFILES = {'startup': ['telemetry_ms',
 
 # IMU quality profile: raw input, estimator trust and actuator context.
 PROFILES["imu_quality"] = ['telemetry_ms', 'control_mode', 'imu_status', 'rate_state', 'fault_reason', 'fault_imu_status', 'roll_deg', 'pitch_deg', 'gyro_x_dps', 'gyro_y_dps', 'gyro_z_dps', 'accel_x_g', 'accel_y_g', 'accel_z_g', 'accel_norm_g', 'imu_accel_used', 'ekf_nis', 'ekf_bias_x_dps', 'ekf_bias_y_dps', 'imu_dt_ms', 'imu_solve_us', 'imu_seq', 'motor_left_pwm', 'motor_right_pwm', 'motor_ground_pwm', 'flywheel_left_speed_raw', 'flywheel_right_speed_raw', 'driver_feedback_fresh', 'driver_feedback_age_ms', 'wheel_speed_cps', 'wheel_encoder_valid', 'imu_spi_timeouts', 'imu_bad_bursts', 'imu_quality', 'imu_reject_reason', 'imu_reject_ms', 'imu_accept_ratio', 'imu_reject_count', 'imu_accel_vib_g', 'imu_gyro_step_dps', 'imu_r_scale', 'imu_bias_learning', 'imu_bias_slew_dps2', 'imu_gyro_clips', 'imu_accel_clips', 'imu_recovery_pct', 'imu_recoveries']
+
+# Paired raw/preprocessed input diagnosis; no actuator command changes.
+PROFILES["imu_input"] = ['telemetry_ms', 'control_mode', 'imu_status', 'rate_state', 'fault_reason', 'imu_seq', 'imu_dt_ms', 'imu_solve_us', 'roll_deg', 'pitch_deg', 'yaw_deg', 'gyro_x_dps', 'gyro_y_dps', 'gyro_z_dps', 'accel_x_g', 'accel_y_g', 'accel_z_g', 'imu_pre_gx_dps', 'imu_pre_gy_dps', 'imu_pre_gz_dps', 'imu_pre_ax_g', 'imu_pre_ay_g', 'imu_pre_az_g', 'imu_pre_norm_g', 'imu_reacquiring', 'accel_norm_g', 'imu_accel_used', 'ekf_nis', 'ekf_bias_x_dps', 'ekf_bias_y_dps', 'imu_quality', 'imu_reject_reason', 'imu_reject_ms', 'imu_accept_ratio', 'imu_reject_count', 'imu_accel_vib_g', 'imu_gyro_step_dps', 'imu_r_scale', 'imu_bias_learning', 'imu_bias_slew_dps2', 'imu_gyro_clips', 'imu_accel_clips', 'motor_left_pwm', 'motor_right_pwm', 'motor_ground_pwm', 'flywheel_left_speed_raw', 'flywheel_right_speed_raw', 'driver_feedback_fresh']

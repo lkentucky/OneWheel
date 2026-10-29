@@ -1,5 +1,5 @@
 /* Upright controller, extracted from upstream pid.c (GPL-3.0-or-later).
- * Modes 3..7 retain gains/signs; flywheel rate feedback has a light LPF.
+ * Modes 3..7 retain gains/signs; IMU preprocessing owns all feedback filtering.
  * Mode 8 remains raw PWM.
  */
 #include "balance_control.h"
@@ -20,42 +20,12 @@ static pid_controller_t angle_pid[2],rate_pid[2];
 // 参数说明：无。
 // 返回值：返回控制周期，单位为秒。
 static float controller_dt_s(void) {return (float)APP_IMU_PERIOD_US*0.000001f;}
-static float fly_rate_lpf;
-static uint32 fly_rate_lpf_sequence;
-static uint8 fly_rate_lpf_ready;
-// 函数简介：清除飞轮角速度低通滤波器的内部状态。
-// 参数说明：无。
-// 返回值：无。
-static void fly_rate_filter_reset(void)
-{
-    fly_rate_lpf = 0.0f;
-    fly_rate_lpf_sequence = 0u;
-    fly_rate_lpf_ready = 0u;
-}
-/* Called only after raw-data, tilt and freshness checks. Never smooth an
- * invalid sample or repeatedly filter a held sample while the IMU is stale. */
-// 函数简介：使用当前有效陀螺仪采样更新飞轮角速度低通滤波器。
-// 参数说明：raw 为原始角速度；sequence 为 IMU 采样序号。
-// 返回值：返回滤波后的飞轮角速度。
-static float fly_rate_filter_update(float raw, uint32 sequence)
-{
-    const float dt = controller_dt_s();
-    if (!fly_rate_lpf_ready || FLY_RATE_LPF_TAU_S <= 0.0f) {
-        fly_rate_lpf = raw;
-        fly_rate_lpf_ready = 1u;
-    } else if (sequence != fly_rate_lpf_sequence) {
-        fly_rate_lpf += (raw - fly_rate_lpf) * (dt / (FLY_RATE_LPF_TAU_S + dt));
-    }
-    fly_rate_lpf_sequence = sequence;
-    return fly_rate_lpf;
-}
 // 函数简介：复位两个控制轴的角度环、角速度环和飞轮滤波器。
 // 参数说明：无。
 // 返回值：无。
 static void balance_pid_reset(void)
 {
     unsigned i;for(i=0;i<2;++i){pid_reset(&angle_pid[i]);pid_reset(&rate_pid[i]);}
-    fly_rate_filter_reset();
 }
 // 函数简介：执行指定控制轴的姿态角环 PID，生成目标角速度。
 // 参数说明：axis 为控制轴索引；target 为目标角度；angle 为当前角度；
@@ -174,21 +144,6 @@ float roll_rate_test_limit = FLY_PWM_LIMIT;
 float roll_rate_test_sign = FLY_OUTPUT_SIGN;
 static uint8 rate_divider;
 static uint32 rate_stale_ms, rate_sequence;
-/* Angle LPF defaults to tau=40ms, about 3.98Hz corner;
- * this adds phase lag and requires physical tuning, not proof of stability. */
-#define ANGLE_LPF_TAU_S BALANCE_ANGLE_LPF_TAU_S
-static float angle_lpf[2];
-// 函数简介：更新姿态角一阶低通滤波器。
-// 参数说明：state 为滤波器状态指针；value 为当前原始角度。
-// 返回值：返回滤波后的角度。
-static float angle_lpf_update(float *state, float value)
-{
-    const float dt = (float)APP_IMU_PERIOD_US*0.000001f;
-    if(ANGLE_LPF_TAU_S<=0.0f) {*state=value;return value;}
-    *state += (value - *state) * (dt / (ANGLE_LPF_TAU_S + dt));
-    return *state;
-}
-
 // 函数简介：停止飞轮角速度测试并清除测试状态和输出。
 // 参数说明：无。
 // 返回值：无。
@@ -224,7 +179,6 @@ void roll_rate_test_arm(void)
     roll_rate_test_stop();
     rate_sequence = imu_sample_sequence;
     /* 角度低通以当前姿态为初值，避免起跑瞬间的大误差。 */
-    angle_lpf[0] = imu_pitch_deg; angle_lpf[1] = imu_roll_deg;
     roll_rate_test_state = 1;
     roll_rate_test_enabled = 1;
     balance_control_mode=3;
@@ -256,7 +210,6 @@ void ground_rate_only_arm(void) {ground_rate_test_arm();rate_only_test=1;balance
 // 返回值：无。
 static void control_latch_fault(int32 state,int32 reason)
 {
-    fly_rate_filter_reset();
     uint32 irq=interrupt_global_disable();
     roll_rate_test_state=state;control_fault_reason=reason;
     control_fault_imu_status=imu_attitude_status;control_fault_seq=imu_sample_sequence;
@@ -375,11 +328,11 @@ static void dual_balance_update(void)
     uint32 seq,irq; int32 status;
     int output[2]={0,0};
     irq=interrupt_global_disable();
-    a[0].angle=angle_lpf_update(&angle_lpf[0],imu_pitch_deg); a[0].rate=attitude_state.gyro.y;
+    a[0].angle=imu_pitch_deg; a[0].rate=attitude_state.gyro.y;
     a[0].target=mono_params.balance_angle_y;
     a[0].angle_kp=pitch_balance_kp; a[0].rate_limit=pitch_balance_rate_limit;
     a[0].rate_kp=roll_rate_test_kp; a[0].pwm_limit=roll_rate_test_limit; a[0].sign=roll_rate_test_sign;
-    a[1].angle=angle_lpf_update(&angle_lpf[1],imu_roll_deg); a[1].rate=attitude_state.gyro.x;
+    a[1].angle=imu_roll_deg; a[1].rate=attitude_state.gyro.x;
     a[1].target=mono_params.balance_angle_x;
     a[1].angle_kp=ground_angle_kp; a[1].rate_limit=ground_angle_rate_limit;
     a[1].rate_kp=ground_rate_test_kp; a[1].pwm_limit=ground_rate_test_limit; a[1].sign=ground_rate_test_sign;
@@ -394,7 +347,6 @@ static void dual_balance_update(void)
         if (!shacheflag) roll_rate_test_state=0;
         else if (status<0) control_latch_fault(-1,1);
         else if (status==IMU_ATTITUDE_CALIBRATING) {
-            fly_rate_filter_reset();
             roll_rate_test_state=1;rate_stale_ms=0;rate_sequence=seq;
         } else if (!seq || !isfinite(imu_roll_deg) || !isfinite(imu_pitch_deg) || !isfinite(a[0].angle) || !isfinite(a[1].angle) ||
                    !isfinite(a[0].rate) || !isfinite(a[1].rate)) control_latch_fault(-1,seq?3:2);
@@ -430,7 +382,6 @@ static void dual_balance_update(void)
                 if (ready) {roll_rate_test_state=2;control_startup_advance();}
                 for(unsigned i=0;ready && i<2;i++) {
                     if (i==0u) {
-                        a[i].rate=fly_rate_filter_update(a[i].rate,seq);
                         dual_rate[i]=a[i].rate;
                     }
                     dual_target_rate[i]=balance_angle_pid(i,a[i].target,a[i].angle,a[i].angle_kp,a[i].rate_limit);
@@ -492,7 +443,6 @@ static void roll_rate_test_update(void)
         if (!shacheflag) roll_rate_test_state = 0;
         else if (status < 0) control_latch_fault(-1,1);
         else if (status == IMU_ATTITUDE_CALIBRATING) {
-            fly_rate_filter_reset();
             /* Calibration never drives either flywheel. */
             roll_rate_test_state = 1;
             rate_stale_ms = 0;
@@ -520,13 +470,10 @@ static void roll_rate_test_update(void)
                 roll_rate_test_state = 2;
                 control_startup_advance();
                 if (!ground_rate_test_enabled) {
-                    rate=fly_rate_filter_update(rate,sequence);
                     roll_rate_test_actual=rate;
                 }
                 /* 索引与双轴路径一致：0=pitch(飞轮)，1=roll(地轮)。 */
-                pitch_balance_error = balance_angle - angle_lpf_update(
-                    &angle_lpf[ground_rate_test_enabled ? 1u : 0u],
-                    ground_rate_test_enabled ? roll : pitch);
+                pitch_balance_error = balance_angle - (ground_rate_test_enabled ? roll : pitch);
                 pitch_balance_target_rate = rate_only_test ? 0.0f : balance_angle_pid(ground_rate_test_enabled?1u:0u,balance_angle,balance_angle-pitch_balance_error,angle_kp,rate_limit);
                 roll_rate_test_error = pitch_balance_target_rate - rate;
                 output = (int)roundf(balance_rate_pid(ground_rate_test_enabled?1u:0u,pitch_balance_target_rate,rate,kp,limit*control_startup_scale,direction,

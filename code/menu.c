@@ -57,13 +57,6 @@ static const char *message = "Ready";
 static bool wifi_connecting;
 static Menu_Item *wifi_deferred_item;
 static bool wifi_deferred_value;
-bool menu_imu_recovery_stopped(void)
-{
-    return !running && !preview && !shacheflag &&
-        costrained_flywheel_speed_left==0 && costrained_flywheel_speed_right==0 &&
-        costrained_wheel_speed==0 && small_driver_test_left==0 && small_driver_test_right==0;
-}
-
 static void stop_car(void)
 {
     /* CCU60 is clock-gated until Start or IMU initializes it. */
@@ -399,7 +392,6 @@ static const char *control_error_text(int32 state,int32 imu_status)
         if (imu_status==IMU_ATTITUDE_TIMEOUT) return "ERR -1: IMU read timeout";
         if (imu_status==IMU_ATTITUDE_BAD_DT) return "ERR -1: IMU dt too long";
         if (imu_status==IMU_ATTITUDE_FILTER_ERROR) return "ERR -1: IMU filter failed";
-        if (imu_status==IMU_ATTITUDE_UNTRUSTED) return "ERR IMU trust: Stop, wait wheels still";
         return "ERR -1: IMU stale/no sample";
     }
     return "Control stopped";
@@ -452,8 +444,6 @@ static void Menu_Show_Attitude(void)
             imu_message = "IMU init OK - keep still";
         else if (status == IMU_ATTITUDE_RUNNING)
             imu_message = "IMU ready - calibration OK";
-        else if (status == IMU_ATTITUDE_UNTRUSTED)
-            imu_message = "Stop; wait wheels still, then Start";
         else
             imu_message = "IMU error - toggle IMU Off/On";
     }
@@ -528,8 +518,6 @@ static void Menu_Show_Attitude(void)
                             status == IMU_ATTITUDE_BAD_DT ? "BAD_DT" :
                             status == IMU_ATTITUDE_FILTER_ERROR ? "FILTER_ERR" : "INIT_FAIL";
         snprintf(line, sizeof(line), "IMU:%s Seq:%lu", error, (unsigned long)sequence);
-        if(status==IMU_ATTITUDE_UNTRUSTED)
-            snprintf(line,sizeof(line),"IMU:UNTRUSTED recover:%3.0f%%",imu_recovery_percent);
     }
     /* Fixed width clears characters left by a longer previous status. */
     {

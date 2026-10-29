@@ -37,16 +37,17 @@ extern volatile int32 imu_accel_used;
 extern volatile float imu_ekf_nis, imu_ekf_bias_xy_dps[2];
 extern volatile uint32 imu_sample_sequence;
 extern volatile uint32 imu_spi_timeouts,imu_not_ready_samples,imu_last_status_reg,imu_bad_bursts;
-/* Quality 0=fused, 1=prediction, 2=weak observation, 3=latched untrusted.
+/* Quality 0=fused, 1=prediction, 2=weak observation, 3=low confidence (diagnostic only).
  * Reject reason 0=none, 1=norm, 2=NIS, 3=geometry, 4=gyro clipping. */
 extern volatile int32 imu_quality,imu_reject_reason,imu_bias_learning;
 extern volatile float imu_reject_ms,imu_accept_ratio,imu_accel_vibration_g;
 extern volatile float imu_gyro_step_dps,imu_r_scale,imu_bias_slew_dps2;
 extern volatile float imu_recovery_percent;
 extern volatile uint32 imu_reject_count,imu_gyro_clips,imu_accel_clips,imu_recovery_count;
-/* Single-use permission, supplied immediately before each sample ISR.
- * Caller verifies Stop, zero outputs and fresh stationary wheel feedback. */
-void imu_set_recovery_allowed(bool allowed);
+/* Legacy recovery fields stay zero; no quality-triggered stopped recovery FSM. */
+extern volatile float imu_pre_gyro_dps[3],imu_pre_accel_g[3],imu_pre_norm_g;
+extern volatile int32 imu_reacquiring;
+
 /* Unwrapped calibrated sensor-Z rate integral (deg), not full 3D Euler yaw. */
 extern volatile float imu_gyro_z_integral_deg;
 extern const uint8 imu_attitude_method; /* Telemetry protocol ID: always 3 (EKF). */
