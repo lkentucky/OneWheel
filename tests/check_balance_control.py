@@ -46,6 +46,8 @@ static void arm(int mode){
     else if(mode==5)dual_balance_arm();else if(mode==6)roll_rate_only_arm();else ground_rate_only_arm();
 }
 int main(void){
+    /* Legacy expectations are computed without the static-friction feed-forward. */
+    ground_deadzone_enable=0;
     /* The 1ms dispatcher must update outputs exactly once per 2ms. */
     arm(6);attitude_state.gyro.y=10;
     uint32 before_sequence=roll_rate_test_sequence;
@@ -104,13 +106,13 @@ int main(void){
     arm(5);imu_attitude_status=0;tick(1);assert(roll_rate_test_state==1 && !ground && !fly_l);
     arm(5);ground_rate_test_sign=0;tick(1);assert(roll_rate_test_state==-3 && !ground && !fly_l);
     arm(5);attitude_state.gyro.x=4;tick(1);assert(ground!=0);shacheflag=0;tick(1);assert(!ground && !fly_l);
-    arm(7);control_startup_ramp_ms=1000;attitude_state.gyro.x=100;tick(1);assert(control_startup_scale>0 && control_startup_scale<0.01f && ground==-8);
+    arm(7);control_startup_ramp_ms=1000;attitude_state.gyro.x=100;tick(1);assert(control_startup_scale>0 && control_startup_scale<0.01f && ground==-12);
     for(unsigned i=1;i<499;++i)tick(1);
     assert(fabsf(control_startup_scale-0.998f)<0.0001f);
     tick(1);assert(control_startup_scale==1.0f && ground==-3000);
     /* Verify requested flywheel defaults and unchanged ground limits. */
     arm(5);assert(pitch_balance_rate_limit==FLY_RATE_LIMIT_DPS && roll_rate_test_limit==8000);
-    assert(roll_rate_test_kp==FLY_RATE_KP && pitch_balance_kp==FLY_ANGLE_KP && ground_rate_test_kp==30 && mono_params.balance_angle_y==BALANCE_ZERO_Y_DEG && mono_params.balance_angle_x==BALANCE_ZERO_X_DEG && ground_rate_test_limit==4000);
+    assert(roll_rate_test_kp==FLY_RATE_KP && pitch_balance_kp==FLY_ANGLE_KP && ground_rate_test_kp==30 && mono_params.balance_angle_y==BALANCE_ZERO_Y_DEG && mono_params.balance_angle_x==BALANCE_ZERO_X_DEG && ground_rate_test_limit==6000);
     pitch_balance_rate_limit=ground_angle_rate_limit=200;
     roll_rate_test_limit=ground_rate_test_limit=8000;
     roll_rate_test_kp=ground_rate_test_kp=50;
@@ -154,6 +156,20 @@ int main(void){
     roll_rate_test_stop();assert(!pwm_debug_enabled && !pwm_debug_fly_left && !pwm_debug_fly_right && !pwm_debug_ground);
     balance_control_tick_1ms();assert(!fly_l && !ground);
     arm(5);tick(1);assert(!pwm_debug_enabled && roll_rate_test_state==2 && !ground && !fly_l);
+    /* Ground static-friction feed-forward: signed offset, clamped, zero at
+     * standstill, bypassed when disabled or on the Mode8 bench path. */
+    ground_deadzone_enable=1;ground_deadzone_pwm=1800;arm(7);control_startup_ramp_ms=0;
+    attitude_state.gyro.x=0;tick(1);assert(ground==0 && costrained_wheel_speed==0);
+    attitude_state.gyro.x=10;tick(1);assert(ground==-(int)(10*GROUND_RATE_KP)-1800);
+    assert(costrained_wheel_speed==(int16)ground);
+    ground_rate_test_sign=-1;tick(1);assert(ground==(int)(10*GROUND_RATE_KP)+1800);
+    ground_rate_test_limit=1000;tick(1);assert(ground==1000);
+    ground_rate_test_limit=6000;ground_rate_test_sign=GROUND_OUTPUT_SIGN;
+    ground_deadzone_enable=0;tick(1);assert(ground==-(int)(10*GROUND_RATE_KP));
+    ground_deadzone_enable=1;ground_deadzone_pwm=0;tick(1);assert(ground==-(int)(10*GROUND_RATE_KP));
+    ground_deadzone_pwm=GROUND_DEADZONE_PWM;
+    pwm_debug_arm();shacheflag=1;control_startup_ramp_ms=0;pwm_debug_ground=-500;tick(0);
+    assert(ground==-500);
     puts("balance control: 2ms dispatch, direct feedback, limits, 1s ramp, 26ms stale trip, stop and faults PASS");
     return 0;
 }

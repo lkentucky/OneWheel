@@ -14,7 +14,7 @@ PARAMETERS = {
     'debug_fly_right_pwm': ('Mode8 右飞轮 PWM', 0.0, '±4000；只发右通道，不自动取反'),
     'debug_ground_pwm': ('Mode8 行进轮 PWM', 0.0, '±4000；Start/Stop/切模式清零；不保存 Flash'),
     'rate_kp': ('地轮角速度 KP', 30.0, '0～500；仅地轮，Mode4/5/7'),
-    'rate_pwm_limit': ('地轮 PWM 限幅', 4000.0, '0～8000；仅地轮闭环'),
+    'rate_pwm_limit': ('地轮 PWM 限幅', 6000.0, '0～8000；仅地轮闭环'),
     'rate_sign': ('地轮闭环方向', 1.0, '只能 +1 或 -1；不影响 Mode8'),
     'ground_angle_kp': ('地轮角度 KP', 40.0, '0～100；Mode4/5外环'),
     'ground_rate_limit_dps': ('地轮目标角速度限幅', 100.0, '0.1～200 °/s；Mode4/5'),

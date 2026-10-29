@@ -62,7 +62,7 @@
 #define QCAR_WIFI_PASSWORD "zyz520520"
 #endif
 #ifndef QCAR_WIFI_TARGET_IP
-#define QCAR_WIFI_TARGET_IP "192.168.0.113"
+#define QCAR_WIFI_TARGET_IP "192.168.0.107"
 #endif
 #ifndef QCAR_WIFI_TARGET_PORT
 #define QCAR_WIFI_TARGET_PORT "8081"
@@ -221,7 +221,7 @@
 #define GROUND_ANGLE_KI              0.0f
 #define GROUND_ANGLE_KD              0.0f
 #define GROUND_RATE_LIMIT_DPS      100.0f
-#define GROUND_PWM_LIMIT          4000.0f
+#define GROUND_PWM_LIMIT          6000.0f
 #define GROUND_OUTPUT_SIGN           1.0f
 /* Mode2 speed outer loop: rightward travel has +counts, right tilt lowers
  * displayed Pitch. Negative PI output therefore adds a positive target tilt.
@@ -244,6 +244,16 @@
 /* Allowed tuning ranges, separate from the active/default limits above. */
 #define BALANCE_RATE_LIMIT_MAX_DPS  200.0f
 #define BALANCE_PWM_LIMIT_MAX      8000.0f
+/* Ground-wheel static friction: the geared travel wheel needs roughly this
+ * much duty before it breaks away, so the closed-loop ground output offsets a
+ * nonzero command in its own direction (feed-forward). The offset follows the
+ * startup ramp, so Start still ramps smoothly. 0 disables the compensation;
+ * Mode8 raw PWM and the menu PWM test never use it. */
+#ifndef GROUND_DEADZONE_PWM
+#define GROUND_DEADZONE_PWM        1800.0f
+#endif
+/* Negative or zero is treated as "no feed-forward" by the shaping helper;
+ * the TASKING preprocessor cannot compare float literals in #if. */
 /* PID gains use seconds: integral += Ki*error*dt, derivative = Kd*de/dt.
  * Defaults remain P-only. 0=position form, 1=incremental form. */
 #define BALANCE_ANGLE_PID_INCREMENTAL 0

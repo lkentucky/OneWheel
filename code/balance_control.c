@@ -132,6 +132,9 @@ volatile float dual_rate[2],dual_target_rate[2],dual_rate_error[2],dual_pwm[2];
 /* Compiled defaults live in config.h; valid upright Flash values may override. */
 float ground_rate_test_kp=GROUND_RATE_KP, ground_rate_test_limit=GROUND_PWM_LIMIT, ground_rate_test_sign=GROUND_OUTPUT_SIGN;
 float ground_angle_kp=GROUND_ANGLE_KP, ground_angle_rate_limit=GROUND_RATE_LIMIT_DPS;
+/* Static-friction feed-forward for the geared travel wheel (see config.h). */
+float ground_deadzone_pwm=GROUND_DEADZONE_PWM;
+uint8 ground_deadzone_enable=1;
 volatile uint32 roll_rate_test_sequence;
 volatile int32 roll_rate_test_state;
 volatile float roll_rate_test_actual, roll_rate_test_error, roll_rate_test_pwm;
@@ -319,6 +322,24 @@ static int dual_axis_parameters_valid(const balance_axis_snapshot *a)
         isfinite(a->pwm_limit) && a->pwm_limit>=0 && a->pwm_limit<=BALANCE_PWM_LIMIT_MAX &&
         (a->sign==1 || a->sign==-1);
 }
+/* Static-friction feed-forward: the geared travel wheel needs roughly
+ * ground_deadzone_pwm of duty before it breaks away, so a nonzero closed-loop
+ * command is offset in its own direction. The offset follows the startup ramp
+ * (no kick when Start finishes ramping) and stays inside the same limit the
+ * PID already used. Mode8/menu bench paths never call this. */
+static int ground_deadzone_shape(int pwm, float limit)
+{
+    float magnitude, offset, cap;
+    if (!ground_deadzone_enable || pwm == 0) return pwm;
+    if (!isfinite(ground_deadzone_pwm) || ground_deadzone_pwm <= 0.0f) return pwm;
+    if (!isfinite(limit) || limit <= 0.0f) return pwm;
+    offset = ground_deadzone_pwm * control_startup_scale;
+    cap = limit * control_startup_scale;
+    magnitude = (float)(pwm > 0 ? pwm : -pwm) + offset;
+    magnitude = constrain_float(magnitude, 0.0f, cap);
+    return (int)(pwm > 0 ? magnitude : -magnitude);
+}
+
 // 函数简介：执行飞轮和地轮双轴串级平衡控制并输出电机 PWM。
 // 参数说明：无。
 // 返回值：无。
@@ -326,7 +347,7 @@ static void dual_balance_update(void)
 {
     balance_axis_snapshot a[2];
     uint32 seq,irq; int32 status;
-    int output[2]={0,0};
+    int output[2]={0,0},ground_output;
     irq=interrupt_global_disable();
     a[0].angle=imu_pitch_deg; a[0].rate=attitude_state.gyro.y;
     a[0].target=mono_params.balance_angle_y;
@@ -393,6 +414,7 @@ static void dual_balance_update(void)
             }
         }
     }
+    ground_output=ground_deadzone_shape(output[1], a[1].pwm_limit);
     if (wheel_hold_enabled && roll_rate_test_state!=2) wheel_hold_suspend();
     /* Generic test channels continue to describe the ground/Pitch axis. */
     pitch_balance_actual_angle=dual_angle[1];pitch_balance_target_angle=dual_target[1];
@@ -401,9 +423,9 @@ static void dual_balance_update(void)
     cascade_angle_out=dual_target_rate[0];cascade_angle_out_p=dual_target_rate[1];
     cascade_angle_vel_out=(float)output[0];cascade_angle_vel_out_p=(float)output[1];
     costrained_flywheel_speed_left=costrained_flywheel_speed_right=(int16)output[0];
-    costrained_wheel_speed=(int16)output[1];
+    costrained_wheel_speed=(int16)ground_output;
     small_driver_set_duty((int16)output[0],(int16)(-output[0]));
-    motor_m_ctrl(output[1]);
+    motor_m_ctrl(ground_output);
 }
 
 // 函数简介：周期性执行单轴角度/角速度控制、测试模式和电机输出。
@@ -415,7 +437,7 @@ static void roll_rate_test_update(void)
     float angle_kp, rate_limit, balance_angle;
     uint32 sequence, irq;
     int32 status;
-    int output = 0;
+    int output = 0, ground_output = 0;
     if (++rate_divider < APP_CONTROL_DIVIDER) return;
     rate_divider = 0;
     ++roll_rate_test_sequence;
@@ -487,9 +509,10 @@ static void roll_rate_test_update(void)
     cascade_angle_vel_out_p = ground_rate_test_enabled ? (float)output : 0.0f;
     costrained_flywheel_speed_left = ground_rate_test_enabled ? 0 : (int16)output;
     costrained_flywheel_speed_right = ground_rate_test_enabled ? 0 : (int16)output;
-    costrained_wheel_speed = ground_rate_test_enabled ? (int16)output : 0;
+    if (ground_rate_test_enabled) ground_output = ground_deadzone_shape(output, ground_rate_test_limit);
+    costrained_wheel_speed = ground_rate_test_enabled ? (int16)ground_output : 0;
     small_driver_set_duty(costrained_flywheel_speed_left,-costrained_flywheel_speed_right);
-    motor_m_ctrl(costrained_wheel_speed);
+    motor_m_ctrl(ground_output);
 }
 
 // 函数简介：以 1 ms 周期分发当前控制模式并更新电机输出。

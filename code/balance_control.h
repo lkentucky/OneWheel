@@ -21,6 +21,8 @@ extern float pitch_balance_kp, pitch_balance_rate_limit;
 extern float roll_rate_test_kp, roll_rate_test_limit, roll_rate_test_sign;
 extern volatile uint8 ground_rate_test_enabled;
 extern float ground_rate_test_kp, ground_rate_test_limit, ground_rate_test_sign;
+extern float ground_deadzone_pwm;      /* static-friction feed-forward, PWM duty */
+extern uint8 ground_deadzone_enable;   /* 0 disables the feed-forward */
 extern float ground_angle_kp, ground_angle_rate_limit;
 extern volatile uint8 dual_balance_enabled;
 extern volatile uint8 balance_control_mode; /* Armed mode, 0 after Stop. */
