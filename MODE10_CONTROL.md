@@ -30,7 +30,7 @@ Mode10 复用 Mode2 的地轮位置／速度控制器。每次 Start 重置编�
 wheel_pos_kp,wheel_speed_limit,wheel_speed_kp,wheel_speed_ki,wheel_tilt_limit,wheel_i_limit,ground_angle_kp,rate_kp,balance_angle_x
 ```
 
-`wheel_pos_kp`、`wheel_speed_limit` 任一设为 0 可关闭位置回复，保留零速保持。位置／速度参数与 Mode2 共用，目前不包含在现有 Flash 保存记录内。地轮角度与角速度 Kp 的编译默认值仍为 0，需按实车设置有效参数后才有平衡输出。
+`wheel_pos_kp`、`wheel_speed_limit` 任一设为 0 可关闭位置回复，保留零速保持。位置／速度参数与 Mode2 共用，目前不包含在现有 Flash 保存记录内。各环编译默认值以 `code/config.h` 为准，仍需按实车验证，不能把当前配置直接视为其他车辆的稳定参数。
 
 建议订阅以下字段观察地轮链路；上位机 SUB 可替换默认订阅，Mode10 默认 7 通道 Roll 遥测保持原顺序：
 
@@ -38,7 +38,7 @@ wheel_pos_kp,wheel_speed_limit,wheel_speed_kp,wheel_speed_ki,wheel_tilt_limit,wh
 wheel_position_count,wheel_ref_count,wheel_pos_error,wheel_target_cps,wheel_speed_cps,wheel_tilt_offset,dual_pitch_target_deg,dual_pitch_actual_deg,dual_pitch_target_rate_dps,dual_pitch_rate_dps,motor_ground_pwm,wheel_feedback_valid,wheel_position_valid
 ```
 
-地轮静摩擦补偿支持 WiFi 即时修改：`ground_deadzone_pos_pwm` 默认 1800，`ground_deadzone_neg_pwm` 默认 2800，均为非负 PWM 幅值，按实际输出方向选择。设为 0 可分别关闭；补偿不改变零控制量，遵循启动斜坡及 PWM 限幅。两项只存于 RAM，现有 Flash Save 不包含它们。协议示例见 [WIFI.md](WIFI.md)。
+地轮静摩擦补偿支持 WiFi 即时修改：`ground_deadzone_pos_pwm` 默认 1800，`ground_deadzone_neg_pwm` 默认 3200，均为非负 PWM 幅值，按实际输出方向选择。设为 0 可分别关闭；补偿不改变零控制量，遵循启动斜坡及 PWM 限幅。两项只存于 RAM，现有 Flash Save 不包含它们。协议示例见 [WIFI.md](WIFI.md)。
 
 主机集成验证：`python tests/check_mode10_hold.py`。
 

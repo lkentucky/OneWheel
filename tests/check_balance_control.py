@@ -184,13 +184,13 @@ int main(void){
     ground_deadzone_pos_pwm=0;tick(1);assert(ground==(int)(10*ground_rate_test_kp));
     ground_deadzone_pos_pwm=GROUND_DEADZONE_POS_PWM;ground_deadzone_neg_pwm=GROUND_DEADZONE_NEG_PWM;
     arm(7);ground_rate_test_kp=30;control_startup_ramp_ms=1000;
-    attitude_state.gyro.x=.1f;tick(1);assert(ground==-8); /* -3 PID plus 2800 * .002. */
+    attitude_state.gyro.x=.1f;tick(1);assert(ground==-(int)(3+GROUND_DEADZONE_NEG_PWM*.002f));
     ground_rate_test_sign=-1;tick(1);assert(ground==10); /* +3 PID plus 1800 * .004. */
     pwm_debug_arm();shacheflag=1;control_startup_ramp_ms=0;pwm_debug_ground=-500;tick(0);
     assert(ground==-500);
     /* Mode10: Roll incremental rate PID plus ground position/speed hold at rest. */
     ground_deadzone_enable=0;
-    arm(10);assert(balance_control_mode==10 && dual_balance_enabled && roll_rate_test_ki==0.0f);
+    arm(10);assert(balance_control_mode==10 && dual_balance_enabled && roll_rate_test_ki==FLY_RATE_KI);
     pitch_balance_kp=10.0f;roll_rate_test_kp=5.0f;roll_rate_test_ki=2.0f;
     imu_pitch_deg=BALANCE_ZERO_Y_DEG-1.0f;attitude_state.gyro.y=0.0f;
     tick(1);assert(fly_l==70 && fly_r==-70);
