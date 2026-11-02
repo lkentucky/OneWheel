@@ -8,10 +8,11 @@ test=r'''
 #include <assert.h>
 #include <math.h>
 #include <stdio.h>
+volatile uint8_t balance_control_mode=2;
 static wheel_encoder_sample_t sample;
 static void close_to(float a,float b){if(fabsf(a-b)>.00001f)fprintf(stderr,"got %.9g expected %.9g\n",a,b);assert(fabsf(a-b)<.00001f);}
 static void reset(int32_t position){
-    wheel_hold_defaults();sample.sequence=1;sample.age_ms=0;sample.dt_ms=20;
+    wheel_hold_defaults();wheel_speed_kp=.001f;wheel_speed_ki=wheel_speed_kd=0;sample.sequence=1;sample.age_ms=0;sample.dt_ms=20;
     sample.position_epoch=1;sample.position_count=position;sample.valid=sample.position_valid=1;sample.speed_cps=0;
     assert(wheel_hold_update(&sample,0)==1);assert(wheel_ref_count==position && !wheel_target_cps);
 }
@@ -59,6 +60,13 @@ int main(void){
     assert(wheel_hold_update(&sample,0)==0 && !wheel_target_cps);
     sample.position_count=0;sample.position_epoch=3;sample.valid=sample.position_valid=1;sample.dt_ms=20;++sample.sequence;
     assert(wheel_hold_update(&sample,0)==1 && !wheel_ref_count && !wheel_pos_error);
+    reset(0);wheel_pos_kp=0;wheel_speed_kp=wheel_speed_ki=0;
+    wheel_speed_kd=.001f;wheel_tilt_limit=5;sample.speed_cps=10;
+    next(0,20);close_to(wheel_tilt_offset,.5f);
+    assert(wheel_hold_update(&sample,0)==1);close_to(wheel_tilt_offset,.5f);
+    next(0,20);close_to(wheel_tilt_offset,0);
+    sample.speed_cps=20;next(0,40);close_to(wheel_tilt_offset,.25f);
+    wheel_speed_kd=NAN;assert(wheel_hold_update(&sample,0)==-9);
     puts("PASS: position origin, +/-polarity, 100ms measured/new-frame scheduling, deadband, velocity cap/live edits, epoch/lost-position latch, restart and speed-PI dependency");
 }
 '''

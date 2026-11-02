@@ -46,7 +46,7 @@ uint8_t wheel_encoder_rebase_position(void){
 }
 static void tick(void){
     ++imu_sample_sequence;
-    for(unsigned i=0;i<APP_CONTROL_DIVIDER;++i)balance_control_tick_1ms();
+    for(unsigned i=0;i<5u;++i)balance_control_tick_1ms();
 }
 static void publish(int32_t position,float speed){
     ++encoder.sequence;encoder.position_count=position;encoder.speed_cps=speed;
@@ -90,7 +90,7 @@ int main(void){
     near(wheel_target_cps,252);near(wheel_tilt_offset,-.252f);
     near(dual_target_rate[1],-2.52f);assert(ground==-76);
     ground_deadzone_enable=1;tick();assert(dual_pwm[1]==-76 && ground==-2876);
-    ground_rate_test_limit=1000;tick();assert(ground==-1000);
+    ground_rate_test_limit=1000;tick();assert(ground==-2876);
     ground_rate_test_limit=GROUND_PWM_LIMIT;ground_deadzone_enable=0;
     /* Encoder velocity also affects target tilt independently of position P. */
     publish(-512,100);tick();near(wheel_tilt_offset,-.152f);assert(ground==-46);
@@ -112,6 +112,49 @@ int main(void){
     assert(roll_rate_test_state==-4 && control_fault_reason==10 && !ground && !left);
     roll_rate_test_stop();dual_balance_arm();assert(!wheel_hold_enabled && balance_control_mode==5);
     speed_balance_arm();assert(wheel_hold_enabled && balance_control_mode==2);
+    arm();publish(0,0);flywheel_vel_kd=0;pitch_balance_kd=0;
+    flywheel_speed_feedback_left=flywheel_speed_feedback_right=0;
+    balance_control_tick_1ms();near(dual_target_rate[0],0);
+    flywheel_speed_feedback_left=200;flywheel_speed_feedback_right=-200;
+    for(unsigned ms=1;ms<=20;++ms){
+        if(ms%5==0)++imu_sample_sequence;
+        balance_control_tick_1ms();
+        if(ms<20)near(flywheel_vel_angle_out,0);
+    }
+    near(flywheel_vel_angle_out,-1);near(dual_target_rate[0],-10);
+    imu_pitch_deg+=1;balance_control_tick_1ms();near(dual_target_rate[0],-10);
+    attitude_state.gyro.y=2;balance_control_tick_1ms();assert(left==-12);
+    for(unsigned ms=23;ms<=25;++ms){if(ms==25)++imu_sample_sequence;balance_control_tick_1ms();}
+    near(dual_target_rate[0],-20);
+    arm();publish(0,0);control_startup_ramp_ms=1000;
+    for(unsigned ms=0;ms<1000;++ms){if(ms%5==0)++imu_sample_sequence;balance_control_tick_1ms();}
+    near(control_startup_scale,1);
+    ++imu_sample_sequence;balance_control_tick_1ms();
+    for(unsigned ms=1;ms<BALANCE_IMU_STALE_MS;++ms){balance_control_tick_1ms();assert(roll_rate_test_state==2);}
+    balance_control_tick_1ms();assert(roll_rate_test_state==-1 && control_fault_reason==4);
+    /* Removed limits must not silently reappear through the ground or fly path. */
+    arm();publish(0,0);flywheel_vel_kd=0;pitch_balance_kd=0;
+    flywheel_speed_feedback_left=10000;flywheel_speed_feedback_right=-10000;
+    tick();near(flywheel_vel_angle_out,-50);near(dual_target[0],BALANCE_ZERO_Y_DEG-50);
+    assert(fabsf(dual_target_rate[0])>FLY_RATE_LIMIT_DPS);
+    arm();publish(0,50000);tick();near(wheel_tilt_offset,50);
+    assert(dual_target[1]>20 && dual_target_rate[1]>GROUND_RATE_LIMIT_DPS);
+    assert(ground==7500 && roll_rate_test_state==2);
+    arm();publish(0,0);control_startup_ramp_ms=1000;balance_control_tick_1ms();near(control_startup_scale,1);
+    arm();wheel_hold_defaults();publish(0,0);tick();
+    assert(roll_rate_test_state==2 && control_fault_reason==0);
+    arm();publish(0,0);wheel_speed_kp=20;wheel_speed_ki=2;wheel_pos_kp=50;
+    pitch_balance_kp=2000;pitch_balance_kd=2000;
+    roll_rate_test_kp=2000;roll_rate_test_ki=2000;
+    ground_angle_kp=2000;ground_rate_test_kp=2000;
+    flywheel_vel_kp=2000;flywheel_vel_kd=2000;tick();
+    assert(roll_rate_test_state==2 && control_fault_reason==0);
+    arm();publish(0,0);wheel_speed_kp=INFINITY;tick();
+    assert(roll_rate_test_state==-3 && control_fault_reason==9);
+    arm();publish(0,0);ground_rate_test_kp=0;ground_rate_test_kd=.1f;
+    balance_control_tick_1ms();assert(ground==0);
+    attitude_state.gyro.x=1;balance_control_tick_1ms();assert(ground==-100);
+    balance_control_tick_1ms();assert(ground==0);
     puts("PASS: Mode10 four-loop ground hold, independent Roll, origin reset, encoder/config faults and Stop");
 }
 '''

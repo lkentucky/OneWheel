@@ -2,12 +2,14 @@
 #include "config.h"
 #include "pid.h"
 #include <math.h>
+#include <float.h>
+extern volatile uint8_t balance_control_mode;
 
 volatile uint8_t wheel_hold_enabled, wheel_feedback_valid;
 volatile int32_t wheel_hold_state;
 volatile uint32_t wheel_feedback_age_ms;
 volatile float wheel_target_cps, wheel_speed_error, wheel_tilt_offset, wheel_speed_integral;
-float wheel_speed_kp=WHEEL_SPEED_KP, wheel_speed_ki=WHEEL_SPEED_KI;
+float wheel_speed_kp=WHEEL_SPEED_KP, wheel_speed_ki=WHEEL_SPEED_KI, wheel_speed_kd=WHEEL_SPEED_KD;
 float wheel_tilt_limit=WHEEL_SPEED_TILT_LIMIT_DEG, wheel_i_limit=WHEEL_SPEED_I_LIMIT_DEG;
 volatile int32_t wheel_ref_count,wheel_pos_error;
 float wheel_pos_kp=WHEEL_POSITION_KP,wheel_speed_limit=WHEEL_POSITION_SPEED_LIMIT_CPS;
@@ -40,7 +42,7 @@ void wheel_hold_reset(void)
 
 void wheel_hold_defaults(void)
 {
-    wheel_speed_kp=WHEEL_SPEED_KP;wheel_speed_ki=WHEEL_SPEED_KI;
+    wheel_speed_kp=WHEEL_SPEED_KP;wheel_speed_ki=WHEEL_SPEED_KI;wheel_speed_kd=WHEEL_SPEED_KD;
     wheel_tilt_limit=WHEEL_SPEED_TILT_LIMIT_DEG;wheel_i_limit=WHEEL_SPEED_I_LIMIT_DEG;
     wheel_pos_kp=WHEEL_POSITION_KP;wheel_speed_limit=WHEEL_POSITION_SPEED_LIMIT_CPS;
     wheel_hold_reset();
@@ -58,14 +60,15 @@ int wheel_hold_update(const wheel_encoder_sample_t *sample, int freeze_integral)
 {
     float output;
     int captured_reference=0;
+    const int original_limits=balance_control_mode==10u;
     /* Runs only on the CPU0 control ISR. Menu/UDP writes run on the same CPU's
      * main loop and cannot interrupt these reads; the encoder has a snapshot. */
     if (fault_reason) return -fault_reason;
-    if (!isfinite(wheel_speed_kp) || wheel_speed_kp<0.0f || wheel_speed_kp>WHEEL_SPEED_GAIN_MAX ||
-        !isfinite(wheel_speed_ki) || wheel_speed_ki<0.0f || wheel_speed_ki>WHEEL_SPEED_GAIN_MAX ||
-        !isfinite(wheel_tilt_limit) || wheel_tilt_limit<0.0f || wheel_tilt_limit>WHEEL_SPEED_TILT_MAX_DEG ||
-        !isfinite(wheel_i_limit) || wheel_i_limit<0.0f || wheel_i_limit>WHEEL_SPEED_TILT_MAX_DEG ||
-        !isfinite(wheel_pos_kp) || wheel_pos_kp<0.0f || wheel_pos_kp>WHEEL_POSITION_GAIN_MAX ||
+    if (!isfinite(wheel_speed_kd) || wheel_speed_kd<0.0f || !isfinite(wheel_speed_kp) || wheel_speed_kp<0.0f ||
+        !isfinite(wheel_speed_ki) || wheel_speed_ki<0.0f ||
+        (!original_limits && (!isfinite(wheel_tilt_limit) || wheel_tilt_limit<0.0f || wheel_tilt_limit>WHEEL_SPEED_TILT_MAX_DEG)) ||
+        (!original_limits && (!isfinite(wheel_i_limit) || wheel_i_limit<0.0f || wheel_i_limit>WHEEL_SPEED_TILT_MAX_DEG)) ||
+        !isfinite(wheel_pos_kp) || wheel_pos_kp<0.0f ||
         !isfinite(wheel_speed_limit) || wheel_speed_limit<0.0f || wheel_speed_limit>WHEEL_POSITION_SPEED_MAX_CPS ||
         (WHEEL_SPEED_TILT_SIGN!=1.0f && WHEEL_SPEED_TILT_SIGN!=-1.0f)) return fail(9);
     if (!sample) return fail(7);
@@ -95,15 +98,17 @@ int wheel_hold_update(const wheel_encoder_sample_t *sample, int freeze_integral)
     if (wheel_pos_kp==0.0f || wheel_speed_limit==0.0f) {
         wheel_target_cps=0;position_elapsed_ms=0;pid_reset(&position_pid);
     }
-    if (wheel_target_cps>wheel_speed_limit) wheel_target_cps=wheel_speed_limit;
-    if (wheel_target_cps< -wheel_speed_limit) wheel_target_cps=-wheel_speed_limit;
-    speed_pid.output_min=-wheel_tilt_limit;speed_pid.output_max=wheel_tilt_limit;
-    speed_pid.integral_limit=wheel_i_limit;
+    if (!original_limits && wheel_target_cps>wheel_speed_limit) wheel_target_cps=wheel_speed_limit;
+    if (!original_limits && wheel_target_cps< -wheel_speed_limit) wheel_target_cps=-wheel_speed_limit;
+    speed_pid.output_min=original_limits?-FLT_MAX:-wheel_tilt_limit;speed_pid.output_max=original_limits?FLT_MAX:wheel_tilt_limit;
+    /* Preserve upstream speed error-sum bound (+/-70), converted to this
+     * controller's Ki*error*seconds integral-output units. */
+    speed_pid.integral_limit=original_limits?70.0f*wheel_speed_ki*sample->dt_ms*.001f:wheel_i_limit;
     /* A live reduction of the I limit must also clamp the old integral before
      * conditional antiwindup can retain it, including while output is saturated. */
-    if (speed_pid.integral>wheel_i_limit) speed_pid.integral=wheel_i_limit;
-    if (speed_pid.integral< -wheel_i_limit) speed_pid.integral=-wheel_i_limit;
-    speed_pid.kp=wheel_speed_kp;speed_pid.ki=freeze_integral?0.0f:wheel_speed_ki;speed_pid.kd=0.0f;
+    if (speed_pid.integral>speed_pid.integral_limit) speed_pid.integral=speed_pid.integral_limit;
+    if (speed_pid.integral< -speed_pid.integral_limit) speed_pid.integral=-speed_pid.integral_limit;
+    speed_pid.kp=wheel_speed_kp;speed_pid.ki=freeze_integral?0.0f:wheel_speed_ki;speed_pid.kd=wheel_speed_kd;
     if (!have_frame || sample->sequence!=last_sequence) {
         if (!captured_reference && wheel_pos_kp>0.0f && wheel_speed_limit>0.0f)
             position_elapsed_ms+=sample->dt_ms;
@@ -113,7 +118,7 @@ int wheel_hold_update(const wheel_encoder_sample_t *sample, int freeze_integral)
             error=error>band?error-band:error< -band?error+band:0.0f;
             position_pid.kp=wheel_pos_kp;position_pid.ki=position_pid.kd=0;
             position_pid.integral_limit=0;
-            position_pid.output_min=-wheel_speed_limit;position_pid.output_max=wheel_speed_limit;
+            position_pid.output_min=original_limits?-FLT_MAX:-wheel_speed_limit;position_pid.output_max=original_limits?FLT_MAX:wheel_speed_limit;
             wheel_target_cps=pid_position_update(&position_pid,error,0.0f,position_elapsed_ms*0.001f);
             position_elapsed_ms=0;
         }
@@ -121,8 +126,8 @@ int wheel_hold_update(const wheel_encoder_sample_t *sample, int freeze_integral)
         have_frame=1;last_sequence=sample->sequence;
     } else output=speed_pid.output;
     /* A reduced menu limit also constrains a held output before the next frame. */
-    if (output>wheel_tilt_limit) output=wheel_tilt_limit;
-    if (output< -wheel_tilt_limit) output=-wheel_tilt_limit;
+    if (!original_limits && output>wheel_tilt_limit) output=wheel_tilt_limit;
+    if (!original_limits && output< -wheel_tilt_limit) output=-wheel_tilt_limit;
     wheel_speed_integral=speed_pid.integral;
     wheel_speed_error=wheel_target_cps-sample->speed_cps;
     wheel_tilt_offset=WHEEL_SPEED_TILT_SIGN*output;

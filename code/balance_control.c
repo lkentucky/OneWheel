@@ -5,6 +5,7 @@
 #include "balance_control.h"
 #include "pid.h"
 #include "wheel_hold.h"
+#include <float.h>
 
 uint8_t shacheflag;
 int16 costrained_flywheel_speed_left, costrained_flywheel_speed_right, costrained_wheel_speed;
@@ -18,17 +19,21 @@ float constrain_float(float v,float lo,float hi) { return v<lo?lo:v>hi?hi:v; }
 static pid_controller_t angle_pid[2],rate_pid[2];
 typedef struct { float last_error, last_derivative, out; } mode10_inc_pid_t;
 static mode10_inc_pid_t mode10_roll_rate_pid;
+static unsigned mode10_angle_ticks,mode10_velocity_ticks;
+static uint8 mode10_loops_initialized;
 typedef struct { float speed, derivative, elapsed; uint32 sequence; uint8 initialized; } mode10_speed_d_t;
 static mode10_speed_d_t mode10_speed_d;
 static void mode10_derivatives_reset(void)
 {
     mode10_speed_d=(mode10_speed_d_t){0};
+    mode10_angle_ticks=mode10_velocity_ticks=0;mode10_loops_initialized=0;
     fly_angle_d_out=fly_vel_d_out=0.0f;
 }
 // 函数简介：获取控制器使用的固定采样周期，单位为秒。
 // 参数说明：无。
 // 返回值：返回控制周期，单位为秒。
-static float controller_dt_s(void) {return (float)APP_IMU_PERIOD_US*0.000001f;}
+static unsigned controller_period_us(void) {return balance_control_mode==10u?MODE10_CONTROL_PERIOD_US:APP_CONTROL_TICK_US*APP_CONTROL_DIVIDER;}
+static float controller_dt_s(void) {return (float)controller_period_us()*0.000001f;}
 // 函数简介：复位两个控制轴的角度环、角速度环和飞轮滤波器。
 // 参数说明：无。
 // 返回值：无。
@@ -46,12 +51,13 @@ static float balance_angle_pid(unsigned axis,float target,float angle,float kp,f
 {
     pid_controller_t *p=&angle_pid[axis];
     p->kp=kp;p->ki=axis?GROUND_ANGLE_KI:FLY_ANGLE_KI;p->kd=axis?GROUND_ANGLE_KD:FLY_ANGLE_KD;
-    p->integral_limit=BALANCE_ANGLE_I_LIMIT_DPS;
-    p->output_min=-rate_limit;p->output_max=rate_limit;
+    p->integral_limit=balance_control_mode==10u?30.0f*fabsf(p->ki)*(MODE10_ANGLE_PERIOD_US*.000001f):BALANCE_ANGLE_I_LIMIT_DPS;
+    p->output_min=balance_control_mode==10u?-FLT_MAX:-rate_limit;
+    p->output_max=balance_control_mode==10u?FLT_MAX:rate_limit;
 #if BALANCE_ANGLE_PID_INCREMENTAL
-    return pid_incremental_update(p,target,angle,controller_dt_s());
+    return pid_incremental_update(p,target,angle,balance_control_mode==10u?MODE10_ANGLE_PERIOD_US*.000001f:controller_dt_s());
 #else
-    return pid_position_update(p,target,angle,controller_dt_s());
+    return pid_position_update(p,target,angle,balance_control_mode==10u?MODE10_ANGLE_PERIOD_US*.000001f:controller_dt_s());
 #endif
 }
 // 函数简介：执行指定控制轴的角速度环 PID，生成带方向的 PWM 输出。
@@ -63,8 +69,8 @@ static float balance_rate_pid(unsigned axis,float target,float rate,float kp,flo
 {
     float output;
     pid_controller_t *p=&rate_pid[axis];
-    p->kp=kp;p->ki=axis?GROUND_RATE_KI:FLY_RATE_KI;p->kd=axis?GROUND_RATE_KD:FLY_RATE_KD;
-    p->integral_limit=BALANCE_RATE_I_LIMIT_PWM;
+    p->kp=kp;p->ki=axis?GROUND_RATE_KI:FLY_RATE_KI;p->kd=axis?ground_rate_test_kd:FLY_RATE_KD;
+    p->integral_limit=balance_control_mode==10u?3.0f*fabsf(p->ki)*controller_dt_s():BALANCE_RATE_I_LIMIT_PWM;
     p->output_min=-pwm_limit;p->output_max=pwm_limit;
 #if BALANCE_RATE_PID_INCREMENTAL
     output=pid_incremental_update(p,target,rate,controller_dt_s());
@@ -84,7 +90,7 @@ static float mode10_flywheel_velocity_pid(float vel_kp,float vel_kd,float left_s
     if (!isfinite(vel_kp) || !isfinite(vel_kd) || vel_kd<0 || !isfinite(err)) {
         mode10_derivatives_reset();return 0.0f;
     }
-    mode10_speed_d.elapsed+=controller_dt_s();
+    mode10_speed_d.elapsed+=(float)MODE10_VELOCITY_PERIOD_US*0.000001f;
     if (!mode10_speed_d.initialized) {
         mode10_speed_d.speed=real_speed;mode10_speed_d.sequence=sequence;
         mode10_speed_d.derivative=mode10_speed_d.elapsed=0;
@@ -104,7 +110,7 @@ static float mode10_flywheel_velocity_pid(float vel_kp,float vel_kd,float left_s
     fly_vel_d_out=vel_kd*mode10_speed_d.derivative;
     output=vel_kp*err+fly_vel_d_out;
     if (!isfinite(output)) {mode10_derivatives_reset();return 0.0f;}
-    return constrain_float(output,-FLY_VEL_ANGLE_LIMIT_DEG,FLY_VEL_ANGLE_LIMIT_DEG);
+    return output;
 }
 
 static float mode10_roll_rate_incremental_pid(float target,float rate,float kp,float ki,float pwm_limit,float sign)
@@ -192,6 +198,7 @@ volatile float dual_angle[2],dual_target[2],dual_angle_error[2];
 volatile float dual_rate[2],dual_target_rate[2],dual_rate_error[2],dual_pwm[2];
 
 /* Compiled defaults live in config.h; valid upright Flash values may override. */
+float ground_rate_test_kd=GROUND_RATE_KD;
 float ground_rate_test_kp=GROUND_RATE_KP, ground_rate_test_limit=GROUND_PWM_LIMIT, ground_rate_test_sign=GROUND_OUTPUT_SIGN;
 float ground_angle_kp=GROUND_ANGLE_KP, ground_angle_rate_limit=GROUND_RATE_LIMIT_DPS;
 /* Static-friction feed-forward for the geared travel wheel (see config.h). */
@@ -296,7 +303,7 @@ static void control_latch_fault(int32 state,int32 reason)
 // 返回值：无。
 static void control_startup_advance(void)
 {
-    if(control_startup_elapsed_ms<5000u)control_startup_elapsed_ms+=APP_IMU_PERIOD_US/1000u;
+    if(control_startup_elapsed_ms<5000u)control_startup_elapsed_ms+=controller_period_us()/1000u;
     control_startup_scale=control_startup_ramp_ms==0?1.0f:
         constrain_float((float)control_startup_elapsed_ms/(float)control_startup_ramp_ms,0.0f,1.0f);
 }
@@ -394,12 +401,13 @@ typedef struct {
 // 返回值：参数有效返回 1，否则返回 0。
 static int dual_axis_parameters_valid(const balance_axis_snapshot *a)
 {
-    return isfinite(a->target) && fabsf(a->target)<=20 &&
+    return isfinite(a->target) && (balance_control_mode==10u || fabsf(a->target)<=20) &&
         isfinite(a->angle_kp) && a->angle_kp>=0 &&
         isfinite(a->rate_kp) && a->rate_kp>=0 &&
         isfinite(a->rate_ki) && a->rate_ki>=0 &&
-        isfinite(a->rate_limit) && a->rate_limit>0 && a->rate_limit<=BALANCE_RATE_LIMIT_MAX_DPS &&
-        isfinite(a->pwm_limit) && a->pwm_limit>=0 && a->pwm_limit<=BALANCE_PWM_LIMIT_MAX &&
+        isfinite(ground_rate_test_kd) && ground_rate_test_kd>=0 &&
+        (balance_control_mode==10u || (isfinite(a->rate_limit) && a->rate_limit>0 && a->rate_limit<=BALANCE_RATE_LIMIT_MAX_DPS)) &&
+        (balance_control_mode==10u || (isfinite(a->pwm_limit) && a->pwm_limit>=0 && a->pwm_limit<=BALANCE_PWM_LIMIT_MAX)) &&
         (a->sign==1 || a->sign==-1);
 }
 /* Static-friction feed-forward: the geared travel wheel needs roughly
@@ -428,6 +436,7 @@ static void dual_balance_update(void)
 {
     balance_axis_snapshot a[2];
     float vel_kp,vel_kd,angle_kd,fly_left_speed,fly_right_speed;
+    uint8 angle_due=1,velocity_due=0;
     uint32 seq,irq,fly_sequence; int32 status;
     int output[2]={0,0},ground_output;
     irq=interrupt_global_disable();
@@ -439,6 +448,7 @@ static void dual_balance_update(void)
     a[1].target=mono_params.balance_angle_x;
     a[1].angle_kp=ground_angle_kp; a[1].rate_limit=ground_angle_rate_limit;
     a[1].rate_kp=ground_rate_test_kp; a[1].rate_ki=GROUND_RATE_KI; a[1].pwm_limit=ground_rate_test_limit; a[1].sign=ground_rate_test_sign;
+    if (balance_control_mode==10u) a[0].pwm_limit=a[1].pwm_limit=7500.0f;
     seq=imu_sample_sequence; status=imu_attitude_status;
     vel_kp=flywheel_vel_kp;
     vel_kd=flywheel_vel_kd;angle_kd=pitch_balance_kd;
@@ -449,7 +459,8 @@ static void dual_balance_update(void)
     for(unsigned i=0;i<2;i++) {
         dual_angle[i]=a[i].angle;dual_rate[i]=a[i].rate;dual_target[i]=a[i].target;
         dual_angle_error[i]=a[i].target-a[i].angle;
-        dual_target_rate[i]=dual_rate_error[i]=dual_pwm[i]=0;
+        if (balance_control_mode!=10u || roll_rate_test_state!=2) dual_target_rate[i]=0;
+        dual_rate_error[i]=dual_pwm[i]=0;
     }
     if (roll_rate_test_state==1 || roll_rate_test_state==2) {
         if (!shacheflag) roll_rate_test_state=0;
@@ -460,14 +471,14 @@ static void dual_balance_update(void)
                    !isfinite(a[0].rate) || !isfinite(a[1].rate)) control_latch_fault(-1,seq?3:2);
         else if (fabsf(imu_pitch_deg)>BALANCE_TILT_LIMIT_DEG || fabsf(imu_roll_deg)>BALANCE_TILT_LIMIT_DEG) control_latch_fault(-2,5);
         else if (!dual_axis_parameters_valid(&a[0]) || !dual_axis_parameters_valid(&a[1]) ||
-                 !isfinite(FLY_ANGLE_FF_KP) || FLY_ANGLE_FF_KP<0.0f || FLY_ANGLE_FF_KP>1000.0f ||
+                 !isfinite(FLY_ANGLE_FF_KP) || FLY_ANGLE_FF_KP<0.0f ||
                  !isfinite(vel_kp) ||
                  (balance_control_mode==10u && (!isfinite(vel_kd) || vel_kd<0 ||
                     !isfinite(angle_kd) || angle_kd<0)) ||
                  control_startup_ramp_ms>5000u)
             control_latch_fault(-3,6);
         else {
-            if (seq==rate_sequence) rate_stale_ms+=APP_IMU_PERIOD_US/1000u;
+            if (seq==rate_sequence) rate_stale_ms+=controller_period_us()/1000u;
             else {rate_stale_ms=0;rate_sequence=seq;}
             if (rate_stale_ms>=BALANCE_IMU_STALE_MS) control_latch_fault(-1,4);
             else {
@@ -476,38 +487,51 @@ static void dual_balance_update(void)
                     wheel_encoder_sample_t encoder;
                     int result;
                     wheel_encoder_snapshot(&encoder);
-                    result=wheel_hold_update(&encoder,control_startup_scale<1.0f ||
+                    result=wheel_hold_update(&encoder,(balance_control_mode!=10u && control_startup_scale<1.0f) ||
                         a[1].angle_kp<=0.0f || a[1].rate_kp<=0.0f ||
                         fabsf((float)costrained_wheel_speed)>=a[1].pwm_limit*control_startup_scale-0.5f);
                     if (result<0) {control_latch_fault(result==-9?-3:-4,-result);ready=0;}
                     else if (!result) {roll_rate_test_state=1;ready=0;}
                     else {
                         a[1].target+=wheel_tilt_offset;
-                        if (!isfinite(a[1].target) || fabsf(a[1].target)>20.0f) {
+                        if (!isfinite(a[1].target) || (balance_control_mode!=10u && fabsf(a[1].target)>20.0f)) {
                             control_latch_fault(-3,9);ready=0;
                         }
                         dual_target[1]=a[1].target;
                         dual_angle_error[1]=a[1].target-a[1].angle;
                     }
                 }
-                if (ready) {roll_rate_test_state=2;control_startup_advance();}
+                if (ready) {
+                    roll_rate_test_state=2;
+                    if (balance_control_mode==10u) control_startup_scale=1.0f;
+                    else control_startup_advance();
+                    if (balance_control_mode==10u) {
+                        angle_due=++mode10_angle_ticks>=MODE10_ANGLE_PERIOD_US/MODE10_CONTROL_PERIOD_US;
+                        velocity_due=++mode10_velocity_ticks>=MODE10_VELOCITY_PERIOD_US/MODE10_CONTROL_PERIOD_US;
+                        if (!mode10_loops_initialized) {angle_due=velocity_due=1;mode10_loops_initialized=1;}
+                        if (angle_due) mode10_angle_ticks=0;
+                        if (velocity_due) mode10_velocity_ticks=0;
+                    }
+                }
                 for(unsigned i=0;ready && i<2;i++) {
                     if (i==0u) {
                         dual_rate[i]=a[i].rate;
                     }
                     if (i==0u && balance_control_mode==10u) {
-                        flywheel_vel_angle_out=mode10_flywheel_velocity_pid(vel_kp,vel_kd,fly_left_speed,fly_right_speed,fly_sequence);
-                        float roll_target=constrain_float(a[0].target+flywheel_vel_angle_out,-20.0f,20.0f);
+                        if (velocity_due) flywheel_vel_angle_out=mode10_flywheel_velocity_pid(vel_kp,vel_kd,fly_left_speed,fly_right_speed,fly_sequence);
+                        float roll_target=a[0].target+flywheel_vel_angle_out;
                         dual_target[0]=roll_target;
                         dual_angle_error[0]=roll_target-a[0].angle;
-                        fly_angle_d_out=-angle_kd*a[0].rate;
-                        dual_target_rate[0]=constrain_float(a[0].angle_kp*dual_angle_error[0]+fly_angle_d_out,-a[0].rate_limit,a[0].rate_limit);
+                        if (angle_due) {
+                            fly_angle_d_out=-angle_kd*a[0].rate;
+                            dual_target_rate[0]=a[0].angle_kp*dual_angle_error[0]+fly_angle_d_out;
+                        }
                         dual_rate_error[0]=dual_target_rate[0]-a[0].rate;
                         output[0]=(int)roundf(mode10_roll_rate_incremental_pid(dual_target_rate[0],a[0].rate,a[0].rate_kp,a[0].rate_ki,a[0].pwm_limit*control_startup_scale,a[0].sign));
                         dual_pwm[0]=(float)output[0];
                         continue;
                     }
-                    dual_target_rate[i]=balance_angle_pid(i,a[i].target,a[i].angle,a[i].angle_kp,a[i].rate_limit);
+                    if (angle_due) dual_target_rate[i]=balance_angle_pid(i,a[i].target,a[i].angle,a[i].angle_kp,a[i].rate_limit);
                     dual_rate_error[i]=dual_target_rate[i]-a[i].rate;
                     output[i]=(int)roundf(balance_rate_pid(i,dual_target_rate[i],a[i].rate,a[i].rate_kp,a[i].pwm_limit*control_startup_scale,a[i].sign,
                         i==0u && a[i].angle_kp>0.0f ? FLY_ANGLE_FF_KP*dual_angle_error[i] : 0.0f));
@@ -540,7 +564,7 @@ static void roll_rate_test_update(void)
     uint32 sequence, irq;
     int32 status;
     int output = 0, ground_output = 0;
-    if (++rate_divider < APP_CONTROL_DIVIDER) return;
+    if (++rate_divider < (balance_control_mode==10u?1u:APP_CONTROL_DIVIDER)) return;
     rate_divider = 0;
     ++roll_rate_test_sequence;
     if (pwm_debug_enabled) { pwm_debug_update(); return; }
@@ -576,18 +600,18 @@ static void roll_rate_test_update(void)
         /* Display labels are swapped: internal pitch is the tested Roll. */
         else if (fabsf(ground_rate_test_enabled ? roll : pitch) > BALANCE_TILT_LIMIT_DEG)
             control_latch_fault(-2,5);
-        else if (!isfinite(kp) || kp < 0.0f ||
+        else if (!isfinite(ground_rate_test_kd) || ground_rate_test_kd<0.0f || !isfinite(kp) || kp < 0.0f ||
                  !isfinite(limit) || limit < 0.0f || limit > BALANCE_PWM_LIMIT_MAX ||
                  (direction != 1.0f && direction != -1.0f) ||
                  !isfinite(angle_kp) || angle_kp < 0.0f ||
                  !isfinite(rate_limit) || rate_limit <= 0.0f || rate_limit > BALANCE_RATE_LIMIT_MAX_DPS ||
                  !isfinite(balance_angle) || fabsf(balance_angle) > 20.0f ||
                  (!ground_rate_test_enabled && !rate_only_test &&
-                  (!isfinite(FLY_ANGLE_FF_KP) || FLY_ANGLE_FF_KP<0.0f || FLY_ANGLE_FF_KP>1000.0f)) ||
+                  (!isfinite(FLY_ANGLE_FF_KP) || FLY_ANGLE_FF_KP<0.0f)) ||
                  control_startup_ramp_ms>5000u)
             control_latch_fault(-3,6);
         else {
-            if (sequence == rate_sequence) rate_stale_ms += APP_IMU_PERIOD_US/1000u;
+            if (sequence == rate_sequence) rate_stale_ms += controller_period_us()/1000u;
             else { rate_stale_ms = 0; rate_sequence = sequence; }
             if (rate_stale_ms >= BALANCE_IMU_STALE_MS) control_latch_fault(-1,4);
             else {
@@ -649,6 +673,7 @@ void balance_control_defaults(void)
     roll_rate_test_kp=FLY_RATE_KP;roll_rate_test_ki=FLY_RATE_KI;roll_rate_test_limit=FLY_PWM_LIMIT;roll_rate_test_sign=FLY_OUTPUT_SIGN;
     pitch_balance_kp=FLY_ANGLE_KP;pitch_balance_rate_limit=FLY_RATE_LIMIT_DPS;flywheel_vel_kp=FLY_VEL_KP;
     pitch_balance_kd=FLY_ANGLE_KD;flywheel_vel_kd=FLY_VEL_KD;
+    ground_rate_test_kd=GROUND_RATE_KD;
     ground_rate_test_kp=GROUND_RATE_KP;ground_rate_test_limit=GROUND_PWM_LIMIT;ground_rate_test_sign=GROUND_OUTPUT_SIGN;
     ground_angle_kp=GROUND_ANGLE_KP;ground_angle_rate_limit=GROUND_RATE_LIMIT_DPS;
     control_startup_ramp_ms=BALANCE_STARTUP_RAMP_MS;
