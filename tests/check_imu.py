@@ -26,10 +26,10 @@ typedef int16_t int16; typedef int32_t int32;
     (work/"zf_driver_spi.h").write_text('#include "zf_common_typedef.h"\nuint8 spi_transfer_8bit_timeout(int,const uint8*,uint8*,uint32,uint32); void spi_write_8bit_register(int,uint8,uint8); uint8 spi_read_8bit_register(int,uint8); void spi_read_8bit_registers(int,uint8,uint8*,uint32);\n')
     (work/"IfxStm.h").write_text('#include "zf_common_typedef.h"\n#define MODULE_STM0 host_stm\nextern int host_stm; uint32 IfxStm_getLower(int*); float IfxStm_getFrequency(int*);\n')
     exe=work/'pipeline-ekf.exe'
-    subprocess.run(['gcc','-x','c','-std=c99','-O2','-Wall','-Wextra',
+    subprocess.run(['gcc','-x','c','-std=c99','-O2','-DR10H_HOST_TEST','-Wall','-Wextra',
       '-I'+str(work),'-I'+str(root/'code'),'-I'+str(root/'libraries/zf_device'),
       str(work/'imu.c'),str(work/'attitude_algorithm.c'),str(root/'code/attitude.c'),
-      str(root/'tests/imu_rb_test.c.in'),'-lm','-o',str(exe)],check=True)
+      str(root/'tests/imu_r10h_test.c'),*[str(p) for p in (root/'code/r10h/core').glob('*.c')],str(root/'code/r10h/src/r10h_attitude.c'),'-lm','-o',str(exe)],check=True)
     subprocess.run([str(exe)],check=True)
     exe=work/'preprocess.exe'
     subprocess.run(['gcc','-x','c','-std=c99','-O2','-Wall','-Wextra','-I'+str(root/'code'),

@@ -156,7 +156,7 @@ void Menu_Create(void)
     Menu_Item *pid=Create_Menu_Folder_dynamic(&Root,"PID");
     Menu_Item *storage=Create_Menu_Folder_dynamic(&Root,"Storage");
     Menu_Item *debug=Create_Menu_Folder_dynamic(&Root,"PWM debug");
-    Create_Menu_File_dynamic(startup,"Mode 2..8",&run_mode,uint8_Box);
+    Create_Menu_File_dynamic(startup,"Mode 2..8/10",&run_mode,uint8_Box);
     Create_Menu_File_dynamic(startup,"Start",&start_switch,bool_Box);
     Create_Menu_File_dynamic(startup,"Stop",&stop_switch,bool_Box);
     Create_Menu_File_dynamic(startup,"IMU",&imu_switch,bool_Box);
@@ -168,10 +168,11 @@ void Menu_Create(void)
     Menu_Item *fly=Create_Menu_Folder_dynamic(pid,"Gyro test");
     Create_Menu_File_dynamic(fly,"KP",&roll_rate_test_kp,float_Box);
     Create_Menu_File_dynamic(fly,"KI",&roll_rate_test_ki,float_Box);
+    Create_Menu_File_dynamic(fly,"Rate KD ASC",&fly_rate_kd,float_Box);
     Create_Menu_File_dynamic(fly,"PWM limit",&roll_rate_test_limit,float_Box);
     Create_Menu_File_dynamic(fly,"Sign +/-1",&roll_rate_test_sign,float_Box);
     Create_Menu_File_dynamic(fly,"Angle KP",&pitch_balance_kp,float_Box);
-    Create_Menu_File_dynamic(fly,"Angle KD",&pitch_balance_kd,float_Box);
+    Create_Menu_File_dynamic(fly,"Angle KD 5ms",&pitch_balance_kd,float_Box);
     Create_Menu_File_dynamic(fly,"Vel KP",&flywheel_vel_kp,float_Box);
     Create_Menu_File_dynamic(fly,"Vel KD",&flywheel_vel_kd,float_Box);
     Create_Menu_File_dynamic(fly,"Rate limit",&pitch_balance_rate_limit,float_Box);
@@ -183,7 +184,16 @@ void Menu_Create(void)
     Create_Menu_File_dynamic(ground,"Angle KP",&ground_angle_kp,float_Box);
     Create_Menu_File_dynamic(ground,"Rate limit",&ground_angle_rate_limit,float_Box);
     Create_Menu_File_dynamic(ground,"Balance X",&mono_params.balance_angle_x,float_Box);
-    Menu_Item *speed=Create_Menu_Folder_dynamic(pid,"Speed hold RAM");
+    Menu_Item *asc=Create_Menu_Folder_dynamic(pid,"ASC Mode10");
+    Create_Menu_File_dynamic(asc,"Ground rate KI",&asc_ground_rate_ki,float_Box);
+    Create_Menu_File_dynamic(asc,"Ground rate KD",&ground_rate_test_kd,float_Box);
+    Create_Menu_File_dynamic(asc,"Speed KP cnt20",&asc_ground_speed_kp,float_Box);
+    Create_Menu_File_dynamic(asc,"Speed KI cnt20",&asc_ground_speed_ki,float_Box);
+    Create_Menu_File_dynamic(asc,"Speed KD cnt20",&asc_ground_speed_kd,float_Box);
+    Create_Menu_File_dynamic(asc,"Yaw enable 0/1",&asc_yaw_enabled,float_Box);
+    Create_Menu_File_dynamic(asc,"Yaw angle KP",&asc_yaw_angle_kp,float_Box);
+    Create_Menu_File_dynamic(asc,"Yaw rate KP",&asc_yaw_rate_kp,float_Box);
+    Menu_Item *speed=Create_Menu_Folder_dynamic(pid,"Mode2 hold RAM");
     Create_Menu_File_dynamic(speed,"Speed KP",&wheel_speed_kp,float_Box);
     speed->First_Son->step_scale=0.001f;
     Create_Menu_File_dynamic(speed,"Speed KI",&wheel_speed_ki,float_Box);
@@ -548,7 +558,7 @@ static const char *test_mode_name(void)
     case 3:return "Roll angle: flywheel";case 4:return "Pitch angle: wheel";
     case 5:return "DUAL angle: both";case 6:return "Roll RATE ONLY: flywheel";
     case 7:return "Pitch RATE ONLY: wheel";case 8:return "PWM DEBUG: fly + wheel";
-    case 10:return "Mode10: Roll inc + Pitch hold";
+    case 10:return "Mode10: ASC balance";
     default:return "Invalid mode";
     }
 }

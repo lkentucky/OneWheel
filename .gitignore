@@ -29,3 +29,10 @@
 
 # Firmware-produced host compatibility fixtures (tiny JustFloat datagrams).
 !/tools/qcar_monitor_update/tests/fixtures/qcar_*.bin
+
+# ASC port: required implementation includes and original provenance/licenses
+!*.inc
+!/code/r10h/*.json
+!/code/r10h/LICENSES/*.txt
+!/tools/ads/BuildStartup.java
+!/docs/asc-port-manifest.json

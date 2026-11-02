@@ -1,5 +1,5 @@
 /* Upright-only parameter storage. New magic prevents interpreting old
- * image/PID records as this compact schema. Pages 0..14 only; marker last.
+ * image/PID records as this compact schema. ASC schema: per-update gain units, yaw and independent speed parameters; marker last.
  * Save is still permitted only with control stopped by menu.c.
  */
 #include "flash.h"
@@ -80,14 +80,17 @@ void eeprom_page_program(uint32 sector_num, uint32 page_num, uint32 *buf)
 }
 
 
-#define BALANCE_STORAGE_MAGIC 0x4F574232u
-#define BALANCE_PARAMETER_COUNT 12u
+#define BALANCE_STORAGE_MAGIC 0x41534331u
+#define BALANCE_PARAMETER_COUNT 27u
+#define STORAGE_RAMP_PAGE (BALANCE_PARAMETER_COUNT+1u)
+#define STORAGE_CRC_PAGE (BALANCE_PARAMETER_COUNT+2u)
 static float *const values[BALANCE_PARAMETER_COUNT]={
     &roll_rate_test_kp,&roll_rate_test_limit,&roll_rate_test_sign,
     &pitch_balance_kp,&pitch_balance_rate_limit,
     &ground_rate_test_kp,&ground_rate_test_limit,&ground_rate_test_sign,
     &ground_angle_kp,&ground_angle_rate_limit,
-    &mono_params.balance_angle_x,&mono_params.balance_angle_y
+    &mono_params.balance_angle_x,&mono_params.balance_angle_y,
+    &roll_rate_test_ki,&fly_rate_kd,&pitch_balance_kd,&flywheel_vel_kp,&flywheel_vel_kd,&ground_rate_test_kd,&asc_ground_rate_ki,&asc_ground_speed_kp,&asc_ground_speed_ki,&asc_ground_speed_kd,&asc_yaw_angle_kp,&asc_yaw_rate_kp,&asc_yaw_enabled,&ground_deadzone_pos_pwm,&ground_deadzone_neg_pwm
 };
 static uint32 checksum_word(uint32 crc,uint32 word) {return (crc*16777619u)^word;}
 static int stored_valid(const float v[BALANCE_PARAMETER_COUNT],uint32 ramp)
@@ -96,9 +99,9 @@ static int stored_valid(const float v[BALANCE_PARAMETER_COUNT],uint32 ramp)
     for(i=0;i<BALANCE_PARAMETER_COUNT;++i) if(!isfinite(v[i])) return 0;
     return v[0]>=0 && v[1]>=0 && v[1]<=BALANCE_PWM_LIMIT_MAX && (v[2]==1 || v[2]==-1) &&
         v[3]>=0 && v[4]>0 && v[4]<=BALANCE_RATE_LIMIT_MAX_DPS &&
-        v[5]>=0 && v[6]>=0 && v[6]<=BALANCE_PWM_LIMIT_MAX && (v[7]==1 || v[7]==-1) &&
+        v[5]>=0 && v[6]>=0 && v[6]<=ASC_GROUND_PWM_LIMIT && (v[7]==1 || v[7]==-1) &&
         v[8]>=0 && v[9]>0 && v[9]<=BALANCE_RATE_LIMIT_MAX_DPS &&
-        fabsf(v[10])<=20 && fabsf(v[11])<=20 && ramp<=5000;
+        fabsf(v[10])<=20 && fabsf(v[11])<=20 && ramp<=5000 && (v[24]==0 || v[24]==1) && v[25]>=0 && v[25]<=BALANCE_PWM_LIMIT_MAX && v[26]>=0 && v[26]<=BALANCE_PWM_LIMIT_MAX;
 }
 int write_flash(void)
 {
@@ -115,13 +118,13 @@ int write_flash(void)
     for(i=0;i<BALANCE_PARAMETER_COUNT;++i) {
         eeprom_page_program(0,i+1,&words[i]);crc=checksum_word(crc,words[i]);
     }
-    eeprom_page_program(0,13,&ramp);crc=checksum_word(crc,ramp);
-    eeprom_page_program(0,14,&crc);
+    eeprom_page_program(0,STORAGE_RAMP_PAGE,&ramp);crc=checksum_word(crc,ramp);
+    eeprom_page_program(0,STORAGE_CRC_PAGE,&crc);
     eeprom_page_program(0,0,&magic);
     IfxFlash_resetToRead(0);
-    if(my_flash_read(0,0,uint32)!=magic || my_flash_read(0,14,uint32)!=crc) return 0;
+    if(my_flash_read(0,0,uint32)!=magic || my_flash_read(0,STORAGE_CRC_PAGE,uint32)!=crc) return 0;
     for(i=0;i<BALANCE_PARAMETER_COUNT;++i) if(my_flash_read(0,i+1,uint32)!=words[i])return 0;
-    return my_flash_read(0,13,uint32)==ramp;
+    return my_flash_read(0,STORAGE_RAMP_PAGE,uint32)==ramp;
 }
 void get_flash(void)
 {
@@ -132,8 +135,8 @@ void get_flash(void)
     IfxFlash_resetToRead(0);
     if(my_flash_read(0,0,uint32)!=BALANCE_STORAGE_MAGIC) return;
     for(i=0;i<BALANCE_PARAMETER_COUNT;++i) {words[i]=my_flash_read(0,i+1,uint32);crc=checksum_word(crc,words[i]);}
-    ramp=my_flash_read(0,13,uint32);crc=checksum_word(crc,ramp);
-    if(crc!=my_flash_read(0,14,uint32))return;
+    ramp=my_flash_read(0,STORAGE_RAMP_PAGE,uint32);crc=checksum_word(crc,ramp);
+    if(crc!=my_flash_read(0,STORAGE_CRC_PAGE,uint32))return;
     memcpy(snapshot,words,sizeof(snapshot));
     if(!stored_valid(snapshot,ramp))return;
     for(i=0;i<BALANCE_PARAMETER_COUNT;++i)*values[i]=snapshot[i];

@@ -3,6 +3,8 @@ from pathlib import Path
 import subprocess
 import tempfile
 
+from asc_legacy_test_support import install
+install()
 root = Path(__file__).resolve().parents[1]
 source = (root / 'code/menu.c').read_text(encoding='utf-8')
 
@@ -25,7 +27,7 @@ boundary = r'''
 #include "qcar_types.h"
 typedef uint8_t uint8;typedef uint32_t uint32;typedef int32_t int32;typedef int16_t int16;
 #define IMU_ATTITUDE_CALIBRATING 0
-extern struct host_attitude {struct {float x,y;} gyro;} attitude_state;
+extern struct host_attitude {struct {float x,y,z;} gyro;} attitude_state;
 extern volatile float imu_roll_deg,imu_pitch_deg,imu_sample_dt_ms;
 extern volatile uint32 imu_sample_sequence;
 extern volatile int32 imu_attitude_status;
@@ -76,8 +78,8 @@ static void tick(void){for(unsigned i=0;i<APP_CONTROL_DIVIDER;++i)balance_contro
 
 main = r'''
 int main(void){
-    assert(run_mode==5); /* Selection only, not auto-start. */
-    balance_control_defaults();Menu_Tree_Reset();Menu_Create();All_Folder_Menu_Init(&Root);
+    assert(run_mode==APP_DEFAULT_MODE); /* Selection only, not auto-start. */
+    balance_control_defaults();asc_test_legacy_defaults();Menu_Tree_Reset();Menu_Create();All_Folder_Menu_Init(&Root);
     Menu_Item *folder=Root.First_Son;int saw_debug=0;
     for(unsigned n=0;n<Root.sons;++n,folder=folder->Next_Brother){
         if(strcmp(folder->name,"PWM debug")==0){
@@ -89,7 +91,7 @@ int main(void){
     }
     assert(saw_debug && !running && !shacheflag);
     Menu_Item mode={0};mode.data=&run_mode;
-    assert(!strcmp(Root.First_Son->First_Son->name,"Mode 2..8"));
+    assert(!strcmp(Root.First_Son->First_Son->name,"Mode 2..8/10"));
     Menu_Handle_Control_Uint8(&mode,-100);assert(run_mode==2);
     assert(!strcmp(test_mode_name(),"DUAL + POSITION hold"));
     start_car();tick();
@@ -126,7 +128,7 @@ int main(void){
     stop_car();assert(!wheel_hold_enabled && !balance_control_mode);
     Menu_Handle_Control_Uint8(&mode,8);assert(run_mode==10);
     start_car();tick();
-    assert(running && shacheflag && dual_balance_enabled && wheel_hold_enabled && balance_control_mode==10 && profile==5);
+    assert(running && shacheflag && dual_balance_enabled && !wheel_hold_enabled && balance_control_mode==10 && profile==5);
     stop_car();
     puts("PASS: Mode2 IMU gate, dual+speed arm, telemetry profile, mode-change zero; Mode8 independent PWM retained");
 }

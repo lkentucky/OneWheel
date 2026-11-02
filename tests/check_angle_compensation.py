@@ -1,6 +1,8 @@
 """Run real control C: angle PWM compensation, signs, modes, ramp and faults."""
 from pathlib import Path
 import ast, subprocess, tempfile
+from asc_legacy_test_support import install
+install()
 root=Path(__file__).resolve().parents[1]
 tree=ast.parse((root/'tests/check_balance_control.py').read_text(encoding='utf-8-sig'))
 texts=[n.args[0].value for n in ast.walk(tree) if isinstance(n,ast.Call) and isinstance(n.func,ast.Attribute) and n.func.attr=='write_text' and n.args and isinstance(n.args[0],ast.Constant)]
@@ -15,12 +17,12 @@ int main(void) {
         roll_rate_test_sign=-1;tick(1);assert(fly_l==-(int)FLY_ANGLE_FF_KP);
         roll_rate_test_limit=100;tick(1);assert(fly_l==-100 && fly_r==100);
         arm(mode);roll_rate_test_kp=0;mono_params.balance_angle_y+=1;
-        control_startup_ramp_ms=1000;tick(1);assert(fly_l==16 && fly_r==-16);
+        control_startup_ramp_ms=1000;tick(1);assert(fly_l==(int)(FLY_PWM_LIMIT*(APP_CONTROL_TICK_US*APP_CONTROL_DIVIDER)*.000001f) && fly_r==-fly_l);
         shacheflag=0;tick(1);assert(!fly_l && !fly_r);
         arm(mode);roll_rate_test_kp=0;mono_params.balance_angle_y+=1;
         imu_attitude_status=0;tick(1);assert(!fly_l);
         arm(mode);roll_rate_test_kp=0;mono_params.balance_angle_y+=1;
-        for(unsigned ms=0;ms<BALANCE_IMU_STALE_MS;ms+=APP_IMU_PERIOD_US/1000u)tick(0);
+        for(unsigned ms=0;ms<BALANCE_IMU_STALE_MS;ms+=(APP_CONTROL_TICK_US*APP_CONTROL_DIVIDER)/1000u)tick(0);
         assert(control_fault_reason==4 && !fly_l && !fly_r);
         arm(mode);roll_rate_test_kp=0;mono_params.balance_angle_y+=1;
         imu_pitch_deg=31;tick(1);assert(roll_rate_test_state==-2 && !fly_l);

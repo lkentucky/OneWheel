@@ -6,6 +6,8 @@
 #include "pid.h"
 #include "wheel_hold.h"
 #include <float.h>
+#include "asc_control.h"
+#include "small_driver_uart_control.h"
 
 uint8_t shacheflag;
 int16 costrained_flywheel_speed_left, costrained_flywheel_speed_right, costrained_wheel_speed;
@@ -17,17 +19,12 @@ Mono_params mono_params;
 float constrain_float(float v,float lo,float hi) { return v<lo?lo:v>hi?hi:v; }
 /* One private PID instance per axis and loop; no shared error history. */
 static pid_controller_t angle_pid[2],rate_pid[2];
-typedef struct { float last_error, last_derivative, out; } mode10_inc_pid_t;
-static mode10_inc_pid_t mode10_roll_rate_pid;
-static unsigned mode10_angle_ticks,mode10_velocity_ticks;
-static uint8 mode10_loops_initialized;
-typedef struct { float speed, derivative, elapsed; uint32 sequence; uint8 initialized; } mode10_speed_d_t;
-static mode10_speed_d_t mode10_speed_d;
+static asc_controller_t asc_state;
+static uint32 asc_sequence,asc_stale_ms;
 static void mode10_derivatives_reset(void)
 {
-    mode10_speed_d=(mode10_speed_d_t){0};
-    mode10_angle_ticks=mode10_velocity_ticks=0;mode10_loops_initialized=0;
-    fly_angle_d_out=fly_vel_d_out=0.0f;
+ asc_control_reset(&asc_state);asc_sequence=asc_stale_ms=0;
+ fly_angle_d_out=fly_vel_d_out=0;asc_yaw_pwm=0;
 }
 // 函数简介：获取控制器使用的固定采样周期，单位为秒。
 // 参数说明：无。
@@ -40,7 +37,6 @@ static float controller_dt_s(void) {return (float)controller_period_us()*0.00000
 static void balance_pid_reset(void)
 {
     unsigned i;for(i=0;i<2;++i){pid_reset(&angle_pid[i]);pid_reset(&rate_pid[i]);}
-    mode10_roll_rate_pid.last_error=mode10_roll_rate_pid.last_derivative=mode10_roll_rate_pid.out=0.0f;
     mode10_derivatives_reset();
 }
 // 函数简介：执行指定控制轴的姿态角环 PID，生成目标角速度。
@@ -50,7 +46,7 @@ static void balance_pid_reset(void)
 static float balance_angle_pid(unsigned axis,float target,float angle,float kp,float rate_limit)
 {
     pid_controller_t *p=&angle_pid[axis];
-    p->kp=kp;p->ki=axis?GROUND_ANGLE_KI:FLY_ANGLE_KI;p->kd=axis?GROUND_ANGLE_KD:FLY_ANGLE_KD;
+    p->kp=kp;p->ki=axis?GROUND_ANGLE_KI:FLY_ANGLE_KI;p->kd=axis?GROUND_ANGLE_KD:pitch_balance_kd*.005f;
     p->integral_limit=balance_control_mode==10u?30.0f*fabsf(p->ki)*(MODE10_ANGLE_PERIOD_US*.000001f):BALANCE_ANGLE_I_LIMIT_DPS;
     p->output_min=balance_control_mode==10u?-FLT_MAX:-rate_limit;
     p->output_max=balance_control_mode==10u?FLT_MAX:rate_limit;
@@ -82,59 +78,15 @@ static float balance_rate_pid(unsigned axis,float target,float rate,float kp,flo
     return sign*constrain_float(output+angle_ff,-pwm_limit,pwm_limit);
 }
 
-static float mode10_flywheel_velocity_pid(float vel_kp,float vel_kd,float left_speed,float right_speed,uint32 sequence)
-{
-    float real_speed=(left_speed-right_speed)*0.005f;
-    float err=0.0f-real_speed;
-    float output;
-    if (!isfinite(vel_kp) || !isfinite(vel_kd) || vel_kd<0 || !isfinite(err)) {
-        mode10_derivatives_reset();return 0.0f;
-    }
-    mode10_speed_d.elapsed+=(float)MODE10_VELOCITY_PERIOD_US*0.000001f;
-    if (!mode10_speed_d.initialized) {
-        mode10_speed_d.speed=real_speed;mode10_speed_d.sequence=sequence;
-        mode10_speed_d.derivative=mode10_speed_d.elapsed=0;
-        mode10_speed_d.initialized=sequence!=0;
-    } else if (sequence!=mode10_speed_d.sequence) {
-        float dt=mode10_speed_d.elapsed;
-        if (dt>0 && dt<=(float)QCAR_DRIVER_FEEDBACK_TIMEOUT_MS*.001f) {
-            float derivative=-(real_speed-mode10_speed_d.speed)/dt;
-            float alpha=dt/(FLY_VEL_D_LPF_TAU_S+dt);
-            mode10_speed_d.derivative+=alpha*(derivative-mode10_speed_d.derivative);
-        } else mode10_speed_d.derivative=0;
-        mode10_speed_d.speed=real_speed;mode10_speed_d.sequence=sequence;
-        mode10_speed_d.elapsed=0;
-    }
-    if (mode10_speed_d.elapsed>(float)QCAR_DRIVER_FEEDBACK_TIMEOUT_MS*.001f)
-        mode10_speed_d.derivative=0;
-    fly_vel_d_out=vel_kd*mode10_speed_d.derivative;
-    output=vel_kp*err+fly_vel_d_out;
-    if (!isfinite(output)) {mode10_derivatives_reset();return 0.0f;}
-    return output;
-}
-
-static float mode10_roll_rate_incremental_pid(float target,float rate,float kp,float ki,float pwm_limit,float sign)
-{
-    float err=target-rate,deriv,delta;
-    if (!isfinite(err) || !isfinite(kp) || !isfinite(ki) || !isfinite(pwm_limit) || pwm_limit<0.0f) {
-        mode10_roll_rate_pid.last_error=mode10_roll_rate_pid.last_derivative=mode10_roll_rate_pid.out=0.0f;
-        return 0.0f;
-    }
-    deriv=err-mode10_roll_rate_pid.last_error;
-    delta=kp*deriv+ki*err+FLY_RATE_KD*(deriv-mode10_roll_rate_pid.last_derivative);
-    mode10_roll_rate_pid.last_error=err;
-    mode10_roll_rate_pid.last_derivative=deriv;
-    mode10_roll_rate_pid.out+=delta;
-    if (!isfinite(mode10_roll_rate_pid.out)) {
-        mode10_roll_rate_pid.last_error=mode10_roll_rate_pid.last_derivative=mode10_roll_rate_pid.out=0.0f;
-        return 0.0f;
-    }
-    mode10_roll_rate_pid.out=constrain_float(mode10_roll_rate_pid.out,-pwm_limit,pwm_limit);
-    return sign*mode10_roll_rate_pid.out;
-}
-
 /* States: 0 off, 1 calibration, 2 running;
  * -1 IMU failure/stale, -2 tilt, -3 invalid parameter. Faults latch until Start. */
+float fly_rate_kd=ASC_FLY_RATE_KD;
+float asc_ground_rate_ki=ASC_GROUND_RATE_KI;
+float asc_ground_speed_kp=ASC_GROUND_SPEED_KP,asc_ground_speed_ki=ASC_GROUND_SPEED_KI,asc_ground_speed_kd=0;
+float asc_yaw_angle_kp=ASC_YAW_ANGLE_KP,asc_yaw_rate_kp=ASC_YAW_RATE_KP;
+float asc_yaw_enabled=ASC_YAW_ENABLED;
+volatile float asc_yaw_pwm,asc_yaw_target_deg,asc_roll_actual_deg,asc_pitch_actual_deg;
+static void asc_balance_update(void);
 volatile uint8 roll_rate_test_enabled;
 volatile uint8 ground_rate_test_enabled;
 volatile uint8 dual_balance_enabled;
@@ -320,9 +272,8 @@ void dual_balance_arm(void)
 
 void mode10_balance_arm(void)
 {
-    /* Reuse the ground position/speed cascade and capture a new session origin. */
-    speed_balance_arm();
-    balance_control_mode=10;
+    dual_balance_arm();
+    balance_control_mode=10;wheel_hold_enabled=0;mode10_derivatives_reset();
 }
 
 void speed_balance_arm(void)
@@ -435,9 +386,9 @@ static int ground_deadzone_shape(int pwm, float limit)
 static void dual_balance_update(void)
 {
     balance_axis_snapshot a[2];
-    float vel_kp,vel_kd,angle_kd,fly_left_speed,fly_right_speed;
-    uint8 angle_due=1,velocity_due=0;
-    uint32 seq,irq,fly_sequence; int32 status;
+    float vel_kp;
+    uint8 angle_due=1;
+    uint32 seq,irq; int32 status;
     int output[2]={0,0},ground_output;
     irq=interrupt_global_disable();
     a[0].angle=imu_pitch_deg; a[0].rate=attitude_state.gyro.y;
@@ -451,10 +402,6 @@ static void dual_balance_update(void)
     if (balance_control_mode==10u) a[0].pwm_limit=a[1].pwm_limit=7500.0f;
     seq=imu_sample_sequence; status=imu_attitude_status;
     vel_kp=flywheel_vel_kp;
-    vel_kd=flywheel_vel_kd;angle_kd=pitch_balance_kd;
-    fly_sequence=flywheel_speed_feedback_sequence;
-    fly_left_speed=(float)flywheel_speed_feedback_left;
-    fly_right_speed=(float)flywheel_speed_feedback_right;
     interrupt_global_enable(irq);
     for(unsigned i=0;i<2;i++) {
         dual_angle[i]=a[i].angle;dual_rate[i]=a[i].rate;dual_target[i]=a[i].target;
@@ -473,8 +420,6 @@ static void dual_balance_update(void)
         else if (!dual_axis_parameters_valid(&a[0]) || !dual_axis_parameters_valid(&a[1]) ||
                  !isfinite(FLY_ANGLE_FF_KP) || FLY_ANGLE_FF_KP<0.0f ||
                  !isfinite(vel_kp) ||
-                 (balance_control_mode==10u && (!isfinite(vel_kd) || vel_kd<0 ||
-                    !isfinite(angle_kd) || angle_kd<0)) ||
                  control_startup_ramp_ms>5000u)
             control_latch_fault(-3,6);
         else {
@@ -505,32 +450,13 @@ static void dual_balance_update(void)
                     roll_rate_test_state=2;
                     if (balance_control_mode==10u) control_startup_scale=1.0f;
                     else control_startup_advance();
-                    if (balance_control_mode==10u) {
-                        angle_due=++mode10_angle_ticks>=MODE10_ANGLE_PERIOD_US/MODE10_CONTROL_PERIOD_US;
-                        velocity_due=++mode10_velocity_ticks>=MODE10_VELOCITY_PERIOD_US/MODE10_CONTROL_PERIOD_US;
-                        if (!mode10_loops_initialized) {angle_due=velocity_due=1;mode10_loops_initialized=1;}
-                        if (angle_due) mode10_angle_ticks=0;
-                        if (velocity_due) mode10_velocity_ticks=0;
-                    }
+
                 }
                 for(unsigned i=0;ready && i<2;i++) {
                     if (i==0u) {
                         dual_rate[i]=a[i].rate;
                     }
-                    if (i==0u && balance_control_mode==10u) {
-                        if (velocity_due) flywheel_vel_angle_out=mode10_flywheel_velocity_pid(vel_kp,vel_kd,fly_left_speed,fly_right_speed,fly_sequence);
-                        float roll_target=a[0].target+flywheel_vel_angle_out;
-                        dual_target[0]=roll_target;
-                        dual_angle_error[0]=roll_target-a[0].angle;
-                        if (angle_due) {
-                            fly_angle_d_out=-angle_kd*a[0].rate;
-                            dual_target_rate[0]=a[0].angle_kp*dual_angle_error[0]+fly_angle_d_out;
-                        }
-                        dual_rate_error[0]=dual_target_rate[0]-a[0].rate;
-                        output[0]=(int)roundf(mode10_roll_rate_incremental_pid(dual_target_rate[0],a[0].rate,a[0].rate_kp,a[0].rate_ki,a[0].pwm_limit*control_startup_scale,a[0].sign));
-                        dual_pwm[0]=(float)output[0];
-                        continue;
-                    }
+
                     if (angle_due) dual_target_rate[i]=balance_angle_pid(i,a[i].target,a[i].angle,a[i].angle_kp,a[i].rate_limit);
                     dual_rate_error[i]=dual_target_rate[i]-a[i].rate;
                     output[i]=(int)roundf(balance_rate_pid(i,dual_target_rate[i],a[i].rate,a[i].rate_kp,a[i].pwm_limit*control_startup_scale,a[i].sign,
@@ -568,6 +494,7 @@ static void roll_rate_test_update(void)
     rate_divider = 0;
     ++roll_rate_test_sequence;
     if (pwm_debug_enabled) { pwm_debug_update(); return; }
+    if (dual_balance_enabled && balance_control_mode==10u) {asc_balance_update();return;}
     if (dual_balance_enabled) { dual_balance_update(); return; }
     irq = interrupt_global_disable();
     rate = ground_rate_test_enabled ? attitude_state.gyro.x : attitude_state.gyro.y;
@@ -657,7 +584,6 @@ void clear_all_cascade_out(void)
     mode10_derivatives_reset();
     cascade_angle_out=cascade_angle_out_p=0;
     flywheel_vel_angle_out=0.0f;
-    mode10_roll_rate_pid.last_error=mode10_roll_rate_pid.last_derivative=mode10_roll_rate_pid.out=0.0f;
     cascade_angle_vel_out=cascade_angle_vel_out_p=0;
     costrained_flywheel_speed_left=costrained_flywheel_speed_right=costrained_wheel_speed=0;
 }
@@ -670,11 +596,83 @@ void balance_control_defaults(void)
     wheel_hold_defaults();
     mono_params.balance_angle_x=BALANCE_ZERO_X_DEG;
     mono_params.balance_angle_y=BALANCE_ZERO_Y_DEG;
-    roll_rate_test_kp=FLY_RATE_KP;roll_rate_test_ki=FLY_RATE_KI;roll_rate_test_limit=FLY_PWM_LIMIT;roll_rate_test_sign=FLY_OUTPUT_SIGN;
-    pitch_balance_kp=FLY_ANGLE_KP;pitch_balance_rate_limit=FLY_RATE_LIMIT_DPS;flywheel_vel_kp=FLY_VEL_KP;
-    pitch_balance_kd=FLY_ANGLE_KD;flywheel_vel_kd=FLY_VEL_KD;
+    roll_rate_test_kp=ASC_FLY_RATE_KP;roll_rate_test_ki=ASC_FLY_RATE_KI;roll_rate_test_limit=ASC_FLY_PWM_LIMIT;roll_rate_test_sign=FLY_OUTPUT_SIGN;
+    pitch_balance_kp=ASC_FLY_ANGLE_KP;pitch_balance_rate_limit=FLY_RATE_LIMIT_DPS;flywheel_vel_kp=ASC_RECOVERY_KP;
+    pitch_balance_kd=0;flywheel_vel_kd=0;fly_rate_kd=ASC_FLY_RATE_KD;
     ground_rate_test_kd=GROUND_RATE_KD;
-    ground_rate_test_kp=GROUND_RATE_KP;ground_rate_test_limit=GROUND_PWM_LIMIT;ground_rate_test_sign=GROUND_OUTPUT_SIGN;
-    ground_angle_kp=GROUND_ANGLE_KP;ground_angle_rate_limit=GROUND_RATE_LIMIT_DPS;
+    ground_rate_test_kp=ASC_GROUND_RATE_KP;ground_rate_test_limit=ASC_GROUND_PWM_LIMIT;ground_rate_test_sign=GROUND_OUTPUT_SIGN;
+    ground_angle_kp=ASC_GROUND_ANGLE_KP;ground_angle_rate_limit=GROUND_RATE_LIMIT_DPS;
+    asc_ground_rate_ki=ASC_GROUND_RATE_KI;
+    asc_ground_speed_kp=ASC_GROUND_SPEED_KP;asc_ground_speed_ki=ASC_GROUND_SPEED_KI;asc_ground_speed_kd=0;
+    asc_yaw_angle_kp=ASC_YAW_ANGLE_KP;asc_yaw_rate_kp=ASC_YAW_RATE_KP;asc_yaw_enabled=ASC_YAW_ENABLED;
     control_startup_ramp_ms=BALANCE_STARTUP_RAMP_MS;
+}
+
+
+/* One atomic sensor/control snapshot, pure ASC update, then the retained Qcar
+ * motor boundary. Pitch reference frame is the negative of legacy ground X. */
+static void asc_balance_update(void)
+{
+ asc_config_t p={0};asc_input_t a={0};asc_output_t o={0};wheel_encoder_sample_t enc;
+ uint32 irq,seq;int32 status;int ready=1;float roll_zero,pitch_zero;
+ irq=interrupt_global_disable();
+ a.roll=imu_asc_roll_deg;a.pitch=imu_asc_pitch_deg;a.yaw=imu_asc_yaw_deg;
+ a.roll_rate=attitude_state.gyro.y;a.pitch_rate=-attitude_state.gyro.x;a.yaw_rate=attitude_state.gyro.z;
+ seq=imu_sample_sequence;status=imu_attitude_status;
+ asc_reference_zero(mono_params.balance_angle_x,mono_params.balance_angle_y,&roll_zero,&pitch_zero);
+ p.roll_zero=roll_zero;p.pitch_zero=pitch_zero;
+ p.recovery_kp=flywheel_vel_kp;p.recovery_ki=ASC_RECOVERY_KI;p.recovery_kd=flywheel_vel_kd;
+ p.roll_angle_kp=pitch_balance_kp;p.roll_angle_ki=FLY_ANGLE_KI;p.roll_angle_kd=pitch_balance_kd;
+ p.roll_rate_kp=roll_rate_test_kp;p.roll_rate_ki=roll_rate_test_ki;p.roll_rate_kd=-fly_rate_kd;
+ p.pitch_speed_kp=asc_ground_speed_kp;p.pitch_speed_ki=asc_ground_speed_ki;p.pitch_speed_kd=asc_ground_speed_kd;
+ p.pitch_angle_kp=ground_angle_kp;p.pitch_angle_ki=GROUND_ANGLE_KI;p.pitch_angle_kd=GROUND_ANGLE_KD;
+ p.pitch_rate_kp=ground_rate_test_kp;p.pitch_rate_ki=asc_ground_rate_ki;p.pitch_rate_kd=ground_rate_test_kd;
+ p.yaw_angle_kp=asc_yaw_angle_kp;p.yaw_angle_ki=ASC_YAW_ANGLE_KI;p.yaw_angle_kd=ASC_YAW_ANGLE_KD;
+ p.yaw_rate_kp=-asc_yaw_rate_kp;p.yaw_rate_ki=-ASC_YAW_RATE_KI;p.yaw_rate_kd=-ASC_YAW_RATE_KD;p.yaw_enabled=asc_yaw_enabled!=0;
+ p.fly_limit=roll_rate_test_limit;p.ground_limit=ground_rate_test_limit;
+ p.roll_target_limit=ASC_ROLL_TARGET_LIMIT_DEG;p.pitch_tilt_limit=ASC_PITCH_TILT_LIMIT_DEG;
+ p.roll_sign=roll_rate_test_sign;p.ground_sign=ground_rate_test_sign;
+ a.left_rpm=flywheel_speed_feedback_left;a.right_rpm=flywheel_speed_feedback_right;
+ interrupt_global_enable(irq);
+ wheel_encoder_snapshot(&enc);
+ a.ground_counts_20ms=enc.speed_cps*.020f;a.speed_fresh=enc.valid;
+ if(roll_rate_test_state!=1 && roll_rate_test_state!=2)ready=0;
+ else if(!shacheflag){roll_rate_test_state=0;ready=0;}
+ else if(status<0){control_latch_fault(-1,1);ready=0;}
+ else if(status==IMU_ATTITUDE_CALIBRATING){asc_sequence=seq;asc_stale_ms=0;ready=0;}
+ else if(!seq){control_latch_fault(-1,2);ready=0;}
+ else if(fabsf(a.roll-roll_zero)>ASC_ROLL_PROTECT_DEG||fabsf(a.pitch-pitch_zero)>ASC_PITCH_PROTECT_DEG){control_latch_fault(-2,5);ready=0;}
+ else if(!isfinite(asc_yaw_enabled)||(asc_yaw_enabled!=0&&asc_yaw_enabled!=1)){control_latch_fault(-3,6);ready=0;}
+ else if(!small_driver_feedback_fresh || small_driver_feedback_age_ms>=QCAR_DRIVER_FEEDBACK_TIMEOUT_MS){control_latch_fault(-4,12);ready=0;}
+ else if(!enc.valid){control_latch_fault(-4,7);ready=0;}
+ else if(!isfinite(enc.speed_cps)||!isfinite(enc.dt_ms)||enc.dt_ms<=0||enc.age_ms>=WHEEL_SPEED_ENCODER_TIMEOUT_MS){control_latch_fault(-4,8);ready=0;}
+ else if(fabsf(a.left_rpm)>ASC_FLY_OVERSPEED_RPM||fabsf(a.right_rpm)>ASC_FLY_OVERSPEED_RPM){control_latch_fault(-4,11);ready=0;}
+ if(ready){
+  if(seq==asc_sequence)++asc_stale_ms;else{asc_stale_ms=0;asc_sequence=seq;}
+  if(asc_stale_ms>=BALANCE_IMU_STALE_MS){control_latch_fault(-1,4);ready=0;}
+ }
+ if(ready){
+  if(!asc_control_update(&asc_state,&p,&a,&o)){control_latch_fault(-3,6);ready=0;}
+  else{roll_rate_test_state=2;control_startup_scale=1;}
+ }
+ if(!ready){asc_control_reset(&asc_state);o=(asc_output_t){0};}
+ asc_roll_actual_deg=a.roll;asc_pitch_actual_deg=a.pitch;asc_yaw_pwm=o.yaw_pwm;asc_yaw_target_deg=asc_state.yaw_target;
+ dual_angle[0]=a.roll;dual_angle[1]=-a.pitch;
+ dual_target[0]=o.roll_target;dual_target[1]=-o.pitch_target;
+ dual_angle_error[0]=o.roll_target-a.roll;dual_angle_error[1]=a.pitch-o.pitch_target;
+ dual_rate[0]=a.roll_rate;dual_rate[1]=-o.pitch_feedback_rate;
+ dual_target_rate[0]=o.roll_target_rate;dual_target_rate[1]=-o.pitch_target_rate;
+ dual_rate_error[0]=o.roll_rate_error;dual_rate_error[1]=-o.pitch_rate_error;
+ dual_pwm[0]=o.roll_pwm;dual_pwm[1]=o.ground_pwm;
+ flywheel_vel_angle_out=-o.recovery;fly_angle_d_out=asc_state.roll_angle.out_d;fly_vel_d_out=asc_state.recovery.out_d;
+ cascade_angle_out=o.roll_target_rate;cascade_angle_out_p=-o.pitch_target_rate;
+ cascade_angle_vel_out=o.roll_pwm;cascade_angle_vel_out_p=o.ground_pwm;
+ costrained_flywheel_speed_left=(int16)roundf(o.left_pwm);
+ costrained_flywheel_speed_right=(int16)-roundf(o.right_pwm);
+ costrained_wheel_speed=(int16)ground_deadzone_shape((int)roundf(o.ground_pwm),p.ground_limit);
+ pitch_balance_actual_angle=-a.pitch;pitch_balance_target_angle=-o.pitch_target;
+ pitch_balance_error=a.pitch-o.pitch_target;pitch_balance_target_rate=-o.pitch_target_rate;
+ roll_rate_test_actual=-o.pitch_feedback_rate;roll_rate_test_error=-o.pitch_rate_error;roll_rate_test_pwm=o.ground_pwm;
+ small_driver_set_duty(costrained_flywheel_speed_left,-costrained_flywheel_speed_right);
+ motor_m_ctrl(costrained_wheel_speed);
 }

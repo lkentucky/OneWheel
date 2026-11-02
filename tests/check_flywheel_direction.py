@@ -4,6 +4,8 @@ import ast
 import subprocess
 import tempfile
 
+from asc_legacy_test_support import install
+install()
 root = Path(__file__).resolve().parents[1]
 tree = ast.parse((root/'tests/check_pwm_uart.py').read_text(encoding='utf-8-sig'))
 boundary = next(ast.literal_eval(n.value) for n in tree.body if isinstance(n,ast.Assign)
@@ -42,12 +44,12 @@ static void expect(int left,int right,int wheel){
     assert(costrained_flywheel_speed_left==left && -costrained_flywheel_speed_right==right);
 }
 int main(void){
-    balance_control_defaults();shacheflag=1;control_startup_ramp_ms=0;pwm_debug_arm();
+    balance_control_defaults();asc_test_legacy_defaults();roll_rate_test_sign=1;ground_rate_test_kp=30;ground_deadzone_enable=0;shacheflag=1;control_startup_ramp_ms=0;pwm_debug_arm();
     pwm_debug_fly_left=300;pwm_debug_fly_right=-700;pwm_debug_ground=-500;tick();expect(300,-700,-500);
     pwm_debug_fly_right=1200;tick();expect(300,1200,-500);
     for(int mode=3;mode<=6;++mode){
         if(mode==4)continue;
-        balance_control_defaults();shacheflag=1;control_startup_ramp_ms=0;
+        balance_control_defaults();asc_test_legacy_defaults();roll_rate_test_sign=1;ground_rate_test_kp=30;ground_deadzone_enable=0;shacheflag=1;control_startup_ramp_ms=0;
         imu_roll_deg=BALANCE_ZERO_X_DEG;imu_pitch_deg=BALANCE_ZERO_Y_DEG;
         attitude_state.gyro.x=4;attitude_state.gyro.y=10;
         if(mode==5)dual_balance_arm();else if(mode==6)roll_rate_only_arm();else roll_rate_test_arm();

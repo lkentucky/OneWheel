@@ -3,6 +3,8 @@ from pathlib import Path
 import subprocess
 import tempfile
 
+from asc_legacy_test_support import install
+install()
 root=Path(__file__).resolve().parents[1]
 boundary=r'''
 #ifndef HOST_BOUNDARY
@@ -17,7 +19,7 @@ typedef uint8_t uint8;typedef uint32_t uint32;typedef int32_t int32;typedef int1
 #define UART3_TX_P15_6 0
 #define UART3_RX_P15_7 1
 #define IMU_ATTITUDE_CALIBRATING 0
-extern struct host_attitude {struct {float x,y;} gyro;} attitude_state;
+extern struct host_attitude {struct {float x,y,z;} gyro;} attitude_state;
 extern volatile float imu_roll_deg,imu_pitch_deg,imu_sample_dt_ms;
 extern volatile uint32 imu_sample_sequence;
 extern volatile int32 imu_attitude_status;
@@ -54,7 +56,7 @@ static void check(float left,float right,int wheel,const uint8 expected[7]){
     for(unsigned i=0;i<7;i++)printf(" %02X",frame[i]);puts("");
 }
 int main(void){
-    balance_control_defaults();pwm_debug_arm();shacheflag=1;control_startup_ramp_ms=0;
+    balance_control_defaults();asc_test_legacy_defaults();pwm_debug_arm();shacheflag=1;control_startup_ramp_ms=0;
     check(300,0,0,(uint8[]){0xA5,1,0xFE,0xD4,0,0,0x78});
     check(0,300,0,(uint8[]){0xA5,1,0,0,0xFE,0xD4,0x78});
     check(300,-700,-500,(uint8[]){0xA5,1,0xFE,0xD4,2,0xBC,0x36});
@@ -64,12 +66,14 @@ int main(void){
     /* Closed-loop callers also pass through the same single reversal. */
     for(int mode=3;mode<=6;mode++) {
         if(mode==4)continue;
-        balance_control_defaults();shacheflag=1;control_startup_ramp_ms=0;
+        balance_control_defaults();asc_test_legacy_defaults();roll_rate_test_sign=1;ground_rate_test_kp=30;ground_deadzone_enable=0;shacheflag=1;control_startup_ramp_ms=0;
         imu_attitude_status=1;imu_roll_deg=BALANCE_ZERO_X_DEG;imu_pitch_deg=BALANCE_ZERO_Y_DEG;
         attitude_state.gyro.y=10;attitude_state.gyro.x=4;
         if(mode==5)dual_balance_arm();else if(mode==6)roll_rate_only_arm();else roll_rate_test_arm();
         ++imu_sample_sequence;tick();
-        assert(!memcmp(frame,(uint8[]){0xA5,1,1,0x68,0xFE,0x98,0xA5},7));
+        int16 logical=(int16)(-10*FLY_RATE_KP);int16 wl=logical*QCAR_FLYWHEEL_LEFT_SIGN,wr=-logical*QCAR_FLYWHEEL_RIGHT_SIGN;
+        uint8 expected[7]={0xa5,1,(uint8)((uint16_t)wl>>8),(uint8)wl,(uint8)((uint16_t)wr>>8),(uint8)wr,0};
+        for(int i=0;i<6;++i)expected[6]+=expected[i];assert(!memcmp(frame,expected,7));
         assert(ground==(mode==5?-120:0));
         printf("Mode%d: logical -360/+360 -> wire +360/-360, ground=%d\n",mode,ground);
     }

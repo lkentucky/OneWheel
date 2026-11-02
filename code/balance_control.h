@@ -1,6 +1,10 @@
 #ifndef BALANCE_CONTROL_H
 #define BALANCE_CONTROL_H
 #include "zf_common_headfile.h"
+extern float fly_rate_kd,asc_ground_rate_ki;
+extern float asc_ground_speed_kp,asc_ground_speed_ki,asc_ground_speed_kd;
+extern float asc_yaw_angle_kp,asc_yaw_rate_kp,asc_yaw_enabled;
+extern volatile float asc_yaw_pwm,asc_yaw_target_deg,asc_roll_actual_deg,asc_pitch_actual_deg;
 extern uint8_t shacheflag;
 extern Mono_params mono_params;
 extern int16 costrained_flywheel_speed_left,costrained_flywheel_speed_right,costrained_wheel_speed;
@@ -9,7 +13,7 @@ float constrain_float(float v,float lo,float hi);
 void balance_control_defaults(void);
 void balance_control_tick_1ms(void);
 void clear_all_cascade_out(void);
-/* Flywheel Pitch/Y angle P -> rate P, configured 2ms update; angle KP=0 gives rate-only.
+/* Flywheel Pitch/Y angle P -> rate P, configured legacy update; angle KP=0 gives rate-only.
  * roll_rate_test_* names retained for Flash/host compatibility. */
 extern volatile uint8 roll_rate_test_enabled;
 extern volatile uint32 roll_rate_test_sequence;
@@ -18,7 +22,7 @@ extern volatile float roll_rate_test_actual, roll_rate_test_error, roll_rate_tes
 extern volatile float pitch_balance_target_rate, pitch_balance_error;
 extern volatile float pitch_balance_actual_angle, pitch_balance_target_angle;
 extern float pitch_balance_kp, pitch_balance_rate_limit, flywheel_vel_kp;
-extern float pitch_balance_kd, flywheel_vel_kd; /* Mode10 measurement derivatives, seconds-based. */
+extern float pitch_balance_kd, flywheel_vel_kd; /* ASC: per-update D; angle D is expressed at the 5ms reference. */
 extern volatile float fly_angle_d_out, fly_vel_d_out;
 /* Mode10 flywheel speed loop: driver feedback (set by control ISR) and angle offset output. */
 extern volatile int16 flywheel_speed_feedback_left, flywheel_speed_feedback_right;
@@ -50,7 +54,7 @@ extern uint32 control_startup_ramp_ms;
 void roll_rate_only_arm(void);
 void ground_rate_only_arm(void);
 void dual_balance_arm(void);
-void mode10_balance_arm(void); /* Roll incremental cascade + ground four-loop hold. */
+void mode10_balance_arm(void); /* ASC positional Roll/Yaw, incremental Pitch, 1ms; speed/recovery 20ms. */
 void speed_balance_arm(void); /* Mode2: dual attitude + ground position/speed loops. */
 void ground_rate_test_arm(void);
 void roll_rate_test_arm(void);

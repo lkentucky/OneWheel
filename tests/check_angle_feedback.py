@@ -7,6 +7,8 @@ import ast
 import subprocess
 import tempfile
 
+from asc_legacy_test_support import install
+install()
 root = Path(__file__).resolve().parents[1]
 tree = ast.parse((root / 'tests/check_balance_control.py').read_text(encoding='utf-8-sig'))
 texts = [n.args[0].value for n in ast.walk(tree)
@@ -29,7 +31,7 @@ static int zero_crossing(int mode) {
     arm(mode); /* Disable the ramp to isolate the running controller. */
     imu_pitch_deg=BALANCE_ZERO_Y_DEG-5.0f;
     for(int k=0;k<100;k++)tick(1);
-    int steps=(int)roundf(5.0f/(20.0f*APP_IMU_PERIOD_US*0.000001f));
+    int steps=(int)roundf(5.0f/(20.0f*(APP_CONTROL_TICK_US*APP_CONTROL_DIVIDER)*0.000001f));
     for(int k=1;k<=steps;k++) {
         imu_pitch_deg=BALANCE_ZERO_Y_DEG-5.0f+5.0f*(float)k/(float)steps;
         attitude_state.gyro.y=20.0f;

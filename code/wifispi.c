@@ -160,7 +160,13 @@ static float g_telemetry_ms;
     X(ground_deadzone_neg_pwm, ground_deadzone_neg_pwm) \
     X(fly_angle_kd, pitch_balance_kd) X(fly_vel_kd, flywheel_vel_kd) \
     X(fly_angle_d_out, fly_angle_d_out) X(fly_vel_d_out, fly_vel_d_out) \
-    X(ground_rate_kd, ground_rate_test_kd) X(wheel_speed_kd, wheel_speed_kd)
+    X(ground_rate_kd, ground_rate_test_kd) X(wheel_speed_kd, wheel_speed_kd) \
+    X(fly_rate_kd, fly_rate_kd) X(asc_ground_rate_ki, asc_ground_rate_ki) \
+    X(asc_ground_speed_kp, asc_ground_speed_kp) X(asc_ground_speed_ki, asc_ground_speed_ki) X(asc_ground_speed_kd, asc_ground_speed_kd) \
+    X(asc_yaw_angle_kp, asc_yaw_angle_kp) X(asc_yaw_rate_kp, asc_yaw_rate_kp) X(asc_yaw_enabled, asc_yaw_enabled) \
+    X(asc_yaw_pwm, asc_yaw_pwm) X(asc_yaw_target_deg, asc_yaw_target_deg) \
+    X(asc_roll_actual_deg, asc_roll_actual_deg) X(asc_pitch_actual_deg, asc_pitch_actual_deg) \
+    X(asc_yaw_actual_deg, imu_asc_yaw_deg)
 
 #define VARIABLE_ID(name, expr) TV_##name,
 enum { TELEMETRY_VARIABLES(VARIABLE_ID) TV_COUNT };
@@ -183,11 +189,20 @@ typedef struct {
     float minimum, maximum;
 } slider_parameter_t;
 static const slider_parameter_t g_slider_parameters[] = {
+    {"fly_rate_kd", &fly_rate_kd, -500.0f, 500.0f},
+    {"asc_ground_rate_ki", &asc_ground_rate_ki, -50.0f, 50.0f},
+    {"asc_ground_speed_kp", &asc_ground_speed_kp, -50.0f, 50.0f},
+    {"asc_ground_speed_ki", &asc_ground_speed_ki, -20.0f, 20.0f},
+    {"asc_ground_speed_kd", &asc_ground_speed_kd, -50.0f, 50.0f},
+    {"asc_yaw_angle_kp", &asc_yaw_angle_kp, 0.0f, 2000.0f},
+    {"asc_yaw_rate_kp", &asc_yaw_rate_kp, 0.0f, 500.0f},
+    {"asc_yaw_enabled", &asc_yaw_enabled, 0.0f, 1.0f},
+    {"ground_rate_kp", &ground_rate_test_kp, 0.0f, FLT_MAX},
     {"ground_rate_kd", &ground_rate_test_kd, 0.0f, FLT_MAX},
     {"wheel_speed_kd", &wheel_speed_kd, 0.0f, FLT_MAX},
     /* Tuning ranges match controller and Flash validation in config.h. */
     {"rate_kp", &ground_rate_test_kp, 0.0f, FLT_MAX},
-    {"rate_pwm_limit", &ground_rate_test_limit, 0.0f, BALANCE_PWM_LIMIT_MAX},
+    {"rate_pwm_limit", &ground_rate_test_limit, 0.0f, ASC_GROUND_PWM_LIMIT},
     {"rate_sign", &ground_rate_test_sign, -1.0f, 1.0f},
     /* 模式 4 外环：角度P 与目标角速度限幅，只在 rate_only=0 时参与。 */
     {"ground_angle_kp", &ground_angle_kp, 0.0f, FLT_MAX},
@@ -309,6 +324,7 @@ static void process_slider(char *command)
     kind=slider_token(kind); name=slider_token(name);
     if (kind==NULL || name==NULL || !slider_number(number,&value)) goto bad_packet;
     if (strcmp(kind,"slider")!=0) { command_error("unknown control type"); return; }
+    if (strcmp(name,"asc_yaw_enabled")==0 && value!=0.0f && value!=1.0f) {command_error("yaw enabled expects 0 or 1");return;}
     if (strcmp(name,"debug_step_run")==0) {
         int accepted=0;
         if (value!=0.0f && value!=1.0f) { command_error("step expects 0 or 1"); return; }

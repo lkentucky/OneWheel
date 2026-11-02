@@ -2,6 +2,8 @@
 from pathlib import Path
 import subprocess,tempfile
 
+from asc_legacy_test_support import install
+install()
 root=Path(__file__).resolve().parents[1]
 boundary=r'''
 #ifndef HOST_BOUNDARY
@@ -12,7 +14,7 @@ boundary=r'''
 #include "qcar_types.h"
 typedef uint8_t uint8;typedef uint32_t uint32;typedef int32_t int32;typedef int16_t int16;
 #define IMU_ATTITUDE_CALIBRATING 0
-extern struct host_attitude {struct {float x,y;} gyro;} attitude_state;
+extern struct host_attitude {struct {float x,y,z;} gyro;} attitude_state;
 extern volatile float imu_roll_deg,imu_pitch_deg,imu_sample_dt_ms;
 extern volatile uint32 imu_sample_sequence;
 extern volatile int32 imu_attitude_status;
@@ -38,11 +40,12 @@ void small_driver_set_duty(int16 l,int16 r){fly_l=l;fly_r=r;}
 void motor_m_ctrl(int p){ground=p;}
 void wheel_encoder_snapshot(wheel_encoder_sample_t *p){*p=sample;}
 uint8_t wheel_encoder_rebase_position(void){++fake_epoch;sample.position_epoch=fake_epoch;sample.position_count=0;return 1;}
-static void close_to(float a,float b){if(fabsf(a-b)>.00001f)fprintf(stderr,"got %.9g expected %.9g\n",a,b);assert(fabsf(a-b)<.00001f);}
+static void close_at(float a,float b,int line){if(fabsf(a-b)>.00001f)fprintf(stderr,"line %d got %.9g expected %.9g\n",line,a,b);assert(fabsf(a-b)<.00001f);}
+#define close_to(a,b) close_at(a,b,__LINE__)
 static void tick(void){++imu_sample_sequence;for(unsigned i=0;i<APP_CONTROL_DIVIDER;++i)balance_control_tick_1ms();}
 static void fresh(float speed){++sample.sequence;sample.speed_cps=speed;sample.dt_ms=20;sample.age_ms=0;sample.valid=sample.position_valid=1;sample.position_epoch=fake_epoch;}
 static void arm(int mode){
-    balance_control_defaults();shacheflag=1;control_startup_ramp_ms=0;
+    balance_control_defaults();asc_test_legacy_defaults();shacheflag=1;control_startup_ramp_ms=0;
     /* Exercise a defined inner-loop gain, independent of stored/default tuning. */
     ground_angle_kp=40;ground_rate_test_kp=30;ground_deadzone_enable=0;
     imu_roll_deg=BALANCE_ZERO_X_DEG;imu_pitch_deg=BALANCE_ZERO_Y_DEG;
@@ -111,7 +114,7 @@ int main(void){
     imu_pitch_deg=31;tick();assert(roll_rate_test_state==-2 && !ground && !fly_l && !wheel_tilt_offset);
     /* Startup and downstream PWM saturation inhibit outer integral. */
     arm(2);control_startup_ramp_ms=1000;wheel_speed_kp=0;wheel_speed_ki=.01f;
-    for(int i=0;i<500;++i){if(i%10==0)fresh(10);tick();}
+    for(unsigned i=0;i<1000000u/(APP_CONTROL_TICK_US*APP_CONTROL_DIVIDER);++i){if(i%(20000u/(APP_CONTROL_TICK_US*APP_CONTROL_DIVIDER))==0)fresh(10);tick();}
     close_to(control_startup_scale,1);close_to(wheel_speed_integral,0);
     fresh(10);tick();assert(wheel_speed_integral<0);
     arm(2);wheel_speed_ki=.01f;ground_rate_test_limit=100;

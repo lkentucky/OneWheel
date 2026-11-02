@@ -171,9 +171,10 @@
 /* 超过 MAX_SAMPLE_DT 但在本值以内：只丢这一帧，不锁止（总线偶发毛刺）。 */
 #define MAX_SKIP_DT              0.050f
 
-#define CALIBRATION_SAMPLES      200u /* 200Hz: keep a 1 second stillness window. */
-#define IMU_CTRL1_XL_CONFIG      0x7Eu /* 833Hz accelerometer, +/-8g. */
-#define IMU_CTRL2_G_CONFIG       0x7Cu /* 833Hz gyroscope, +/-2000dps. */
+#define CALIBRATION_SAMPLES      6000u /* 6 seconds stationary at 1kHz. */
+#define ASC_ATT_READY_SAMPLES    3000u /* 3 seconds successful core updates. */
+#define IMU_CTRL1_XL_CONFIG      0x8Cu /* 1667Hz, +/-8g. */
+#define IMU_CTRL2_G_CONFIG       0x8Cu /* 1667Hz, +/-2000dps. */
 #define IMU_CTRL3_C_CONFIG       0x44u /* BDU + address increment, NOT a filter. */
 #define IMU_CTRL4_C_CONFIG       0x02u /* Enable gyro LPF1. */
 #define IMU_CTRL6_C_CONFIG       0x02u /* FTYPE=010: 140Hz at 833Hz ODR. */
@@ -246,7 +247,7 @@
 #define WHEEL_POSITION_DEADBAND_COUNT   8u
 /* Allowed tuning ranges, separate from the active/default limits above. */
 #define BALANCE_RATE_LIMIT_MAX_DPS  200.0f
-#define BALANCE_PWM_LIMIT_MAX      8000.0f
+#define BALANCE_PWM_LIMIT_MAX      10000.0f
 /* Ground-wheel static friction: the geared travel wheel needs roughly this
  * much duty before it breaks away, so the closed-loop ground output offsets a
  * nonzero command in its own direction (feed-forward). The offset follows the
@@ -281,7 +282,7 @@
 /* Tolerate brief publication gaps; fault at 50ms without a new fused sample. */
 #define BALANCE_IMU_STALE_MS         50u
 #define BALANCE_STARTUP_RAMP_MS    1000u
-#define APP_DEFAULT_MODE               5u /* 2 dual + ground speed; 3/4/5 angle; 6/7 rate-only; 8 PWM debug */
+#define APP_DEFAULT_MODE              10u /* ASC balance; explicit Start required. */
 /* Mode8 signed raw duty commands; 10000 means 100% duty. Starts at zero.
  * No PID, IMU readiness or tilt interlock in this bench-test mode. */
 #define DEBUG_PWM_LIMIT             4000.0f
@@ -325,8 +326,8 @@
 #define APP_MENU_CAPACITY             64u
 #define APP_MENU_STEPS {0.01f,0.1f,1.0f,10.0f,100.0f}
 
-#if APP_DEFAULT_MODE < 2 || APP_DEFAULT_MODE > 8
-#error APP_DEFAULT_MODE must be 2..8
+#if APP_DEFAULT_MODE < 2 || (APP_DEFAULT_MODE > 8 && APP_DEFAULT_MODE != 10)
+#error APP_DEFAULT_MODE must be 2..8 or 10
 #endif
 #if MODE10_CONTROL_PERIOD_US != APP_CONTROL_TICK_US || MODE10_ANGLE_PERIOD_US % MODE10_CONTROL_PERIOD_US || MODE10_VELOCITY_PERIOD_US % MODE10_CONTROL_PERIOD_US
 #error Mode10 loop periods must be multiples of the control tick
@@ -371,3 +372,33 @@
 #define UART3_RX_INT_PRIO       20
 #define UART3_ER_INT_PRIO       21
 #endif /* ONEWHEEL_CONFIG_H */
+
+/* ASC 0eed51b Mode10 defaults: gains are per-update, not SI-time PID.
+ * Preserve wiring, zeros and verified Qcar output signs above. */
+#define ASC_FLY_ANGLE_KP 36.00006f
+#define ASC_FLY_RATE_KP 20.0f
+#define ASC_FLY_RATE_KI 0.0f
+#define ASC_FLY_RATE_KD 8.0f /* public positive; effective coefficient is -Kd */
+#define ASC_RECOVERY_KP 0.0015f /* deg/RPM difference, no 0.005 scale */
+#define ASC_GROUND_ANGLE_KP 8.999999f
+#define ASC_GROUND_RATE_KP 20.0f
+#define ASC_GROUND_RATE_KI 0.6400001f
+#define ASC_GROUND_SPEED_KP 0.06f /* input counts/20ms */
+#define ASC_GROUND_SPEED_KI 0.002f
+#define ASC_FLY_PWM_LIMIT 10000.0f
+#define ASC_GROUND_PWM_LIMIT 8000.0f
+#define ASC_ROLL_TARGET_LIMIT_DEG 10.0f
+#define ASC_PITCH_TILT_LIMIT_DEG 8.0f
+#define ASC_YAW_ANGLE_KP 18.00003f
+#define ASC_YAW_RATE_KP 56.0f /* effective coefficient -Kp */
+#define ASC_YAW_ENABLED 1u
+#define ASC_ROLL_PROTECT_DEG 20.0f
+#define ASC_PITCH_PROTECT_DEG 50.0f
+#define ASC_FLY_OVERSPEED_RPM 8000.0f
+
+/* Zero-default reference PID terms, compile-time unless exposed above. */
+#define ASC_RECOVERY_KI 0.0f
+#define ASC_YAW_ANGLE_KI 0.0f
+#define ASC_YAW_ANGLE_KD 0.0f
+#define ASC_YAW_RATE_KI 0.0f
+#define ASC_YAW_RATE_KD 0.0f

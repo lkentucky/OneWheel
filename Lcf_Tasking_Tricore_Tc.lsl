@@ -28,7 +28,7 @@
 
 #define LCF_CSA0_SIZE       8k
 #define LCF_USTACK0_SIZE    2k
-#define LCF_ISTACK0_SIZE    1k
+#define LCF_ISTACK0_SIZE    4k
 
 #define LCF_CSA1_SIZE       8k
 #define LCF_USTACK1_SIZE    2k

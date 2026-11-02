@@ -4,6 +4,8 @@ import ast
 import subprocess
 import tempfile
 
+from asc_legacy_test_support import install
+install()
 root = Path(__file__).resolve().parents[1]
 tree = ast.parse((root / 'tests/check_balance_control.py').read_text(encoding='utf-8-sig'))
 texts = [n.args[0].value for n in ast.walk(tree)
@@ -25,7 +27,7 @@ int main(void) {
 #if FILTER_BYPASS
     close_rate(0);
 #else
-    const float dt=(float)APP_IMU_PERIOD_US*0.000001f;
+    const float dt=(float)(APP_CONTROL_TICK_US*APP_CONTROL_DIVIDER)*0.000001f;
     const float alpha=dt/(FLY_RATE_LPF_TAU_S+dt);
     const float step1=10.0f*(1.0f-alpha);
     const float step2=step1*(1.0f-alpha);
@@ -69,7 +71,7 @@ int main(void) {
     arm(6);tick(1);attitude_state.gyro.y=INFINITY;tick(1);
     assert(roll_rate_test_state==-1 && !fly_l);
     arm(6);attitude_state.gyro.y=10;tick(1);
-    for(unsigned ms=0;ms<BALANCE_IMU_STALE_MS;ms+=APP_IMU_PERIOD_US/1000u)tick(0);
+    for(unsigned ms=0;ms<BALANCE_IMU_STALE_MS;ms+=(APP_CONTROL_TICK_US*APP_CONTROL_DIVIDER)/1000u)tick(0);
     assert(control_fault_reason==4 && !fly_l && !fly_r);
     arm(6);tick(1);imu_pitch_deg=31;tick(1);
     assert(roll_rate_test_state==-2 && !fly_l);

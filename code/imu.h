@@ -21,6 +21,8 @@ extern volatile int32 imu_attitude_status;
 
 
 /* 常规 ZYX 欧拉角，单位：度。六轴 yaw 长期会漂移。 */
+/* Reference control frame: (Qcar Y, -Qcar X, Qcar Z). */
+extern volatile float imu_asc_roll_deg,imu_asc_pitch_deg,imu_asc_yaw_deg;
 extern volatile float imu_roll_deg;
 extern volatile float imu_pitch_deg;
 extern volatile float imu_yaw_deg;
@@ -50,7 +52,7 @@ extern volatile int32 imu_reacquiring;
 
 /* Unwrapped calibrated sensor-Z rate integral (deg), not full 3D Euler yaw. */
 extern volatile float imu_gyro_z_integral_deg;
-extern const uint8 imu_attitude_method; /* Telemetry protocol ID: always 3 (EKF). */
+extern const uint8 imu_attitude_method; /* Telemetry protocol ID: 5 = A+ r10h (legacy EKF was 3). */
 
 /* 同一成功采样帧的姿态、加速度和扣零偏角速度，供定位融合使用。
  * 主循环调用 getter 时须短暂关中断；PIT 内可直接读取。 */

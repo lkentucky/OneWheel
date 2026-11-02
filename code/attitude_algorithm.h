@@ -1,4 +1,4 @@
-/* Compatibility view for Qcar control, backed by imu.c / Ekf6. */
+/* Compatibility view for Qcar control, backed by imu.c / A+ r10h. */
 #ifndef _ATTITUDE_ALGORITHM_H_
 #define _ATTITUDE_ALGORITHM_H_
 #include "zf_common_headfile.h"
@@ -6,7 +6,7 @@
 #define RAD2DEG 57.29577951308232088f
 #define DEG2RAD 0.01745329251994329577f
 struct ATTITUDE_STATE_t {
-    /* EKF output: gyro: bias-corrected body deg/s, acc: body m/s^2; angles: degrees. */
+    /* Legacy body-frame view: gyro: bias-corrected body deg/s, acc: body m/s^2; angles: degrees. */
     Axis3f gyro, acc;
     float q0,q1,q2,q3,rMat[3][3];
     float pitch,roll,yaw,True_yaw;
