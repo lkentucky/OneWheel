@@ -1,69 +1,59 @@
-# ASC 控制结构与 A+ 姿态模块移植
+# Qcar：参考仓库完整结构版本
 
-分支：port/asc-control-r10h。来源：Kongmengwuwei/ASC_SummerTraining_Unicycle，固定提交 0eed51b8fd0f4e72ab92f737642ab1900f60cbd3。原 Qcar 工作区保持 main，本分支位于独立工作区。
+本版在 port/asc-control-r10h 分支继续修正，基于 Kongmengwuwei/ASC_SummerTraining_Unicycle 提交 0eed51b8fd0f4e72ab92f737642ab1900f60cbd3。
 
-## 控制结构
+此前只接入控制和A+内核的版本保留在Git历史中。本版采用参考仓库的完整应用分层、Menu/Display、参数管理、启动流程、单轴测试及上位机协议，不再使用旧Qcar平面目录、树形菜单或Mode2～10编号。
 
-Mode10：飞轮回收→位置式角度→位置式角速度；地轮速度→位置式角度→增量式角速度；yaw 为位置式航向→位置式角速度。Roll优先，yaw仅使用剩余输出余量。
+## 目录与界面
 
-IMU、姿态发布、角度与角速度环均为1ms；速度与飞轮回收环为20ms。Mode10为零速度保持，不含位置环；原Mode2保留位置保持。没有引入视觉、压弯或路径导航。保留Qcar引脚、菜单、WiFi和驱动协议，不自动启动。
+    code/Common/                  参数、方向基准、PID
+    code/HW_Drivers/IMU/           真实采集、静止标定、SPI截止
+    code/HW_Drivers/Motor/         A/B飞轮、C地轮
+    code/Estimation/Attitude/      A+ r10h
+    code/Estimation/Vision/        参考视觉模块，默认上电不初始化摄像头
+    code/Controller/               三轴串级及规划
+    code/Menu/                     原仓库菜单和显示
+    code/Protocols/                cfg/遥测/串口及WiFi-SPI
+    user/                          原仓库双核入口与中断
+    tools/unicycle_station/        与新固件匹配的参考上位机
 
-## 姿态模块移植注意事项
+主界面为 Params / Image / Run / Run Test / Path。CPU0启动和菜单都显式使用 IPS200_8X16_FONT。Menu/menu.c、Menu/display.c及user/cpu0_main.c与参考提交按LF换行比较一致，不是旧界面外包一层新控制。
 
-依据参考仓库 docs/design/Aplus-r10h移植说明.md、方向基准整理.md、角度外环1kHz试验说明.md 与 docs/guides/控制调试指南.md。
+日常调试入口：Params→Roll/Pitch/Yaw中的Rate/Angle/Speed单轴测试；整体原地平衡用Run Test→Balance。本版没有旧Mode6或Mode10入口。Run、Path等需要其自身条件；没有摄像头时不要用视觉Run代替Balance。
 
-- 两传感器ODR为1667Hz（CTRL1_XL/CTRL2_G=0x8c），±8g、±2000°/s；4098 counts/g、14.3 counts/(°/s)。保留本车SPI、BDU/递增及其他既有寄存器配置。
-- 一次六轴突发读取，每次SPI事务100µs截止，检测DRDY、身份、坏包和饱和端点。
-- A+输入原始物理量，不在外部重复扣零偏或滤波；控制使用单独的静止零偏修正陀螺仪。核心仍用未标定单位矩阵，不能冒称本车已完成矩阵标定。
-- 静止采样6000个有效点，运动检查失败重新累计；之后成功更新3000拍才允许电机闭环，合计约9秒。
-- 固定1ms调用，750～1250µs以外或解算耗时≥1000µs锁止；故障不自动追帧/恢复，停机后重新静止初始化。
-- CPU0中断栈增为4KB，状态放在cpu0_dsram；实际最坏时延与栈高水位仍需实车测量。
+## 控制与姿态
 
-## 坐标与方向
+完整保留参考控制结构：Roll回收→角度→位置式角速度；Pitch速度→角度→增量式角速度；Yaw航向→角速度。先保留Roll，再将yaw裁剪到剩余飞轮余量。
 
-先按原 IMU_BODY_* 得到Qcar车体系B，再将加速度、陀螺仪和启动均值统一旋转到参考控制体系R：
+采样、A+、姿态发布和内环/角度环同在CPU0的1ms控制链；编码器/部分任务5ms，速度/回收20ms。原先分开定时器运行IMU和控制的桥接实现已删除。
 
-    R.x = B.y
-    R.y = -B.x
-    R.z = B.z
+A+保留原核心及单位矩阵：6000点静止采样，再等3000次成功更新。控制使用仅扣启动均值的陀螺仪；核心使用未重复扣偏的原始六轴物理量。SPI读事务100µs截止，时序/采集/姿态故障保持锁止，不能放宽时间门限来掩盖固定1ms核心的调用错误。
 
-这是行列式+1的右手旋转。A+四元数转换回B后继续供旧界面使用；Mode10使用R中的角度。机械零点从旧roll/pitch对应的重力方向做同一旋转，再计算参考零点，没有直接套用参考车零点。
+新界面使用参考仓库的IMU INIT FAILED、IMU CALIB INVALID、ATTITUDE NOT READY、ATTITUDE DIVERGED、IMU LINK LOST、BLDC LINK LOST等状态。旧F/IMU/ERR负数表不适用于此版本。
 
-Pitch角速度反馈为 q*cos(roll)-r*sin(roll)，使用绝对Roll，不扣机械零点。asc_roll_actual_deg、asc_pitch_actual_deg、asc_yaw_actual_deg 是参考控制反馈，yaw连续累计。六轴yaw不能提供绝对北向。
+## 本车适配
 
-原Qcar两路最终极性默认均为-1；适配后实现参考混控 A=-Roll+Yaw、B=Roll+Yaw。地轮通过原方向配置换算并保留正反向摩擦补偿。安装方向或电机极性变更后仍需核对物理负反馈。
+- 保留TC264、SPI0 IMU、SPI2 IPS200、UART3 460800飞轮、TIM2 P33_7/P33_6地轮计数及P21_4/P21_5 PWM/DIR。
+- 本车四键按原接线映射：上P20_7、下P20_6、确认P11_3、返回P11_2；界面交互采用参考菜单。
+- 本车旧零点Roll=5.4°、Pitch=-0.2°经完整重力坐标旋转，得到参考Roll约-0.200891557°、Pitch约-5.399967004°，不是参考车的-0.6°/-3°。这只是保留现有测量，不代表重新验证了实际重心位置。
+- 按参考坐标与混控解释方向参数。A/B差动和C轮/编码器的完整负反馈链仍需在本车确认；不能单独搬用旧界面的符号值。
+- 地轮保留本车正/反730/1100 PWM摩擦补偿，补偿后再次限制最终输出。
+- 飞轮保留本车文本SET-DUTY指令，接收文本与二进制转速；采用最新完整指令邮箱和UART3 TX中断，控制ISR不阻塞发送整行。已经开始的行必须发完，尚未开始的占空比可被新值替代，Stop以零指令替换待发值。保留可切回二进制的编译开关。
+- 摄像头默认不自动初始化，Image菜单仍可显式请求启动；不会把CAM NOT INITIALIZED当作需要自动发车的条件。
+- 工程名Qcar，固件名OneWheelUpright；构建目录使用实际ProjName，排除旧build/Debug/驱动示例等残留目录。旧A+ include路径已映射到新Estimation目录。
 
-## 参数单位
+## 上位机、WiFi和保存
 
-角度PID仍按5ms参考：内部Ki×0.2、Kd×5、积分累计限幅×5。内环和速度环为每拍算法，不能与旧秒制Kd直接互换。
+现在使用原仓库cfg/遥测协议，不再混用旧MCAR/JustFloat滑杆。桌面ASC_Unicycle_Station是对应的源码上位机。WiFi连接时要按模块实际IP及本地配置设置UDP端口，不能直接沿用上位机示例网络。
 
-| WiFi参数 | 默认值 | 说明 |
-|---|---:|---|
-| fly_angle_kp / fly_angle_kd | 36.00006 / 0 | 位置式角度环，Kd按5ms参考 |
-| fly_rate_kp / fly_rate_ki / fly_rate_kd | 20 / 0 / 8 | 位置式内环，Kd内部有效系数为负，每拍差分 |
-| fly_vel_kp / fly_vel_kd | 0.0015 / 0 | 直接输入左右RPM差，不再乘0.005 |
-| ground_angle_kp | 8.999999 | 地轮角度环 |
-| ground_rate_kp / ground_rate_kd | 20 / 0 | 增量式内环；rate_kp是地轮Kp写别名 |
-| asc_ground_rate_ki | 0.6400001 | 地轮内环每拍Ki |
-| asc_ground_speed_kp / ki / kd | 0.06 / 0.002 / 0 | 输入counts/20ms，由本车counts/s×0.020转换 |
-| asc_yaw_angle_kp / asc_yaw_rate_kp | 18.00003 / 56 | yaw内环有效比例为负Kp |
-| asc_yaw_enabled | 1 | 只能写0/1，每次Start捕获当前航向 |
+公共仓库默认STATION_WIFI_ENABLED=0，采用UART2站点，确保没有私有头文件也能构建。当前用户原有的WiFi信息保存在未跟踪的 code/Protocols/station_wifi_private.h；本地ADS配置可用STATION_WIFI_ENABLED=1启用，账号密码不提交到Git。样例为station_wifi_private.example.h。本机保留原PC接收8081、模块端口5001的配置，上位机设备设置必须匹配。
 
-旧 wheel_speed_*、wheel_pos_* 属于Mode2。默认值来自参考源码，不是本车已完成的调参结果。
+参数使用参考的75项表和分组保存，新标识QCAF，避免误读之前OWB2/ASC1或另一辆参考车的记录。首次使用采用本车配置默认值，再停车保存。上位机Mock默认值同步本车配置，qcar-defaults.json明确标记为配置推导，不冒充实车回读；上游历史快照未改写。
 
-参考限制在本分支恢复：飞轮目标相对零点±10°、地轮速度环倾角±8°、飞轮PWM±10000、地轮控制PWM±8000、Roll/Pitch保护20°/50°、飞轮8000RPM保护，以及IMU/驱动/编码器异常停机。
+## 验证与使用边界
 
-只测飞轮时，保持Mode10，地轮角度Kp、角速度Kp/Kd、asc_ground_rate_ki、asc_ground_speed_kp/ki/kd及两向死区补偿归零，再将asc_yaw_enabled设0。单测内环还需关闭飞轮角度及转速外环，并始终支撑车身。
+当前测试149项通过，涵盖参考上位机、协议、实际C控制路径和本车驱动适配；A+实际核心的5组主机测试通过。ADS已验证公共UART和本机WiFi配置能够构建。见ASC_PORT_VALIDATION.md。
 
-## 保存、编译与验证
+尚未烧录、没有验证本车LCD实拍、真实最坏ISR耗时、无支撑平衡或上电故障消失。字体/目录对齐不等于传感器故障已经解决。
 
-使用新Flash标识ASC1，保存新内环D、独立速度参数、yaw和摩擦补偿；拒绝旧OWB2记录，不默默迁移不同单位。标记最后写入、CRC及回读验证仍有效。
-
-保留 QCAR_BOOT_LOAD_FLASH=0：Save可写入，但启动/Load使用编译默认值。需要自动加载新记录时改为1并重新编译。旧Flash里的现场机械零点不会迁移，须先记录并设置到新配置。
-
-保留460800占空比串口，默认文本SET-DUTY以兼容既有驱动。未替换驱动板FOC/六步换相固件，该接口不等于已标定电流或转矩指令。
-
-    python tests/run_all.py --report .ads/asc-full-final.json
-    python tools/ads/build.py --ads C:/Infineon/AURIX-Studio-1.10.10
-
-32项回归与ADS构建通过，未烧录、未做本分支实车平衡验证。首次使用需先静止标定、核对轴向与1ms时序，再在支撑条件下逐环验证。详见ASC_PORT_VALIDATION.md和docs/asc-port-manifest.json。
+打开ADS时先关闭旧Qcar工程，再重新打开并Clean，避免旧.cproject缓存覆盖新目录。烧录请使用新生成的OneWheelUpright.hex，不要使用Debug中残留的Qcar.hex。

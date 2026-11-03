@@ -61,7 +61,12 @@
 #include "zf_device_config.h"
 #include "zf_device_mt9v03x.h"
 
+#pragma section all "cpu1_dsram"
+
 vuint8  mt9v03x_finish_flag = 0;                            // 一场图像采集完成标志位
+vuint32 mt9v03x_vsync_count = 0;                            // VSYNC 中断累计次数
+vuint32 mt9v03x_dma_count = 0;                              // DMA 完整帧累计次数
+vuint32 mt9v03x_busy_drop_count = 0;                        // 上一帧未消费导致的丢帧累计次数
 IFX_ALIGN(4) uint8  mt9v03x_image[MT9V03X_H][MT9V03X_W];    // 必须4字节对齐
 
 static  m9v03x_type_enum mt9v03x_type;                      // 定义摄像头类型
@@ -241,6 +246,15 @@ static void mt9v03x_uart_handler (void)
 static void mt9v03x_vsync_handler(void)
 {
     exti_flag_clear(MT9V03X_VSYNC_PIN);
+    mt9v03x_vsync_count++;
+
+    // 上一帧未被 CPU1 消费时保持 DMA 停止，整帧丢弃本次采集，避免单缓冲被覆盖
+    if(mt9v03x_finish_flag)
+    {
+        mt9v03x_busy_drop_count++;
+        return;
+    }
+
     mt9v03x_dma_int_num = 0;
     if(mt9v03x_dma_init_flag )
     {
@@ -291,6 +305,7 @@ static void mt9v03x_dma_handler(void)
             // 一副图像从采集开始到采集结束耗时3.8MS左右(50FPS、188*120分辨率)
             mt9v03x_dma_int_num = 0;
             mt9v03x_lost_flag   = 0;
+            mt9v03x_dma_count++;
             mt9v03x_finish_flag = 1;
             dma_disable(MT9V03X_DMA_CH);
         }
@@ -453,6 +468,12 @@ uint8 mt9v03x_init (void)
 {
     uint8 return_state = 0;
     soft_iic_info_struct mt9v03x_iic_struct;
+
+    mt9v03x_finish_flag = 0;
+    mt9v03x_vsync_count = 0;
+    mt9v03x_dma_count = 0;
+    mt9v03x_busy_drop_count = 0;
+
     do
     {
         system_delay_ms(200);
@@ -516,3 +537,4 @@ uint8 mt9v03x_init (void)
     return return_state;
 }
 
+#pragma section all restore

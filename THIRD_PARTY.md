@@ -61,3 +61,8 @@ Source: https://github.com/Kongmengwuwei/ASC_SummerTraining_Unicycle at 0eed51b8
 - code/imu_spi.inc retains the 100us bounded transaction; code/imu.c adapts Qcar wiring, proper frame rotation and startup gates.
 - tests/asc_r10h and tools/ads retain the reference test/build tooling with local path/project adaptations.
 - Changes, units, validation and canonical Git-blob hashes are documented in ASC_PORT.md and docs/asc-port-manifest.json. Original authorship and license statements remain in force.
+
+
+## Complete reference application/layout port
+
+The current application, user entry/ISR, Menu/Display, parameter/cfg protocol, SDK integration and tools are ported from Kongmengwuwei/ASC_SummerTraining_Unicycle @ 0eed51b8fd0f4e72ab92f737642ab1900f60cbd3. Earlier flat-adapter descriptions above are historical. Original notices/licenses are retained. Qcar changes are limited to documented physical defaults, key pins, camera boot policy, UART3 text mailbox/parser and project/network adaptation. See ASC_PORT.md and docs/asc-port-manifest.json.

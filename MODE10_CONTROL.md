@@ -1,5 +1,7 @@
-# Mode10：ASC平衡控制移植
+# 旧Mode10接口已由完整参考结构替代
 
-本分支Mode10使用飞轮位置式、地轮增量式、yaw位置式；姿态、角度和角速度周期1ms，回收与速度环20ms。
+本版采用参考仓库的菜单和三轴控制入口，不再提供旧Mode2～10编号。
 
-参数单位、轴向映射、Flash兼容和使用方式见 [ASC_PORT.md](ASC_PORT.md)。旧Mode10的秒制D、0.005转速缩放、位置外环及先前取消限幅的说明不再适用。
+单轴测试请用Params→Roll/Pitch/Yaw→Rate/Angle/Speed；整体原地平衡用Run Test→Balance。
+
+完整目录、字体、参数单位、网络和Flash说明见ASC_PORT.md。旧平面目录及兼容桥代码仍可从Git历史中的dcb63e3及更早提交查阅。
