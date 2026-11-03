@@ -160,4 +160,10 @@ uint8       mt9v03x_set_reg             (uint8 addr, uint16 data);              
 uint8       mt9v03x_init                (void);                                 // MT9V03X 摄像头初始化
 //================================================声明 MT9V03X 基础函数================================================
 
+/* Qcar: CPU1 camera failures are reported through VISION_CORE_FAILED.
+ * LCD belongs to CPU0; optional SDK diagnostics must not clear it from CPU1. */
+#ifndef MT9V03X_INIT_LOG_ENABLE
+#define MT9V03X_INIT_LOG_ENABLE 0
+#endif
+
 #endif

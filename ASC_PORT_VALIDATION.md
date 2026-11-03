@@ -16,3 +16,10 @@ The nonblocking UART3 host contract exercises bounded FIFO pumping, complete-lin
 No flashing, actual LCD photo, vehicle balance test or live station connection was performed. Runtime timing margins, stack high-water mark, physical feedback directions, board firmware/torque response and the user's specific boot error still need on-board evidence. A successful port/build is not proof of unassisted balance or that a prior boot fault disappeared.
 
 WiFi credentials remain only in an ignored private header. WiFi-linked binaries and their detailed local logs remain under .ads; they are not committed. Public clones build UART2 by default. See ASC_PORT.md for setup and interface changes.
+
+
+## 2026-11-04 boot menu/camera correction
+
+The auto-start flag had been placed on the explicit restart command instead of the boot call. It now guards only vision_core_init; manual restart is unconditional. Camera init failure still returns failure and publishes VISION_CORE_FAILED, while default nonfatal SDK camera logs no longer clear the CPU0-owned LCD from CPU1. MT9V03X_INIT_LOG_ENABLE may be explicitly enabled only for a standalone camera diagnostic with appropriate LCD ownership.
+
+Eight targeted host checks passed (four new boot/manual-retry/logging-policy cases, existing firmware protocol/ISR checks and Qcar UART contract). ADS/TASKING build passed with zero errors/warnings. No real LCD or on-board reboot test was performed; the hardware symptom still needs confirmation after flashing the new image. The earlier 149-case full-suite result remains historical.

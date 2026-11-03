@@ -252,7 +252,7 @@ static void vision_command_service(void)
     }
     else if (command == VISION_CMD_RESTART_CAMERA)
     {
-        if (QCAR_CAMERA_AUTO_START) (void)vision_camera_start();
+        (void)vision_camera_start();
     }
     else if (command == VISION_CMD_CALIB_IPM)
     {
@@ -328,7 +328,7 @@ void vision_core_init(void)
     s_display_ready = 0;
     s_display_mode = (uint8)VISION_DISPLAY_BIN_LINE;
     s_core_state = VISION_CORE_OFF;
-    (void)vision_camera_start();
+    if (QCAR_CAMERA_AUTO_START) (void)vision_camera_start();
 }
 
 //-------------------------------------------------------------------------------------------------------------------

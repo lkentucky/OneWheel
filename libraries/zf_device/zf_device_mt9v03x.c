@@ -512,7 +512,9 @@ uint8 mt9v03x_init (void)
                 // 如果程序在输出了断言信息 并且提示出错位置在这里
                 // 那么就是串口通信出错并超时退出了
                 // 检查一下接线有没有问题 如果没问题可能就是坏了
+                #if MT9V03X_INIT_LOG_ENABLE
                 zf_log(0, "MT9V03X set config error.");
+                #endif
                 uart_rx_interrupt(MT9V03X_COF_UART, 0);
                 set_camera_type(NO_CAMERE, NULL, NULL, NULL);
                 return_state = 1;
@@ -525,7 +527,9 @@ uint8 mt9v03x_init (void)
                 // 如果程序在输出了断言信息 并且提示出错位置在这里
                 // 那么就是串口通信出错并超时退出了
                 // 检查一下接线有没有问题 如果没问题可能就是坏了
+                #if MT9V03X_INIT_LOG_ENABLE
                 zf_log(0, "MT9V03X get config error.");
+                #endif
                 uart_rx_interrupt(MT9V03X_COF_UART, 0);
                 set_camera_type(NO_CAMERE, NULL, NULL, NULL);
                 return_state = 1;

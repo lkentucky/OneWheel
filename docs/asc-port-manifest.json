@@ -284,7 +284,7 @@
     {
       "path": "code/Estimation/Vision/vision_core.c",
       "reference_sha256_lf": "f066b78830bfa0d88c2b588c8c0f08d398f15a127d13a62c9de598de24d5c389",
-      "target_sha256_lf": "5c736a46046daace36dac84a468b5d6800aebfa53840aa87ca76f65b26ece2bf",
+      "target_sha256_lf": "6154d63c5dcd01f3ab40c88b171cb531d8ffcee8b6b7c5702b88d128383afae7",
       "unchanged_lf": false
     },
     {
@@ -459,5 +459,6 @@
     "UART3 text duty mailbox, text/binary RPM, optional binary TX",
     "project Qcar, dynamic build path, OneWheelUpright artifact",
     "new QCAF parameter marker; private LAN header ignored"
-  ]
+  ],
+  "boot_display_fix": "2026-11-04: auto-start applies only in vision_core_init; manual restart always allowed; SDK camera nonfatal LCD logging off by default, VISION_CORE_FAILED still reported."
 }
