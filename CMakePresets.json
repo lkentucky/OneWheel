@@ -1,0 +1,16 @@
+{
+    "version": 3,
+    "configurePresets": [
+        {
+            "name": "vscode-intellisense",
+            "displayName": "Qcar TC264 - IntelliSense",
+            "generator": "Ninja",
+            "binaryDir": "${sourceDir}/build/vscode",
+            "cacheVariables": {
+                "CMAKE_C_COMPILER": "C:/Program Files (x86)/cpeditor/mingw64/bin/gcc.exe",
+                "CMAKE_MAKE_PROGRAM": "C:/Program Files (x86)/cpeditor/mingw64/bin/ninja.exe",
+                "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+            }
+        }
+    ]
+}

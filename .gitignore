@@ -27,5 +27,14 @@
 !/.settings/com.infineon.aurix.buildsystem.prefs
 !/.settings/org.eclipse.core.resources.prefs
 
+# VS Code CMake/IntelliSense configuration
+!/CMakeLists.txt
+!/CMakePresets.json
+!/.vscode/settings.json
+!/.vscode/c_cpp_properties.json
+!/.vscode/extensions.json
+!/.vscode/tasking_intellisense.h
+/build/
+
 # Firmware-produced host compatibility fixtures (tiny JustFloat datagrams).
 !/tools/qcar_monitor_update/tests/fixtures/qcar_*.bin

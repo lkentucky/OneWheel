@@ -62,7 +62,7 @@
 #define QCAR_WIFI_PASSWORD "zyz520520"
 #endif
 #ifndef QCAR_WIFI_TARGET_IP
-#define QCAR_WIFI_TARGET_IP "192.168.0.113"
+#define QCAR_WIFI_TARGET_IP "192.168.0.112"
 #endif
 #ifndef QCAR_WIFI_TARGET_PORT
 #define QCAR_WIFI_TARGET_PORT "8081"
@@ -203,10 +203,10 @@
  * displayed Pitch = ground wheel = imu_roll_deg / gyro.x
  * 零点采用本车静止扶稳读数；不要套用旧版原始量零点 -100 / 190。
  */
-#define BALANCE_ZERO_X_DEG           4.7f
-#define BALANCE_ZERO_Y_DEG           -1.0f
-#define FLY_RATE_KP                 14.4f
-#define FLY_RATE_KI                  0.2f
+#define BALANCE_ZERO_X_DEG           5.4f
+#define BALANCE_ZERO_Y_DEG           -0.2f
+#define FLY_RATE_KP                 15.0f
+#define FLY_RATE_KI                  0.28f
 #define FLY_RATE_KD                  0.0f
 #define FLY_ANGLE_KP                75.0f
 #define FLY_ANGLE_KI                 0.0f
@@ -218,10 +218,10 @@
 #define FLY_RATE_LIMIT_DPS         160.0f
 #define FLY_PWM_LIMIT             8000.0f
 #define FLY_OUTPUT_SIGN              -1.0f
-#define GROUND_RATE_KP              2.0f
+#define GROUND_RATE_KP              11.1f
 #define GROUND_RATE_KI               0.0f
 #define GROUND_RATE_KD               0.0f
-#define GROUND_ANGLE_KP             10.0f
+#define GROUND_ANGLE_KP             21.6f
 #define GROUND_ANGLE_KI              0.0f
 #define GROUND_ANGLE_KD              0.0f
 #define GROUND_RATE_LIMIT_DPS      100.0f
@@ -232,16 +232,15 @@
  * These four defaults/menu RAM values are not stored in the existing Flash. */
 #define WHEEL_SPEED_KP               0.001f
 #define WHEEL_SPEED_KI               0.0f
+#define WHEEL_SPEED_KD               0.0f
 #define WHEEL_SPEED_TILT_LIMIT_DEG    1.0f
 #define WHEEL_SPEED_I_LIMIT_DEG       0.5f
 #define WHEEL_SPEED_TILT_SIGN        -1.0f
-#define WHEEL_SPEED_GAIN_MAX          0.1f
 #define WHEEL_SPEED_TILT_MAX_DEG      5.0f
 #define WHEEL_SPEED_ENCODER_TIMEOUT_MS 60u
 /* Position P -> limited target speed, in encoder counts (4096/wheel rev). */
 #define WHEEL_POSITION_KP              0.5f
 #define WHEEL_POSITION_SPEED_LIMIT_CPS 300.0f
-#define WHEEL_POSITION_GAIN_MAX        5.0f
 #define WHEEL_POSITION_SPEED_MAX_CPS 2000.0f
 #define WHEEL_POSITION_PERIOD_MS      100u
 #define WHEEL_POSITION_DEADBAND_COUNT   8u
@@ -256,10 +255,10 @@
 /* Independent nonnegative PWM offsets, selected after output direction mapping.
  * 0 disables that direction's compensation. WiFi edits RAM, not these defaults. */
 #ifndef GROUND_DEADZONE_POS_PWM
-#define GROUND_DEADZONE_POS_PWM    2000.0f
+#define GROUND_DEADZONE_POS_PWM    730.0f
 #endif
 #ifndef GROUND_DEADZONE_NEG_PWM
-#define GROUND_DEADZONE_NEG_PWM    3500.0f
+#define GROUND_DEADZONE_NEG_PWM    1100.0f
 #endif
 /* Negative or zero is treated as "no feed-forward" by the shaping helper;
  * the TASKING preprocessor cannot compare float literals in #if. */
@@ -287,8 +286,11 @@
  * No PID, IMU readiness or tilt interlock in this bench-test mode. */
 #define DEBUG_PWM_LIMIT             4000.0f
 #define APP_CONTROL_TICK_US         1000u
-#define APP_CONTROL_DIVIDER            2u
+#define APP_CONTROL_DIVIDER            1u
 #define APP_IMU_PERIOD_US           2000u
+#define MODE10_CONTROL_PERIOD_US    1000u
+#define MODE10_ANGLE_PERIOD_US      1000u
+#define MODE10_VELOCITY_PERIOD_US  20000u
 #define APP_KEY_PERIOD_MS              1u
 #define APP_POLL_PERIOD_MS            10u
 #define APP_DISPLAY_DIVIDER            5u
@@ -326,8 +328,8 @@
 #if APP_DEFAULT_MODE < 2 || APP_DEFAULT_MODE > 8
 #error APP_DEFAULT_MODE must be 2..8
 #endif
-#if APP_CONTROL_TICK_US * APP_CONTROL_DIVIDER != APP_IMU_PERIOD_US
-#error Control and IMU update periods must match
+#if MODE10_CONTROL_PERIOD_US != APP_CONTROL_TICK_US || MODE10_ANGLE_PERIOD_US % MODE10_CONTROL_PERIOD_US || MODE10_VELOCITY_PERIOD_US % MODE10_CONTROL_PERIOD_US
+#error Mode10 loop periods must be multiples of the control tick
 #endif
 #if APP_IMU_PERIOD_US < 1000u || APP_IMU_PERIOD_US % 1000u != 0u
 #error Control timeout and startup timers require whole milliseconds

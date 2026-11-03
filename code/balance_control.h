@@ -26,6 +26,7 @@ extern volatile uint32 flywheel_speed_feedback_sequence;
 extern volatile float flywheel_vel_angle_out;
 extern float roll_rate_test_kp, roll_rate_test_ki, roll_rate_test_limit, roll_rate_test_sign;
 extern volatile uint8 ground_rate_test_enabled;
+extern float ground_rate_test_kd;
 extern float ground_rate_test_kp, ground_rate_test_limit, ground_rate_test_sign;
 extern float ground_deadzone_pos_pwm, ground_deadzone_neg_pwm; /* nonnegative duty offsets */
 extern uint8 ground_deadzone_enable;   /* 0 disables the feed-forward */

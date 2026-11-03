@@ -43,3 +43,21 @@ wheel_position_count,wheel_ref_count,wheel_pos_error,wheel_target_cps,wheel_spee
 主机集成验证：`python tests/check_mode10_hold.py`。
 
 IMU 融合样本连续不更新的控制层超时为 50 ms（原 25 ms），由 `BALANCE_IMU_STALE_MS` 配置；新样本会重置计时。触发后仍锁存停机，需 Stop/Start。IMU 自身读取超时仍为 100 ms，非有限数据、滤波失败和超过 30°倾角的保护条件不变。
+
+
+## Control periods (restored upstream schedule)
+
+Mode10 rate loops and motor commands: 1 ms; both angle loops: 1 ms; flywheel velocity loop: 20 ms; IMU/EKF: 2 ms. Ground encoder speed PI remains driven by new encoder windows (about 20 ms), and position P remains 100 ms. Other modes use 1 ms control updates. Startup ramps and stale-sample timers use the control period independently of the IMU period. The first ready update seeds both outer loops; subsequent updates hold their outputs between deadlines. PID gains, signs and driver protocol are unchanged.
+
+Mode10 upstream limits: no flywheel velocity-output, target-angle, target-rate, ground position-speed or speed-tilt clamps; no startup PWM ramp. Final PWM remains +/-7500 on both axes, including ground friction compensation. Existing upstream angle/speed/rate integral bounds are retained. Legacy limit settings continue to apply to other modes, not Mode10. IMU/encoder fault and fall-stop protections remain.
+
+## PID gain validation
+
+PID gain upper bounds have been removed from control checks, WiFi sliders and the existing Flash record. Nonnegative gains accept any finite nonnegative float; flywheel velocity Kp retains signed tuning without a fixed magnitude cap. NaN/Inf checks, direction checks, final PWM limits and sensor/fall protections remain. The default ground speed Kp of 20 no longer triggers reason 9 solely because it exceeds the former 0.1 cap. This change does not add parameters to the Flash record.
+
+
+## Ground derivative gains over WiFi
+
+`ground_rate_kd` controls the ground angular-rate inner-loop derivative; default `GROUND_RATE_KD`. `wheel_speed_kd` controls ground encoder-speed derivative; default `WHEEL_SPEED_KD=0`. Both are nonnegative RAM parameters, readable through SUB and writable through slider commands; neither is saved to Flash. Reflash is required to add these names to existing boards.
+
+Both use error derivative in seconds: Kd*(error-previous_error)/dt. Ground rate dt is 1ms in Mode10 (2ms in other modes); wheel speed D updates only on a new encoder window using its actual dt (about 20ms). First derivative is zero; held frames do not differentiate again. Target changes can create derivative kicks. Keep both at zero while establishing balance and zero-speed behavior, then increase only if measured response warrants it.

@@ -15,6 +15,7 @@
 #include "wheel_hold.h"
 #include <errno.h>
 #include <math.h>
+#include <float.h>
 #include <stdio.h>
 #include <stdlib.h>
 #endif
@@ -158,7 +159,8 @@ static float g_telemetry_ms;
     X(ground_deadzone_pos_pwm, ground_deadzone_pos_pwm) \
     X(ground_deadzone_neg_pwm, ground_deadzone_neg_pwm) \
     X(fly_angle_kd, pitch_balance_kd) X(fly_vel_kd, flywheel_vel_kd) \
-    X(fly_angle_d_out, fly_angle_d_out) X(fly_vel_d_out, fly_vel_d_out)
+    X(fly_angle_d_out, fly_angle_d_out) X(fly_vel_d_out, fly_vel_d_out) \
+    X(ground_rate_kd, ground_rate_test_kd) X(wheel_speed_kd, wheel_speed_kd)
 
 #define VARIABLE_ID(name, expr) TV_##name,
 enum { TELEMETRY_VARIABLES(VARIABLE_ID) TV_COUNT };
@@ -181,22 +183,24 @@ typedef struct {
     float minimum, maximum;
 } slider_parameter_t;
 static const slider_parameter_t g_slider_parameters[] = {
+    {"ground_rate_kd", &ground_rate_test_kd, 0.0f, FLT_MAX},
+    {"wheel_speed_kd", &wheel_speed_kd, 0.0f, FLT_MAX},
     /* Tuning ranges match controller and Flash validation in config.h. */
-    {"rate_kp", &ground_rate_test_kp, 0.0f, 500.0f},
+    {"rate_kp", &ground_rate_test_kp, 0.0f, FLT_MAX},
     {"rate_pwm_limit", &ground_rate_test_limit, 0.0f, BALANCE_PWM_LIMIT_MAX},
     {"rate_sign", &ground_rate_test_sign, -1.0f, 1.0f},
     /* 模式 4 外环：角度P 与目标角速度限幅，只在 rate_only=0 时参与。 */
-    {"ground_angle_kp", &ground_angle_kp, 0.0f, 100.0f},
+    {"ground_angle_kp", &ground_angle_kp, 0.0f, FLT_MAX},
     {"ground_deadzone_pos_pwm", &ground_deadzone_pos_pwm, 0.0f, BALANCE_PWM_LIMIT_MAX},
     {"ground_deadzone_neg_pwm", &ground_deadzone_neg_pwm, 0.0f, BALANCE_PWM_LIMIT_MAX},
     /* 模式 5 横向（飞轮，代码里是 pitch/imu_pitch_deg，屏幕标 Roll）。 */
-    {"fly_angle_kp", &pitch_balance_kp, 0.0f, 1000.0f},
-    {"fly_angle_kd", &pitch_balance_kd, 0.0f, 1000.0f},
+    {"fly_angle_kp", &pitch_balance_kp, 0.0f, FLT_MAX},
+    {"fly_angle_kd", &pitch_balance_kd, 0.0f, FLT_MAX},
     {"fly_rate_limit_dps", &pitch_balance_rate_limit, 0.1f, BALANCE_RATE_LIMIT_MAX_DPS},
-    {"fly_rate_kp", &roll_rate_test_kp, 0.0f, 1000.0f},
-    {"fly_rate_ki", &roll_rate_test_ki, 0.0f, 1000.0f},
-    {"fly_vel_kp", &flywheel_vel_kp, -1000.0f, 1000.0f},
-    {"fly_vel_kd", &flywheel_vel_kd, 0.0f, 1000.0f},
+    {"fly_rate_kp", &roll_rate_test_kp, 0.0f, FLT_MAX},
+    {"fly_rate_ki", &roll_rate_test_ki, 0.0f, FLT_MAX},
+    {"fly_vel_kp", &flywheel_vel_kp, -FLT_MAX, FLT_MAX},
+    {"fly_vel_kd", &flywheel_vel_kd, 0.0f, FLT_MAX},
     {"fly_pwm_limit", &roll_rate_test_limit, 0.0f, BALANCE_PWM_LIMIT_MAX},
     {"fly_sign", &roll_rate_test_sign, -1.0f, 1.0f},
     /* 停车时单独开环驱动左右无刷（排查飞轮通道用，0 = 不驱动）。 */
@@ -210,11 +214,11 @@ static const slider_parameter_t g_slider_parameters[] = {
     {"balance_angle_x", &mono_params.balance_angle_x, -20.0f, 20.0f},
     {"balance_angle_y", &mono_params.balance_angle_y, -20.0f, 20.0f},
     /* Modes 2/10; RAM tuning, not part of the existing upright Flash record. */
-    {"wheel_speed_kp", &wheel_speed_kp, 0.0f, WHEEL_SPEED_GAIN_MAX},
-    {"wheel_speed_ki", &wheel_speed_ki, 0.0f, WHEEL_SPEED_GAIN_MAX},
+    {"wheel_speed_kp", &wheel_speed_kp, 0.0f, FLT_MAX},
+    {"wheel_speed_ki", &wheel_speed_ki, 0.0f, FLT_MAX},
     {"wheel_tilt_limit", &wheel_tilt_limit, 0.0f, WHEEL_SPEED_TILT_MAX_DEG},
     {"wheel_i_limit", &wheel_i_limit, 0.0f, WHEEL_SPEED_TILT_MAX_DEG},
-    {"wheel_pos_kp", &wheel_pos_kp, 0.0f, WHEEL_POSITION_GAIN_MAX},
+    {"wheel_pos_kp", &wheel_pos_kp, 0.0f, FLT_MAX},
     {"wheel_speed_limit", &wheel_speed_limit, 0.0f, WHEEL_POSITION_SPEED_MAX_CPS}
 };
 

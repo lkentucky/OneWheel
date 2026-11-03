@@ -1,4 +1,4 @@
-/* IMU660RB 2ms pipeline: sample, calibrate, fuse and publish.
+/* IMU660RB 5ms pipeline: sample, calibrate, fuse and publish.
  * TC264 STM0 clock, +/-8g and +/-2000dps. */
 #include "imu.h"
 #include "attitude.h"

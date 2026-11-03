@@ -76,6 +76,7 @@ extern volatile float control_fault_dt_ms,control_startup_scale;
 extern uint32 control_startup_ramp_ms;
 extern volatile uint8 roll_rate_test_enabled, ground_rate_test_enabled, dual_balance_enabled;
 extern volatile float dual_angle[2],dual_target[2],dual_angle_error[2],dual_rate[2],dual_target_rate[2],dual_rate_error[2],dual_pwm[2];
+extern float ground_rate_test_kd;
 extern float ground_rate_test_kp, ground_rate_test_limit, ground_rate_test_sign;
 extern float ground_angle_kp,ground_angle_rate_limit;
 extern float ground_deadzone_pos_pwm,ground_deadzone_neg_pwm;

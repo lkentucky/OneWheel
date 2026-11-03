@@ -1,0 +1,22 @@
+{
+    "configurations": [
+        {
+            "name": "Qcar TC264 (TASKING)",
+            "configurationProvider": "ms-vscode.cmake-tools",
+            "compilerPath": "C:/Program Files (x86)/cpeditor/mingw64/bin/gcc.exe",
+            "compilerArgs": ["-m32"],
+            "intelliSenseMode": "windows-gcc-x86",
+            "cStandard": "c99",
+            "cppStandard": "c++14",
+            "includePath": [
+                "${workspaceFolder}",
+                "${workspaceFolder}/code",
+                "${workspaceFolder}/user",
+                "${workspaceFolder}/libraries/**"
+            ],
+            "defines": ["__TASKING__=1", "__CPU__=tc26xb"],
+            "forcedInclude": ["${workspaceFolder}/.vscode/tasking_intellisense.h"]
+        }
+    ],
+    "version": 4
+}

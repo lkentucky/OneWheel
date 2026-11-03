@@ -10,7 +10,7 @@ SPI访问有超时；无ready/总线坏帧不发布有效样本。超过MAX_SAMP
 
 状态：0标定，1正常，-1初始化失败，-2超时，-3采样间隔异常，-4滤波失败。`imu_status=-5`枚举保留兼容，本轮不再由质量诊断产生；质量拒绝时长、弱观测累计只作诊断。上位机需同时看imu_status、imu_seq、imu_dt_ms和控制fault_reason。
 
-屏幕Roll/飞轮使用imu_pitch_deg、gyro.y；屏幕Pitch/行进轮使用imu_roll_deg、gyro.x。控制角度无额外低通；本轮移除控制端原5ms角速度低通和EKF旧加速度低通，保持2ms采样/控制周期、轴映射、机械零点和PID。
+屏幕Roll/飞轮使用imu_pitch_deg、gyro.y；屏幕Pitch/行进轮使用imu_roll_deg、gyro.x。控制角度无额外低通；本轮移除控制端原5ms角速度低通和EKF旧加速度低通，保持2ms采样、1ms控制周期、轴映射、机械零点和PID。
 
 `tests/check_imu.py`编译实际采样/解算代码验证标定、映射、STM回绕、超时/恢复和航向跨界，并运行独立EKF数值轨迹。该测试不代替实物安装方向和运行耗时测量。
 
