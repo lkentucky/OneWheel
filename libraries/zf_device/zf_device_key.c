@@ -50,7 +50,8 @@
 #include "zf_device_key.h"
 
 static uint32               key_shock_count = 0;
-static uint32               key_long_count = 0;
+static uint32               key_long_count[KEY_NUMBER] = {0};
+static uint32 key_scan_period;
 static uint32               key_press_time[KEY_NUMBER];                         // 按键信号持续时长
 static key_state_enum       key_state[KEY_NUMBER];                              // 按键状态
 
@@ -71,7 +72,7 @@ void key_scanner (void)
         if(KEY_RELEASE_LEVEL != gpio_get_level(key_index[i]))                   // 按键按下
         {
             key_press_time[i] ++;
-            if(key_long_count <= key_press_time[i])
+            if(key_long_count[i] <= key_press_time[i])
             {
                 key_state[i] = KEY_LONG_PRESS;
             }
@@ -83,7 +84,7 @@ void key_scanner (void)
                 key_press_time[i] = 0;
                 continue;
             }
-            if((KEY_LONG_PRESS != key_state[i]) && (key_shock_count <= key_press_time[i]) && (key_long_count > key_press_time[i]))
+            if((KEY_LONG_PRESS != key_state[i]) && (key_shock_count <= key_press_time[i]) && (key_long_count[i] > key_press_time[i]))
             {
                 key_state[i] = KEY_SHORT_PRESS;
             }
@@ -147,10 +148,20 @@ void key_init (uint32 period)
     zf_assert(0 < period);
     uint8 loop_temp = 0; 
     key_shock_count = (KEY_MAX_SHOCK_PERIOD + period - 1U) / period;
-    key_long_count = (KEY_LONG_PRESS_PERIOD + period - 1U) / period;
+    key_scan_period = period;
     for(loop_temp = 0; KEY_NUMBER > loop_temp; loop_temp ++)
     {
         gpio_init(key_index[loop_temp], GPI, GPIO_HIGH, GPI_PULL_UP);
         key_state[loop_temp] = KEY_RELEASE;
+        key_press_time[loop_temp] = 0;
+        key_long_count[loop_temp] = (KEY_LONG_PRESS_PERIOD + period - 1U) / period;
     }
+}
+
+/* Per-key hold threshold; word-sized update is atomic on TC264. */
+uint8 key_set_long_press_period(key_index_enum key_n,uint32 milliseconds)
+{
+    if((uint8)key_n>=KEY_NUMBER || !key_scan_period || milliseconds<KEY_MAX_SHOCK_PERIOD)return 0;
+    key_long_count[key_n]=milliseconds/key_scan_period+(milliseconds%key_scan_period!=0u);
+    return 1;
 }

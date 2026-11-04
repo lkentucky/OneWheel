@@ -40,6 +40,7 @@
 #define UI_FOOTER_Y            (302u)
 #define UI_STATUS_Y            (277u)
 #define UI_VISIBLE_ROWS        (13u)
+#define UI_STEP_HOLD_MS        (300u)
 #define UI_LONG_REPEAT_MS      (120u)
 #define UI_LIVE_PERIOD_MS      (100u)
 #define UI_IMAGE_PERIOD_MS     (100u)    // 横屏整帧刷新周期
@@ -298,6 +299,7 @@ static uint8       s_group_index;                   // 当前参数组下标
 static uint8       s_cursor;                        // 当前光标行
 static uint8       s_top;                           // 当前滚动窗口的首行
 static uint8       s_enter_event_long;
+static uint32      s_enter_hold_period;
 static uint8       s_editing;                       // 正在编辑参数值
 static uint8       s_test_on;                       // 当前页开着 Test
 static uint8       s_active_test;                   // 开着的是哪一个动作行，0xFF 表示没有
@@ -428,6 +430,11 @@ static void cycle_edit_step(void)
   Menu_Edit_Cycle(node,item->step,integer,integer&&d->vmin>=-1&&d->vmax<=1);
  }
  s_dirty=1;
+}
+static void update_edit_hold_period(void)
+{
+ uint32 wanted=(s_editing&&(s_page==MENU_PAGE_GROUP||s_page==MENU_PAGE_PATH))?UI_STEP_HOLD_MS:KEY_LONG_PRESS_PERIOD;
+ if(wanted!=s_enter_hold_period&&key_set_long_press_period(MENU_KEY_ENTER,wanted))s_enter_hold_period=wanted;
 }
 static uint8 editing_enter(uint8 enter,key_state_enum state)
 {
@@ -2171,6 +2178,7 @@ void menu_run(void)
     uint8 back = key_event(MENU_KEY_RETURN, 0);
     uint32 now = g_control_uptime_ms;
 
+    update_edit_hold_period();
     enter = key_event(MENU_KEY_ENTER, 0);
     enter_state=s_enter_event_long?KEY_LONG_PRESS:KEY_SHORT_PRESS;
     enter=editing_enter(enter,enter_state);

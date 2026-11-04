@@ -90,4 +90,7 @@ void            key_clear_all_state     (void);                                 
 void            key_init                (uint32 period);                        // 按键初始化
 //==================================================声明 按键 基础函数===============================================
 
+/* Override one key after key_init; milliseconds >= debounce interval. */
+uint8 key_set_long_press_period(key_index_enum key_n, uint32 milliseconds);
+
 #endif

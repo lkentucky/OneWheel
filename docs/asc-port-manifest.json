@@ -356,7 +356,7 @@
     {
       "path": "code/Menu/menu.c",
       "reference_sha256_lf": "4863511cb6b696671add5d33fe93ff34e01f2ea4fcf5142f47eb4ab24cd89522",
-      "target_sha256_lf": "ef87df80babef107846a9fad640e4adfe103dd3eea8b1c2319cebeb6329e85b6",
+      "target_sha256_lf": "9be42e74e9a214b91ad65af66703b9a73a9d2f5c5646082c94e88eb94d393248",
       "unchanged_lf": false
     },
     {
@@ -469,5 +469,6 @@
     "code/Menu/menu_tree.c": "b75c062b5a0e1195da6eef7cde8f8066a657e801b96787383cd211775e38d05a",
     "code/Menu/menu_tree.h": "ef48da80826b1255f0eaed10e615701474426e29b056cf03cb5575aa85219829"
   },
-  "menu_edit_steps": "Per-node 0.01/0.1/1/10/100 scale, effective-step footer, long Enter once per hold; short Enter done, integer minimum 1 and fixed direction/switch steps; preferences last until menu reinitialization."
+  "menu_edit_steps": "Per-node 0.01/0.1/1/10/100 scale, effective-step footer, long Enter once per hold; short Enter done, integer minimum 1 and fixed direction/switch steps; preferences last until menu reinitialization.",
+  "step_hold": "Enter key only: 300ms while Group/Path editing, original 1000ms outside editing; other keys unchanged; one gear change per hold."
 }

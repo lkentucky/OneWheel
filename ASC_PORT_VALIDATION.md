@@ -42,3 +42,8 @@ Merged the previously local IMU diagnostic API, acquisition/100us SPI hooks, men
 Each linked node now remembers a session-local step multiplier. Long Enter cycles scale; short Enter still completes editing. Integer scales below one count are skipped and direction/switch steps stay fixed. Parameter-value precision and the Path speed display follow finer steps; the footer shows effective step. No Flash schema or control gain default changed.
 
 The full host suite passed 157 checks. Final single-read Enter-state capture was verified by four targeted checks, including actual key_event/long-hold dispatch and real step/precision functions, followed by a successful final ADS/TASKING build (zero errors/warnings). Render contracts intentionally update only the editing footer and parameter-value formatting; other render functions and image rendering remain checked unchanged. No board/LCD/button test was performed.
+
+
+## 2026-11-04 faster step hold
+
+Parameter/Path editing now lowers only the Enter key's hold threshold from 1000ms to 300ms. It restores the default outside editing; other keys retain 1000ms. Threshold changes are cached and the existing one-cycle-per-hold menu logic is retained. Six focused real scanner/menu/step tests passed, including 300ms vs 1000ms, release/short press, 7ms scan rounding, invalid thresholds, edit-only override/restoration and continuous-hold suppression. ADS/TASKING build passed with zero errors/warnings. No hardware timing/feel test performed. Existing controller tuning and private network/project edits are excluded.
