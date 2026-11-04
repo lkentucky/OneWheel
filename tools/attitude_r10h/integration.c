@@ -84,11 +84,16 @@ int main(void)
     init();host_clock=UINT32_MAX-500u;tick(1000);tick(1000);assert(!attitude_diverged());
     init();tick(1000);host_clock_cost=500;tick(1000);assert(attitude_diverged());
     for(int mode=1;mode<=5;mode++) {
-        init();bad_mode=mode;tick(1000);assert(imu_link_lost() && attitude_diverged());
+        const char *expected[]={"", "IMU DATA ALL FF", "IMU ACC ALL ZERO", "IMU ACC ALL ZERO", "IMU SATURATED", "IMU SPI READ FAIL"};
+        init();assert(!strcmp(imu_fault_text(),"IMU LINK LOST"));
+        bad_mode=mode;tick(1000);assert(imu_link_lost() && attitude_diverged());
+        assert(!strcmp(imu_fault_text(),expected[mode]));
         assert(!imu_get_raw_sample(&raw));bad_mode=0;tick(1000);assert(imu_link_lost());
+        assert(!strcmp(imu_fault_text(),expected[mode])); /* First reason survives later samples. */
     }
-    init();status=0;tick(1000);assert(imu_link_lost() && attitude_diverged());
-    init();regs[0xf]=0;for(unsigned i=0;i<100;i++)tick(1000);assert(imu_link_lost());
+    init();status=0;tick(1000);assert(imu_link_lost() && attitude_diverged());assert(!strcmp(imu_fault_text(),"IMU NOT READY"));
+    init();regs[0xf]=0;for(unsigned i=0;i<100;i++)tick(1000);assert(imu_link_lost());assert(!strcmp(imu_fault_text(),"IMU BAD CHIP ID"));
+    init();imu660rb_transition_factor[1]=0;tick(1000);assert(imu_link_lost());assert(!strcmp(imu_fault_text(),"IMU NONFINITE"));
     init();moving=1;imu_calibrate();assert(imu_calib_state()==IMU_CALIB_MOVED);
     assert(!imu_get_startup_mean(&mean));attitude_init();assert(attitude_diverged());
     init();sensor[5]=-2049;sensor[3]=3549;imu_calibrate();attitude_init();

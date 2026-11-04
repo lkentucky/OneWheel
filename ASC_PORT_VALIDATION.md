@@ -30,3 +30,8 @@ Eight targeted host checks passed (four new boot/manual-retry/logging-policy cas
 Parent/child/circular-sibling nodes with a bounded static pool now own navigation, parameter binding and per-directory cursor/scroll history. Folder callbacks dispatch input/rendering. Existing rendering, geometry, colors, 8x16 font and image renderer are retained; page IDs remain display-style metadata.
 
 155 host checks passed; ADS/TASKING compilation/link passed with zero errors/warnings. New native-C tests traverse every parameter group, wrap siblings, verify parent returns and cursor history, bind parameter descriptors, enter Image/IPM/Path Map, preserve action/stop callbacks and reject pool overflow. Render-function/font/image fingerprints are checked; known independent local IMU diagnostic wording is normalized only in the visual contract. No real LCD or button test was performed.
+
+
+## 2026-11-04 include IMU first-fault diagnostics
+
+Merged the previously local IMU diagnostic API, acquisition/100us SPI hooks, menu messages and matching test harness. Regression assertions verify each sample failure reason, not-ready/chip-ID/nonfinite diagnostics, first-reason retention and reset on reinitialization. All five real r10h host test groups passed. Menu rendering/navigation and direction/Flash regressions also passed. Production source fingerprint exactly matches the preceding successful ADS build (zero errors/warnings); no repeat build was necessary because only test assertions/documentation changed after that build. Local network credentials and ADS preferences were excluded from this commit. No sensor-fault threshold, calibration matrix or motor control gain was changed by this merge. No hardware test was performed.

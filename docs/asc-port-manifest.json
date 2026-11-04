@@ -296,26 +296,26 @@
     {
       "path": "code/HW_Drivers/IMU/imu.c",
       "reference_sha256_lf": "cbe2289a4779aed16a1a5760126e0e9b04f85da15e9b3aa3cbfd29b4491cbe8a",
-      "target_sha256_lf": "cbe2289a4779aed16a1a5760126e0e9b04f85da15e9b3aa3cbfd29b4491cbe8a",
-      "unchanged_lf": true
+      "target_sha256_lf": "3cbd5121aecf6ba54680aa6cfc493eddf3fbdfba6d795741c8bee868084feadb",
+      "unchanged_lf": false
     },
     {
       "path": "code/HW_Drivers/IMU/imu.h",
       "reference_sha256_lf": "c11ffd2a552e01b540c888b38c8d07a85e045cba54bf076f38ba02fddd468cfb",
-      "target_sha256_lf": "c11ffd2a552e01b540c888b38c8d07a85e045cba54bf076f38ba02fddd468cfb",
-      "unchanged_lf": true
+      "target_sha256_lf": "eed3afa8d3e2ee2d2a1054078830042a68cabfa1b5ff1a23f7e4f8bdf700ce00",
+      "unchanged_lf": false
     },
     {
       "path": "code/HW_Drivers/IMU/imu_r10h.inc",
       "reference_sha256_lf": "c29483346a252eef1060d416e9902f98ac8f9652dc49d39e5d440106f34c891e",
-      "target_sha256_lf": "c29483346a252eef1060d416e9902f98ac8f9652dc49d39e5d440106f34c891e",
-      "unchanged_lf": true
+      "target_sha256_lf": "aa4e898201cff96e2a0cc5416d17d7bfea7c6b28c33f9f8713cd9f1ebc8cf342",
+      "unchanged_lf": false
     },
     {
       "path": "code/HW_Drivers/IMU/imu_spi.inc",
       "reference_sha256_lf": "2452426018074b0a9ab4e3ec836379ba2b883298a05aac9caf560a368602a6c8",
-      "target_sha256_lf": "2452426018074b0a9ab4e3ec836379ba2b883298a05aac9caf560a368602a6c8",
-      "unchanged_lf": true
+      "target_sha256_lf": "b1c158108bbf3098a4f9d24704a5106259f58c4cede563a27c83764f68c658bf",
+      "unchanged_lf": false
     },
     {
       "path": "code/HW_Drivers/Motor/W_Motor.c",
@@ -356,7 +356,7 @@
     {
       "path": "code/Menu/menu.c",
       "reference_sha256_lf": "4863511cb6b696671add5d33fe93ff34e01f2ea4fcf5142f47eb4ab24cd89522",
-      "target_sha256_lf": "dca88be4c4fab7d4525b4a444b7262212810b78647201a94112bb89747cb6172",
+      "target_sha256_lf": "5b67c427e68178f6220468c2067d88c28adc35e0a4d79124fdf369889d673974",
       "unchanged_lf": false
     },
     {
@@ -461,5 +461,6 @@
     "new QCAF parameter marker; private LAN header ignored"
   ],
   "boot_display_fix": "2026-11-04: auto-start applies only in vision_core_init; manual restart always allowed; SDK camera nonfatal LCD logging off by default, VISION_CORE_FAILED still reported.",
-  "linked_menu": "Static node pool; actual child/parent transitions, sibling movement, node-local cursor/scroll and folder callbacks. No heap allocation."
+  "linked_menu": "Static node pool; actual child/parent transitions, sibling movement, node-local cursor/scroll and folder callbacks. No heap allocation.",
+  "imu_diagnostics": "First SPI/sample failure retained until imu_init; low-level SPI timeout, not-ready, all-FF/zero-accel, clipping, identity and nonfinite values reported through menu."
 }

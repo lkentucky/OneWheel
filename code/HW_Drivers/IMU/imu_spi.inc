@@ -38,6 +38,7 @@ static uint8 r10h_bus_read(uint8 reg,uint8 *data,uint8 len)
     IMU660RB_CS(1);
     return 1;
 timeout:
+    imu_latch_fault("IMU SPI TIMEOUT");
     IMU660RB_CS(1);
     IfxQspi_clearAllEventFlags(bus);
     return 0; /* No bus reset or retry while the vehicle can be moving. */

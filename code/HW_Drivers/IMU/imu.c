@@ -29,6 +29,14 @@ static uint8  link_lost;                // 链路失效标志，一旦置位不�
 #define IMU_CALIB_MOVE_DPS      (3.0f)  // 标定期间陀螺峰峰值超过它判定为动过
 #define IMU_CALIB_MOVE_G        (0.15f) // 标定期间加计峰峰值超过它判定为动过
 
+static const char *s_imu_fault = "IMU LINK LOST";
+static void imu_latch_fault(const char *reason)
+{
+    if (!link_lost) s_imu_fault = reason;
+    link_lost = 1;
+}
+const char *imu_fault_text(void) { return s_imu_fault; }
+
 #include "imu_spi.inc"
 
 //-------------------------------------------------------------------------------------------------------------------
@@ -69,7 +77,7 @@ static void imu_write_reg(uint8 reg, uint8 data)
 static uint8 imu_read_reg(uint8 reg)
 {
     uint8 data=0xFFu;
-    if (!r10h_bus_read(reg,&data,1u)) link_lost=1;
+    if (!r10h_bus_read(reg,&data,1u)) imu_latch_fault("IMU SPI READ FAIL");
     return data;
 }
 
@@ -136,6 +144,7 @@ uint8 imu_init(void)
 
     s_forward_dir = (IMU_FORWARD_DIR < 0) ? -1 : 1;
     link_lost     = 0;
+    s_imu_fault = "IMU LINK LOST";
     r10h_sample_valid = r10h_identity_ticks = 0;
     calib_state = IMU_CALIB_NONE;
     yaw_angle     = 0.0f;

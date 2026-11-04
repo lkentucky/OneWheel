@@ -717,7 +717,7 @@ static void render_main_live(void)
 
     if (!g_imu_ok)                                      ui_line(120, "IMU  INIT FAILED", UI_RED);
     else if (imu_forward_pending())                    ui_line(120, "IMU SAVE + REBOOT", UI_YELLOW);
-    else if (imu_link_lost())                           ui_line(120, "IMU  LINK LOST", UI_RED);
+    else if (imu_link_lost())                           ui_line(120, imu_fault_text(), UI_RED);
     else if (imu_calib_state() == IMU_CALIB_MOVED)      ui_line(120, "IMU  CALIB MOVED", UI_RED);
     else if (imu_calib_state() != IMU_CALIB_OK)         ui_line(120, "IMU  CALIB WAIT", UI_YELLOW);
     else if (attitude_diverged())                       ui_line(120, "IMU  ATT DIVERGED", UI_RED);
@@ -895,7 +895,7 @@ static void render_attitude_live(void)
     if (!g_imu_ok)
         ui_line(152, "IMU INIT FAILED", UI_RED);
     else if (imu_link_lost())
-        ui_line(152, "IMU LINK LOST", UI_RED);
+        ui_line(152, imu_fault_text(), UI_RED);
     else if (attitude_diverged())
         ui_line(152, "ATTITUDE DIVERGED", UI_RED);
     else if (attitude_converged())
@@ -1087,7 +1087,7 @@ static const char *test_status_text(control_test_status_t status)
         case CTRL_TEST_STATUS_IMU_CALIB:      return "IMU CALIB INVALID";
         case CTRL_TEST_STATUS_ATT_CONVERGING: return "ATTITUDE NOT READY";
         case CTRL_TEST_STATUS_ATT_DIVERGED:   return "ATTITUDE DIVERGED";
-        case CTRL_TEST_STATUS_IMU_LOST:       return "IMU LINK LOST";
+        case CTRL_TEST_STATUS_IMU_LOST:       return imu_fault_text();
         case CTRL_TEST_STATUS_BLDC_LOST:      return "BLDC LINK LOST";
         case CTRL_TEST_STATUS_ROLL_PROT:      return "ROLL OVER PROTECT";
         case CTRL_TEST_STATUS_PITCH_PROT:     return "PITCH OVER PROTECT";

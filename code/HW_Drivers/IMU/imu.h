@@ -23,6 +23,8 @@ extern imu_data_t imu;
 // 使用示例     uint8 lost = imu_link_lost();
 //-------------------------------------------------------------------------------------------------------------------
 uint8 imu_link_lost(void);
+/* First failure is retained until imu_init(), including during calibration. */
+const char *imu_fault_text(void);
 
 // 设置值与本次启动坐标不同：须保存并重启，不能启动闭环。
 uint8 imu_forward_pending(void);

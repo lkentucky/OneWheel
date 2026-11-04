@@ -2,6 +2,9 @@
 #include <stdint.h>
 #include <assert.h>
 #include <stdio.h>
+#include <string.h>
+static unsigned fault_count;
+static void imu_latch_fault(const char *reason) { assert(!strcmp(reason,"IMU SPI TIMEOUT")); ++fault_count; }
 typedef uint8_t uint8;typedef uint32_t uint32;
 #define IMU660RB_SPI 0
 #define IMU660RB_SPI_R 128
@@ -27,9 +30,9 @@ int main(void) {
     uint8 bytes[12];
     reset();assert(r10h_bus_read(0x22,bytes,12));assert(!selected && transfers==13 && bytes[11]==0x35);
     for(unsigned fail=1;fail<=13;fail++) {
-        reset();fail_transfer=fail;assert(!r10h_bus_read(0x22,bytes,12));assert(!selected && host_clock<=110);
+        reset();fail_transfer=fail;assert(!r10h_bus_read(0x22,bytes,12));assert(!selected && host_clock<=110);assert(fault_count);
     }
-    reset();fail_end=1;assert(!r10h_bus_read(0x22,bytes,12));assert(!selected && host_clock<=110);
+    reset();fail_end=1;assert(!r10h_bus_read(0x22,bytes,12));assert(!selected && host_clock<=110);assert(fault_count);
     reset();host_clock=UINT32_MAX-50u;fail_transfer=1;assert(!r10h_bus_read(0x22,bytes,12));assert(!selected);
     reset();assert(!r10h_bus_read(0x22,bytes,0));
     puts("PASS: target SPI RX/deadline/end waits, 12-byte burst, CS release, timer wrap and invalid length");return 0;
