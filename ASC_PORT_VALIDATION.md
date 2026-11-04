@@ -23,3 +23,10 @@ WiFi credentials remain only in an ignored private header. WiFi-linked binaries 
 The auto-start flag had been placed on the explicit restart command instead of the boot call. It now guards only vision_core_init; manual restart is unconditional. Camera init failure still returns failure and publishes VISION_CORE_FAILED, while default nonfatal SDK camera logs no longer clear the CPU0-owned LCD from CPU1. MT9V03X_INIT_LOG_ENABLE may be explicitly enabled only for a standalone camera diagnostic with appropriate LCD ownership.
 
 Eight targeted host checks passed (four new boot/manual-retry/logging-policy cases, existing firmware protocol/ISR checks and Qcar UART contract). ADS/TASKING build passed with zero errors/warnings. No real LCD or on-board reboot test was performed; the hardware symptom still needs confirmation after flashing the new image. The earlier 149-case full-suite result remains historical.
+
+
+## 2026-11-04 linked navigation
+
+Parent/child/circular-sibling nodes with a bounded static pool now own navigation, parameter binding and per-directory cursor/scroll history. Folder callbacks dispatch input/rendering. Existing rendering, geometry, colors, 8x16 font and image renderer are retained; page IDs remain display-style metadata.
+
+155 host checks passed; ADS/TASKING compilation/link passed with zero errors/warnings. New native-C tests traverse every parameter group, wrap siblings, verify parent returns and cursor history, bind parameter descriptors, enter Image/IPM/Path Map, preserve action/stop callbacks and reject pool overflow. Render-function/font/image fingerprints are checked; known independent local IMU diagnostic wording is normalized only in the visual contract. No real LCD or button test was performed.

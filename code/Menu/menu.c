@@ -1,4 +1,5 @@
 #include "Menu/menu.h"
+#include "Menu/menu_tree.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -287,6 +288,11 @@ static const char * const s_param_page_names[] =
 #define PARAM_PAGE_COUNT ((uint8)(sizeof(s_param_page_names) / sizeof(s_param_page_names[0])))
 #define GROUP_COUNT      ((uint8)(sizeof(s_groups) / sizeof(s_groups[0])))
 
+static Menu_Item *s_root,*s_folder,*s_views[MENU_PAGE_COUNT],*s_group_nodes[GROUP_COUNT];
+static int menu_tree_build(void);
+static void menu_enter(void);
+static void menu_back(void);
+
 static menu_page_t s_page;                          // 当前页面
 static uint8       s_group_index;                   // 当前参数组下标
 static uint8       s_cursor;                        // 当前光标行
@@ -303,10 +309,6 @@ static uint32      s_run_armed_until_ms;            // Run 二次确认截止时
 static uint8       s_run_on;                        // 菜单侧记录的跑车运行标志
 static uint8       s_ipm_pick;                      // 标定页：上一帧取角点的结果，ipm_pick_t
 static uint8       s_balance_on;                    // 上次看到的三轴平衡运行状态，用来发现安全闸自动停机
-static uint8       s_page_cursor[MENU_PAGE_COUNT];  // 各页面记住的光标位置
-static uint8       s_page_top[MENU_PAGE_COUNT];     // 各页面记住的滚动位置
-static uint8       s_group_cursor[GROUP_COUNT];     // 各参数组记住的光标位置
-static uint8       s_group_top[GROUP_COUNT];        // 各参数组记住的滚动位置
 static uint8       s_long_active[KEY_NUMBER];       // 该键正处于长按状态
 static uint32      s_last_repeat_ms[KEY_NUMBER];    // 该键上次长按连发的时刻
 static uint32      s_last_live_ms;                  // 上次刷新实时行的时刻
@@ -454,7 +456,7 @@ static void draw_status(void)
 // 函数简介     读取一次菜单按键事件并处理长按连发
 // 参数说明     key/repeat      按键编号/是否允许长按重复
 // 返回参数     uint8           1=本周期产生事件 0=无事件
-// 使用示例     if (key_event(MENU_KEY_RETURN, 0)) set_page(MENU_PAGE_MAIN);
+// 使用示例     if (key_event(MENU_KEY_RETURN, 0)) menu_back();
 //-------------------------------------------------------------------------------------------------------------------
 static uint8 key_event(key_index_enum key, uint8 repeat)
 {
@@ -497,18 +499,7 @@ static uint8 key_event(key_index_enum key, uint8 repeat)
 // 使用示例     uint8 count = current_count();
 //-------------------------------------------------------------------------------------------------------------------
 static uint8 current_count(void)
-{
-    // 主菜单固定为 Params / Image / Run / Run Test。
-    if (s_page == MENU_PAGE_MAIN)            return UI_MAIN_ITEM_COUNT;
-    if (s_page == MENU_PAGE_PATH)            return 10u;
-    if (s_page == MENU_PAGE_PARAMS)          return PARAM_PAGE_COUNT;
-    if (s_page == MENU_PAGE_ATTITUDE)        return 2;
-    if (s_page == MENU_PAGE_RUN_TEST)        return UI_RUN_TEST_ITEM_COUNT;
-    if (s_page == MENU_PAGE_GROUP)
-        return (uint8)(group_item_count(&s_groups[s_group_index]) +
-                       s_groups[s_group_index].action_count + 2u);
-    return 0;
-}
+{ return s_folder?(uint8)s_folder->sons:0; }
 
 //-------------------------------------------------------------------------------------------------------------------
 // 函数简介     停止当前页面的测试
@@ -630,18 +621,7 @@ static void reset_params_action(void)
 // 使用示例     save_page_position();
 //-------------------------------------------------------------------------------------------------------------------
 static void save_page_position(void)
-{
-    if (s_page == MENU_PAGE_GROUP)
-    {
-        s_group_cursor[s_group_index] = s_cursor;
-        s_group_top[s_group_index] = s_top;
-    }
-    else
-    {
-        s_page_cursor[s_page] = s_cursor;
-        s_page_top[s_page] = s_top;
-    }
-}
+{ if(s_folder)s_folder->top=s_top; }
 
 //-------------------------------------------------------------------------------------------------------------------
 // 函数简介     载入目标页面上次保存的光标和滚动位置
@@ -650,41 +630,25 @@ static void save_page_position(void)
 // 使用示例     load_page_position(MENU_PAGE_PARAMS);
 //-------------------------------------------------------------------------------------------------------------------
 static void load_page_position(menu_page_t page)
-{
-    if (page == MENU_PAGE_GROUP)
-    {
-        s_cursor = s_group_cursor[s_group_index];
-        s_top = s_group_top[s_group_index];
-    }
-    else
-    {
-        s_cursor = s_page_cursor[page];
-        s_top = s_page_top[page];
-    }
-}
+{ (void)page;s_cursor=s_folder->cursor?(uint8)s_folder->cursor->rank:0;s_top=(uint8)s_folder->top; }
 
 //-------------------------------------------------------------------------------------------------------------------
 // 函数简介     切换菜单页面并恢复目标页面上次光标
 // 参数说明     page            目标页面
 // 返回参数     void
-// 使用示例     set_page(MENU_PAGE_PARAMS);
+// 使用示例     menu_back();
 //-------------------------------------------------------------------------------------------------------------------
-static void set_page(menu_page_t page)
+static void navigate_to(Menu_Item *folder)
 {
-    stop_local_test();
-    save_page_position();
-    s_page = page;
-    load_page_position(page);
-
-    // 只有 Attitude 页开启 Test 时发送姿态波形，离开页面立即关闭。
-    g_vofa_mode = VOFA_OFF;
-
-    s_editing = 0;
-    s_dirty = 2;
-    s_status[0] = '\0';
-    s_status_until_ms = 0;
-    s_last_live_ms = 0;
+ if(!folder||folder->kind!=MENU_Folder)return;
+ stop_local_test();save_page_position();s_folder=folder;
+ s_page=(menu_page_t)folder->page;s_group_index=folder->group;load_page_position(s_page);
+ g_vofa_mode=VOFA_OFF;s_editing=0;s_dirty=2;s_status[0]='\0';s_status_until_ms=0;s_last_live_ms=0;
 }
+static void menu_enter(void)
+{ if(s_folder&&s_folder->cursor&&s_folder->cursor->kind==MENU_Folder)navigate_to(s_folder->cursor); }
+static void menu_back(void)
+{ if(s_folder&&s_folder->Father)navigate_to(s_folder->Father); }
 
 //-------------------------------------------------------------------------------------------------------------------
 // 函数简介     循环移动光标并维护滚动起点
@@ -694,18 +658,8 @@ static void set_page(menu_page_t page)
 //-------------------------------------------------------------------------------------------------------------------
 static void move_cursor(int direction)
 {
-    uint8 count = current_count();
-
-    if (count == 0) return;
-    if (direction > 0)
-        s_cursor = (uint8)((s_cursor + 1u) % count);
-    else
-        s_cursor = (s_cursor == 0u) ? (uint8)(count - 1u) : (uint8)(s_cursor - 1u);
-
-    if (s_cursor < s_top) s_top = s_cursor;
-    if (s_cursor >= (uint8)(s_top + UI_VISIBLE_ROWS))
-        s_top = (uint8)(s_cursor - UI_VISIBLE_ROWS + 1u);
-    s_dirty = 1;
+ if(!current_count())return;
+ Menu_Tree_Move(s_folder,direction,UI_VISIBLE_ROWS);load_page_position(s_page);s_dirty=1;
 }
 
 //-------------------------------------------------------------------------------------------------------------------
@@ -1216,23 +1170,9 @@ static void render_group(void)
 
 static void render_page(void)
 {
-    if (s_dirty == 2)
-        ips200_full(UI_BLACK);
-
-    switch (s_page)
-    {
-        case MENU_PAGE_MAIN:            render_main(); break;
-        case MENU_PAGE_PARAMS:          render_params(); break;
-        case MENU_PAGE_ATTITUDE:        render_attitude(); break;
-        case MENU_PAGE_GROUP:           render_group(); break;
-        case MENU_PAGE_IMAGE:           break;
-        case MENU_PAGE_IPM:             break;
-        case MENU_PAGE_RUN_TEST:        render_run_test(); break;
-        case MENU_PAGE_PATH:            render_path(); break;
-        case MENU_PAGE_PATH_MAP:        render_path_map(); break;
-        default:                        break;
-    }
-    s_dirty = 0;
+ if(s_dirty==2)ips200_full(UI_BLACK);
+ if(s_folder&&s_folder->draw)s_folder->draw();
+ s_dirty=0;
 }
 
 //-------------------------------------------------------------------------------------------------------------------
@@ -1348,14 +1288,13 @@ static void toggle_group_action(uint8 action_index)
 static void edit_current_parameter(float direction)
 {
     const menu_group_t *group = &s_groups[s_group_index];
-    const menu_param_item_t *items = group_items(group);
     const menu_param_item_t *item;
     float value = 0.0f;
 
     if (s_cursor >= group_item_count(group)) return;
     if (group->kind == GROUP_KIND_ZERO && (start_flag != START_STOP ||
         control_test_running() || control_jog_running() != MOTOR_JOG_NONE)) return;
-    item = &items[s_cursor];
+    item = (const menu_param_item_t *)s_folder->cursor->data;
     if (!param_get_by_name(item->name, &value)) return;
     if (strcmp(item->name, "imu_forward_dir") == 0)
     {
@@ -1520,7 +1459,7 @@ static void ipm_calib_action(void)
         menu_status("IPM: STOP FIRST");
         return;
     }
-    set_page(MENU_PAGE_IPM);
+    menu_enter();
     (void)control_camera_debug_start();
     s_image_ok = (uint8)(vision_core_state() == VISION_CORE_READY);
     display_init();
@@ -1569,7 +1508,7 @@ static void handle_ipm(uint8 up, uint8 down, uint8 enter, uint8 back)
         s_ipm_tried = 0u;
         s_ipm_wait_save = 0u;
         display_image_page_exit();
-        set_page(MENU_PAGE_GROUP);
+        menu_back();
         return;
     }
     if (up)   display_exposure_step(CAM_EXP_STEP);
@@ -1775,11 +1714,11 @@ static void handle_main(uint8 up, uint8 down, uint8 enter)
 
     if (s_cursor == 0)
     {
-        set_page(MENU_PAGE_PARAMS);
+        menu_enter();
     }
     else if (s_cursor == 1u)
     {
-        set_page(MENU_PAGE_IMAGE);
+        menu_enter();
         (void)control_camera_debug_start();
         s_image_ok = (uint8)(vision_core_state() == VISION_CORE_READY);
         display_init();
@@ -1796,9 +1735,9 @@ static void handle_main(uint8 up, uint8 down, uint8 enter)
     }
     else if (s_cursor == 3u)
     {
-        set_page(MENU_PAGE_RUN_TEST);
+        menu_enter();
     }
-    else set_page(MENU_PAGE_PATH);
+    else menu_enter();
 }
 
 //-------------------------------------------------------------------------------------------------------------------
@@ -1815,7 +1754,7 @@ static void handle_run_test(uint8 up, uint8 down, uint8 enter, uint8 back)
         s_remote_armed_until_ms = 0;
         if (control_remote_running()) control_remote_stop();
         s_balance_on = 0;
-        set_page(MENU_PAGE_MAIN);
+        menu_back();
         return;
     }
 
@@ -1846,7 +1785,7 @@ static void handle_run_test(uint8 up, uint8 down, uint8 enter, uint8 back)
         else if (control_remote_running())
             control_remote_stop();
         s_balance_on = 0;
-        set_page(MENU_PAGE_MAIN);
+        menu_back();
     }
 }
 
@@ -1860,7 +1799,7 @@ static void handle_params(uint8 up, uint8 down, uint8 enter, uint8 back)
 {
     if (back)
     {
-        set_page(MENU_PAGE_MAIN);
+        menu_back();
         return;
     }
     if (up) move_cursor(-1);
@@ -1871,12 +1810,11 @@ static void handle_params(uint8 up, uint8 down, uint8 enter, uint8 back)
 
     if (s_cursor == 0)
     {
-        set_page(MENU_PAGE_ATTITUDE);
+        menu_enter();
     }
     else if (s_cursor <= GROUP_COUNT)
     {
-        s_group_index = (uint8)(s_cursor - 1u);
-        set_page(MENU_PAGE_GROUP);
+        menu_enter();
         // Camera 与 Element 页进入时请求摄像头就绪。
         if (s_groups[s_group_index].kind == GROUP_KIND_CAMERA ||
             s_groups[s_group_index].kind == GROUP_KIND_ELEMENT)
@@ -1896,7 +1834,7 @@ static void handle_params(uint8 up, uint8 down, uint8 enter, uint8 back)
     }
     else
     {
-        set_page(MENU_PAGE_MAIN);
+        menu_back();
     }
 }
 
@@ -1910,7 +1848,7 @@ static void handle_attitude(uint8 up, uint8 down, uint8 enter, uint8 back)
 {
     if (back)
     {
-        set_page(MENU_PAGE_PARAMS);
+        menu_back();
         return;
     }
     if (up) move_cursor(-1);
@@ -1930,7 +1868,7 @@ static void handle_attitude(uint8 up, uint8 down, uint8 enter, uint8 back)
     }
     else
     {
-        set_page(MENU_PAGE_PARAMS);
+        menu_back();
     }
 }
 
@@ -1971,7 +1909,7 @@ static void handle_group(uint8 up, uint8 down, uint8 enter, uint8 back)
 
     if (back)
     {
-        set_page(MENU_PAGE_PARAMS);
+        menu_back();
         return;
     }
     if (up) move_cursor(-1);
@@ -2006,7 +1944,7 @@ static void handle_group(uint8 up, uint8 down, uint8 enter, uint8 back)
     }
     else
     {
-        set_page(MENU_PAGE_PARAMS);
+        menu_back();
     }
 }
 
@@ -2026,7 +1964,7 @@ static void handle_image(uint8 up, uint8 down, uint8 enter, uint8 back)
     {
         s_image_redraw_pending = 0u;
         display_image_page_exit();
-        set_page(MENU_PAGE_MAIN);
+        menu_back();
         return;
     }
 
@@ -2094,14 +2032,61 @@ static void handle_image(uint8 up, uint8 down, uint8 enter, uint8 back)
 // 返回参数     void
 // 使用示例     menu_init();
 //-------------------------------------------------------------------------------------------------------------------
+static void handle_main_keys(uint8 up,uint8 down,uint8 enter,uint8 back)
+{ (void)back;handle_main(up,down,enter); }
+static Menu_Item *add_folder(Menu_Item *parent,const char *name,uint8 page,uint8 group,Menu_Draw draw,Menu_Keys keys)
+{
+ Menu_Item *n=Menu_Tree_Add(parent,name,MENU_Folder,page,group,0);
+ if(n){n->draw=draw;n->keys=keys;}return n;
+}
+static int menu_tree_build(void)
+{
+ Menu_Item *params,*attitude,*tests,*path,*group,*n;unsigned i,j;
+ s_folder=0;s_root=0;Menu_Tree_Reset();memset(s_views,0,sizeof(s_views));memset(s_group_nodes,0,sizeof(s_group_nodes));
+ s_root=add_folder(0,"MENU",MENU_PAGE_MAIN,0,render_main,handle_main_keys);if(!s_root)return 0;
+ s_views[MENU_PAGE_MAIN]=s_root;
+ params=add_folder(s_root,"Params",MENU_PAGE_PARAMS,0,render_params,handle_params);
+ n=add_folder(s_root,"Image",MENU_PAGE_IMAGE,0,0,handle_image);s_views[MENU_PAGE_IMAGE]=n;
+ if(!Menu_Tree_Add(s_root,"Run",MENU_Action,MENU_PAGE_MAIN,0,0))return 0;
+ tests=add_folder(s_root,"Run Test",MENU_PAGE_RUN_TEST,0,render_run_test,handle_run_test);
+ path=add_folder(s_root,"Path",MENU_PAGE_PATH,0,render_path,handle_path);
+ if(!params||!n||!tests||!path)return 0;
+ s_views[MENU_PAGE_PARAMS]=params;s_views[MENU_PAGE_RUN_TEST]=tests;s_views[MENU_PAGE_PATH]=path;
+ attitude=add_folder(params,"Attitude",MENU_PAGE_ATTITUDE,0,render_attitude,handle_attitude);
+ if(!attitude)return 0;
+ s_views[MENU_PAGE_ATTITUDE]=attitude;
+ for(i=0;i<GROUP_COUNT;++i){
+  group=add_folder(params,s_groups[i].title,MENU_PAGE_GROUP,(uint8)i,render_group,handle_group);
+  if(!group)return 0;
+  s_group_nodes[i]=group;
+  for(j=0;j<group_item_count(&s_groups[i]);++j){
+   const menu_param_item_t *item=&group_items(&s_groups[i])[j];
+   if(!Menu_Tree_Add(group,item->label,MENU_Parameter,MENU_PAGE_GROUP,(uint8)i,item))return 0;
+  }
+  s_group_index=(uint8)i;
+  for(j=0;j<s_groups[i].action_count;++j){
+   if(s_groups[i].kind==GROUP_KIND_CAMERA){
+    n=add_folder(group,"IPM",MENU_PAGE_IPM,(uint8)i,0,handle_ipm);if(!n)return 0;s_views[MENU_PAGE_IPM]=n;
+   }else if(!Menu_Tree_Add(group,action_name((uint8)j),MENU_Action,MENU_PAGE_GROUP,(uint8)i,0))return 0;
+  }
+  if(!Menu_Tree_Add(group,"Save",MENU_Action,MENU_PAGE_GROUP,(uint8)i,0)||!Menu_Tree_Add(group,"Back",MENU_Back,MENU_PAGE_GROUP,(uint8)i,0))return 0;
+ }
+ for(i=GROUP_COUNT+1u;i<PARAM_PAGE_COUNT;++i)
+  if(!Menu_Tree_Add(params,s_param_page_names[i],i==PARAM_PAGE_COUNT-1u?MENU_Back:MENU_Action,MENU_PAGE_PARAMS,0,0))return 0;
+ if(!Menu_Tree_Add(attitude,"Test",MENU_Action,MENU_PAGE_ATTITUDE,0,0)||!Menu_Tree_Add(attitude,"Back",MENU_Back,MENU_PAGE_ATTITUDE,0,0))return 0;
+ for(i=0;i<3;++i)if(!Menu_Tree_Add(tests,i==0?"Balance":i==1?"Remote":"Back",i==2?MENU_Back:MENU_Action,MENU_PAGE_RUN_TEST,0,0))return 0;
+ n=add_folder(path,"View Route",MENU_PAGE_PATH_MAP,0,render_path_map,handle_path_map);if(!n)return 0;s_views[MENU_PAGE_PATH_MAP]=n;
+ {
+  static const char *const labels[]={"View Route","New Push Record","New Remote Teach","Run Path","Speed","Save Path","Load Path","Clear RAM Path","Lock Start Heading","Back"};
+  for(i=1;i<10;++i)if(!Menu_Tree_Add(path,labels[i],i==9?MENU_Back:MENU_Action,MENU_PAGE_PATH,0,0))return 0;
+ }
+ s_folder=s_root;s_group_index=0;load_page_position(MENU_PAGE_MAIN);return 1;
+}
+
 void menu_init(void)
 {
     memset(s_long_active, 0, sizeof(s_long_active));
     memset(s_last_repeat_ms, 0, sizeof(s_last_repeat_ms));
-    memset(s_page_cursor, 0, sizeof(s_page_cursor));
-    memset(s_page_top, 0, sizeof(s_page_top));
-    memset(s_group_cursor, 0, sizeof(s_group_cursor));
-    memset(s_group_top, 0, sizeof(s_group_top));
     s_page = MENU_PAGE_MAIN;
     s_group_index = 0;
     s_cursor = 0;
@@ -2123,6 +2108,9 @@ void menu_init(void)
     s_last_image_state = 0xFFu;
     s_status[0] = '\0';
 
+    if(!menu_tree_build()){
+        control_stop();ips200_full(UI_BLACK);ips200_show_string(5,5,"MENU TREE CAPACITY ERROR");return;
+    }
     ips200_set_font(IPS200_8X16_FONT);
     ips200_set_color(UI_WHITE, UI_BLACK);
     ips200_full(UI_BLACK);
@@ -2194,39 +2182,9 @@ void menu_run(void)
         s_dirty = 1;
     }
 
-    switch (s_page)
-    {
-        case MENU_PAGE_MAIN:
-            handle_main(up, down, enter);
-            break;
-        case MENU_PAGE_PARAMS:
-            handle_params(up, down, enter, back);
-            break;
-        case MENU_PAGE_ATTITUDE:
-            handle_attitude(up, down, enter, back);
-            break;
-        case MENU_PAGE_GROUP:
-            handle_group(up, down, enter, back);
-            break;
-        case MENU_PAGE_IMAGE:
-            handle_image(up, down, enter, back);
-            return;
-        case MENU_PAGE_IPM:
-            handle_ipm(up, down, enter, back);
-            return;
-        case MENU_PAGE_RUN_TEST:
-            handle_run_test(up, down, enter, back);
-            break;
-        case MENU_PAGE_PATH:
-            handle_path(up, down, enter, back);
-            break;
-        case MENU_PAGE_PATH_MAP:
-            handle_path_map(up, down, enter, back);
-            break;
-        default:
-            set_page(MENU_PAGE_MAIN);
-            break;
-    }
+    if(!s_folder)return;
+    if(s_folder->keys)s_folder->keys(up,down,enter,back);
+    if(s_page==MENU_PAGE_IMAGE||s_page==MENU_PAGE_IPM)return;
 
     if ((s_page == MENU_PAGE_MAIN ||
          s_page == MENU_PAGE_ATTITUDE ||

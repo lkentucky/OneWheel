@@ -356,8 +356,8 @@
     {
       "path": "code/Menu/menu.c",
       "reference_sha256_lf": "4863511cb6b696671add5d33fe93ff34e01f2ea4fcf5142f47eb4ab24cd89522",
-      "target_sha256_lf": "4863511cb6b696671add5d33fe93ff34e01f2ea4fcf5142f47eb4ab24cd89522",
-      "unchanged_lf": true
+      "target_sha256_lf": "dca88be4c4fab7d4525b4a444b7262212810b78647201a94112bb89747cb6172",
+      "unchanged_lf": false
     },
     {
       "path": "code/Menu/menu.h",
@@ -450,7 +450,7 @@
       "unchanged_lf": true
     }
   ],
-  "menu_main_equivalence": "Menu/menu.c, Menu/display.c, user/cpu0_main.c match the reference after CRLF normalization",
+  "menu_main_equivalence": "Menu/Display and CPU0 entry retained; Menu navigation is now static parent-child-sibling nodes, while drawing/font/layout are preserved.",
   "local_hardware_overrides": [
     "key pins: P20_7/P20_6/P11_3/P11_2",
     "measured old zeros 5.4/-0.2 degrees -> reference gravity rotation",
@@ -460,5 +460,6 @@
     "project Qcar, dynamic build path, OneWheelUpright artifact",
     "new QCAF parameter marker; private LAN header ignored"
   ],
-  "boot_display_fix": "2026-11-04: auto-start applies only in vision_core_init; manual restart always allowed; SDK camera nonfatal LCD logging off by default, VISION_CORE_FAILED still reported."
+  "boot_display_fix": "2026-11-04: auto-start applies only in vision_core_init; manual restart always allowed; SDK camera nonfatal LCD logging off by default, VISION_CORE_FAILED still reported.",
+  "linked_menu": "Static node pool; actual child/parent transitions, sibling movement, node-local cursor/scroll and folder callbacks. No heap allocation."
 }

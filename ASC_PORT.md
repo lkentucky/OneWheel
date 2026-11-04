@@ -17,7 +17,7 @@
     user/                          原仓库双核入口与中断
     tools/unicycle_station/        与新固件匹配的参考上位机
 
-主界面为 Params / Image / Run / Run Test / Path。CPU0启动和菜单都显式使用 IPS200_8X16_FONT。Menu/menu.c、Menu/display.c及user/cpu0_main.c与参考提交按LF换行比较一致，不是旧界面外包一层新控制。
+主界面为 Params / Image / Run / Run Test / Path。CPU0启动和菜单都显式使用 IPS200_8X16_FONT。Menu/display.c及user/cpu0_main.c保留参考实现；Menu/menu.c的导航现已改为父子/兄弟链表，绘图函数、字体、颜色和布局保留。
 
 日常调试入口：Params→Roll/Pitch/Yaw中的Rate/Angle/Speed单轴测试；整体原地平衡用Run Test→Balance。本版没有旧Mode6或Mode10入口。Run、Path等需要其自身条件；没有摄像头时不要用视觉Run代替Balance。
 
@@ -57,3 +57,10 @@ A+保留原核心及单位矩阵：6000点静止采样，再等3000次成功更�
 尚未烧录、没有验证本车LCD实拍、真实最坏ISR耗时、无支撑平衡或上电故障消失。字体/目录对齐不等于传感器故障已经解决。
 
 打开ADS时先关闭旧Qcar工程，再重新打开并Clean，避免旧.cproject缓存覆盖新目录。烧录请使用新生成的OneWheelUpright.hex，不要使用Debug中残留的Qcar.hex。
+## 2026-11-04 链表菜单
+
+按本车需求，导航改为静态节点池中的Father / First_Son / Next_Brother / Last_Brother链表，目录节点拥有自己的光标和滚动位置。按键通过节点回调分派；页面编号仅用于现有绘图和实时信息样式，不再作为导航历史。
+
+根目录五个入口、参数组、参数行、动作、Save/Back、Image、IPM与Path Map均建立真实父子关系。参数节点绑定现有参数描述，仍通过原有参数接口修改数值。静态池满时停止控制并显示MENU TREE CAPACITY ERROR，不使用malloc。
+
+显示保留8×16字体、原颜色和坐标，实时数据和图像显示仍走原实现。上/下、确认、返回及原有启停保护保留。现有本地IMU诊断修改另行保留，不属于这次菜单改造。

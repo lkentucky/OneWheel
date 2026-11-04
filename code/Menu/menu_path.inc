@@ -148,7 +148,7 @@ static void handle_path(uint8 up, uint8 down, uint8 enter, uint8 back)
         control_path_record_finish();
         if (start_flag != START_STOP) control_stop();
         s_path_armed_until=0;
-        set_page(MENU_PAGE_MAIN);
+        menu_back();
         return;
     }
     if (s_editing)
@@ -165,7 +165,7 @@ static void handle_path(uint8 up, uint8 down, uint8 enter, uint8 back)
     if (up || down) s_path_armed_until=0;
     if (!enter) return;
     s_dirty=1;
-    if (s_cursor==0u) { s_path_armed_until=0; set_page(MENU_PAGE_PATH_MAP); return; }
+    if (s_cursor==0u) { s_path_armed_until=0; menu_enter(); return; }
     if ((s_cursor==1u || s_cursor==2u) && path_nav_recording())
     { control_path_record_finish(); menu_status("RECORD ENDED - SAVE IN STOP"); return; }
     if ((s_cursor==3u && start_flag != START_STOP) ||
@@ -214,10 +214,10 @@ static void handle_path_map(uint8 up, uint8 down, uint8 enter, uint8 back)
     {
         control_path_record_finish();
         if (start_flag != START_STOP) control_stop();
-        set_page(MENU_PAGE_PATH);
+        menu_back();
         return;
     }
-    if (enter) { set_page(MENU_PAGE_PATH); return; }
+    if (enter) { menu_back(); return; }
     if (up && s_path_view_index) s_path_view_index--;
     if (down && s_path_view_index+1u < st.count) s_path_view_index++;
     if (up || down) s_dirty=1;
