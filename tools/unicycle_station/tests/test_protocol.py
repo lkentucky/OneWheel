@@ -52,3 +52,16 @@ def test_encoder_no_remote_start_or_injection():
 
 @pytest.mark.parametrize("line",["par:1,x,float,nan,0,1,Other,.1,4", "par:1,x,float,0,1,0,Other,.1,4", "par:1,x,bogus,0,0,1,Other,.1,4", "rsp:0,ok,set,x,1"])
 def test_invalid_schema_and_seq(line):assert parse((line+"\n").encode())[0].error
+
+
+def test_fly_actual_signed_rpm_and_stale_flag():
+    frames = parse(b"fly:4294967295,-1234,2345,1\nfly:0,-1234,2345,0\n")
+    assert not any(f.error for f in frames)
+    assert frames[0].values == [4294967295, -1234, 2345, 1]
+    assert frames[1].values[-1] == 0  # retained values explicitly stale
+
+
+@pytest.mark.parametrize("payload", ["1,2,3", "1,2,3,1,5", "1,32768,0,1",
+                                    "1,0,-32769,1", "1,0,0,2", "1.5,0,0,1"])
+def test_fly_rejects_invalid_feedback(payload):
+    assert parse(("fly:" + payload + "\n").encode())[0].error

@@ -80,6 +80,9 @@ typedef struct
     float  yaw_output_raw;
     float  yaw_output_applied;
     float  flywheel_common_rpm;
+    int16  flywheel_a_rpm;
+    int16  flywheel_b_rpm;
+    uint8  flywheel_link_ok;
     float  direction_offset;
     float  lateral_error;
     float  heading_error;

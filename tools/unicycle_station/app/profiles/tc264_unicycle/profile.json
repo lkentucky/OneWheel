@@ -15,6 +15,28 @@
     "ending": "\r\n"
   },
   "channels": {
+    "fly": [
+      {
+            "name": "fly_uptime_ms",
+            "label": "Flywheel MCU time",
+            "unit": "ms"
+      },
+      {
+            "name": "flywheel_a_rpm",
+            "label": "A actual RPM",
+            "unit": "RPM"
+      },
+      {
+            "name": "flywheel_b_rpm",
+            "label": "B actual RPM",
+            "unit": "RPM"
+      },
+      {
+            "name": "flywheel_link_ok",
+            "label": "A/B feedback valid",
+            "unit": ""
+      }
+],
     "att": [
       {
         "name": "att_roll",

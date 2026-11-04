@@ -934,14 +934,14 @@ static float yaw_cascade_ctrl(uint8 run_angle)
              * integral to wind up a reaction wheel during slow starts. */
             if (run_angle)
                 s_path_yaw_rate_target = constrain_float(PATH_YAW_ANGLE_KP *
-                    (g_yaw_target-imu_get_angle_yaw()), -limit, limit);
+                    (imu_get_angle_yaw()-g_yaw_target), -limit, limit);
             s_path_yaw_rate_cmd += constrain_float(s_path_yaw_rate_target-s_path_yaw_rate_cmd, -step, step);
             s_path_yaw_rate_cmd = constrain_float(s_path_yaw_rate_cmd, -limit, limit);
         }
         return pid_loc_calc_limited(&y_rate_pid, s_path_yaw_rate_cmd-imu.gyro_z, -headroom, headroom);
     }
     // 航向用连续角，环岛要累计 340°，这里不能换成 ±180° 包装角
-    if (run_angle) pid_loc_calc(&y_angle_pid, g_yaw_target - imu_get_angle_yaw());   // 转向外环，1ms
+    if (run_angle) pid_loc_calc(&y_angle_pid, imu_get_angle_yaw() - g_yaw_target);   // 转向外环，1ms
     pid_loc_calc(&y_rate_pid, y_angle_pid.out - imu.gyro_z);                    // 角速度内环，1ms
 
     return y_rate_pid.out;
@@ -1212,7 +1212,7 @@ static float yaw_test_ctrl(uint8 run_angle)
 {
     if (s_test_ring >= TUNE_RING_ANGLE)
     {
-        if (run_angle) pid_loc_calc(&y_angle_pid, g_yaw_target - imu_get_angle_yaw());
+        if (run_angle) pid_loc_calc(&y_angle_pid, imu_get_angle_yaw() - g_yaw_target);
     }
     else
     {
@@ -1727,7 +1727,11 @@ void control_run_diag_snapshot(volatile control_run_diag_t *out)
     out->roll                 = att.roll;
     out->roll_target          = s_roll_angle_target;
     out->roll_rate            = att.roll_rate;
-    out->recovery_feedback    = s_rcy_fb;
+    /* Read actual driver feedback even when the recovery loop is bypassed. */
+    out->flywheel_a_rpm       = W_Motor_GetSpeed1();
+    out->flywheel_b_rpm       = W_Motor_GetSpeed2();
+    out->flywheel_link_ok     = (uint8)!W_Motor_LinkLost();
+    out->recovery_feedback    = (float)out->flywheel_a_rpm - (float)out->flywheel_b_rpm;
     out->recovery_output      = r_rcy_pid.out;
     out->roll_output          = g_pwm_roll;
     out->lean_offset          = g_lean_offset;
@@ -1736,7 +1740,7 @@ void control_run_diag_snapshot(volatile control_run_diag_t *out)
     out->yaw_rate_actual      = imu.gyro_z;
     out->yaw_output_raw       = g_pwm_yaw;
     out->yaw_output_applied   = s_yaw_output_applied;
-    out->flywheel_common_rpm  = g_flywheel_common_rpm;
+    out->flywheel_common_rpm  = 0.5f * ((float)out->flywheel_a_rpm + (float)out->flywheel_b_rpm);
     out->direction_offset     = s_direction_offset;
     out->lateral_error        = g_vision_lateral_error;
     out->heading_error        = g_vision_heading_error;

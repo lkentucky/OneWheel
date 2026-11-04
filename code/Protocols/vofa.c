@@ -863,6 +863,19 @@ void vofa_poll(void)
     if (len >= (int)sizeof(line)) return;                            // 格式化结果不完整
     if ((uint32)(s_tx_head - s_tx_tail) + (uint32)len > VOFA_TX_SIZE - 384u) { s_cfg_tx_drop++; return; }
     (void)tx_push((const uint8 *)line, (uint32)len);                // 写入上行环，装不下就丢弃整帧
+
+    if (mode == VOFA_RUN)
+    {
+        /* Same snapshot/time as run:, actual signed RPM, never PID targets.
+         * link_ok=0 marks retained feedback stale; do not interpret as live RPM. */
+        len = snprintf(line, sizeof(line), "fly:%lu,%d,%d,%u\n",
+                       (unsigned long)run.uptime_ms,
+                       (int)run.flywheel_a_rpm, (int)run.flywheel_b_rpm,
+                       (unsigned int)run.flywheel_link_ok);
+        if (len > 0 && len < (int)sizeof(line) &&
+            (uint32)(s_tx_head - s_tx_tail) + (uint32)len <= VOFA_TX_SIZE - 384u)
+            (void)tx_push((const uint8 *)line, (uint32)len);
+    }
 }
 
 //-------------------------------------------------------------------------------------------------------------------
