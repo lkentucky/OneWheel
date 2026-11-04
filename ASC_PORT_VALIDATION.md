@@ -35,3 +35,10 @@ Parent/child/circular-sibling nodes with a bounded static pool now own navigatio
 ## 2026-11-04 include IMU first-fault diagnostics
 
 Merged the previously local IMU diagnostic API, acquisition/100us SPI hooks, menu messages and matching test harness. Regression assertions verify each sample failure reason, not-ready/chip-ID/nonfinite diagnostics, first-reason retention and reset on reinitialization. All five real r10h host test groups passed. Menu rendering/navigation and direction/Flash regressions also passed. Production source fingerprint exactly matches the preceding successful ADS build (zero errors/warnings); no repeat build was necessary because only test assertions/documentation changed after that build. Local network credentials and ADS preferences were excluded from this commit. No sensor-fault threshold, calibration matrix or motor control gain was changed by this merge. No hardware test was performed.
+
+
+## 2026-11-04 adjustable menu editing steps
+
+Each linked node now remembers a session-local step multiplier. Long Enter cycles scale; short Enter still completes editing. Integer scales below one count are skipped and direction/switch steps stay fixed. Parameter-value precision and the Path speed display follow finer steps; the footer shows effective step. No Flash schema or control gain default changed.
+
+The full host suite passed 157 checks. Final single-read Enter-state capture was verified by four targeted checks, including actual key_event/long-hold dispatch and real step/precision functions, followed by a successful final ADS/TASKING build (zero errors/warnings). Render contracts intentionally update only the editing footer and parameter-value formatting; other render functions and image rendering remain checked unchanged. No board/LCD/button test was performed.

@@ -57,5 +57,5 @@ int main(void){
  return 0;}
 '''
  (tmp_path/'tree.c').write_text(c,encoding='utf-8');exe=tmp_path/'tree.exe'
- r=subprocess.run(['gcc','-std=c99','-DMT9V03X_W=188','-DMT9V03X_H=120','-I'+str(ROOT/'tools/unicycle_station/tests/firmware_host'),'-I'+str(ROOT/'code'),str(tmp_path/'tree.c'),str(ROOT/'code/Menu/menu_tree.c'),'-o',str(exe)],capture_output=True,text=True,encoding="utf-8",errors="replace");assert r.returncode==0,r.stderr
+ r=subprocess.run(['gcc','-std=c99','-DMT9V03X_W=188','-DMT9V03X_H=120','-I'+str(ROOT/'tools/unicycle_station/tests/firmware_host'),'-I'+str(ROOT/'code'),str(tmp_path/'tree.c'),str(ROOT/'code/Menu/menu_tree.c'),'-lm','-o',str(exe)],capture_output=True,text=True,encoding="utf-8",errors="replace");assert r.returncode==0,r.stderr
  r=subprocess.run([str(exe)],capture_output=True,text=True,encoding="utf-8",errors="replace",timeout=8);assert r.returncode==0,r.stdout+r.stderr

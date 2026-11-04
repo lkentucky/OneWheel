@@ -13,11 +13,14 @@ typedef struct Menu_Item {
  struct Menu_Item *Father,*First_Son,*Next_Brother,*Last_Brother,*cursor;
  Menu_Draw draw;Menu_Keys keys;
  uint16_t sons,rank,top;
- uint8_t page,group,kind;
+ uint8_t page,group,kind,step_index;
 } Menu_Item;
 void Menu_Tree_Reset(void);
 Menu_Item *Menu_Tree_Add(Menu_Item *parent,const char *name,Menu_Kind kind,uint8_t page,uint8_t group,const void *data);
 Menu_Item *Menu_Tree_Child(Menu_Item *parent,uint16_t index);
 void Menu_Tree_Move(Menu_Item *folder,int direction,uint16_t visible);
 uint16_t Menu_Tree_Used(void);
+float Menu_Edit_Step(const Menu_Item *node,float base,int integer,int fixed);
+int Menu_Edit_Cycle(Menu_Item *node,float base,int integer,int fixed);
+unsigned Menu_Edit_Decimals(float step,unsigned original);
 #endif

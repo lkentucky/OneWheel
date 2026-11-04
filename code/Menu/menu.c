@@ -297,6 +297,7 @@ static menu_page_t s_page;                          // 当前页面
 static uint8       s_group_index;                   // 当前参数组下标
 static uint8       s_cursor;                        // 当前光标行
 static uint8       s_top;                           // 当前滚动窗口的首行
+static uint8       s_enter_event_long;
 static uint8       s_editing;                       // 正在编辑参数值
 static uint8       s_test_on;                       // 当前页开着 Test
 static uint8       s_active_test;                   // 开着的是哪一个动作行，0xFF 表示没有
@@ -401,10 +402,47 @@ static void ui_header(const char *title, uint8 current, uint8 total)
 // 返回参数     void
 // 使用示例     ui_footer();
 //-------------------------------------------------------------------------------------------------------------------
+static float parameter_step(const menu_param_item_t *item,const Menu_Item *node)
+{
+ const param_desc_t *d=param_find(item->name);
+ int integer=d&&!d->is_float;
+ int fixed=integer&&d->vmin>=-1&&d->vmax<=1;
+ return Menu_Edit_Step(node,item->step,integer,fixed);
+}
+static float current_edit_step(void)
+{
+ if(!s_folder||!s_folder->cursor)return 0;
+ if(s_page==MENU_PAGE_PATH)return Menu_Edit_Step(s_folder->cursor,.05f,0,0);
+ if(s_page==MENU_PAGE_GROUP&&s_folder->cursor->kind==MENU_Parameter)
+  return parameter_step((const menu_param_item_t *)s_folder->cursor->data,s_folder->cursor);
+ return 0;
+}
+static void cycle_edit_step(void)
+{
+ Menu_Item *node=s_folder?s_folder->cursor:0;
+ if(s_page==MENU_PAGE_PATH)Menu_Edit_Cycle(node,.05f,0,0);
+ else if(node&&node->kind==MENU_Parameter){
+  const menu_param_item_t *item=(const menu_param_item_t *)node->data;
+  const param_desc_t *d=param_find(item->name);
+  int integer=d&&!d->is_float;
+  Menu_Edit_Cycle(node,item->step,integer,integer&&d->vmin>=-1&&d->vmax<=1);
+ }
+ s_dirty=1;
+}
+static uint8 editing_enter(uint8 enter,key_state_enum state)
+{
+ if(s_editing&&enter&&state==KEY_LONG_PRESS&&(s_page==MENU_PAGE_GROUP||s_page==MENU_PAGE_PATH)){
+  cycle_edit_step();return 0;
+ }
+ return enter;
+}
 static void ui_footer(void)
 {
-    if (s_editing)
-        ui_line(UI_FOOTER_Y, "UP/DN Adjust  ENT/BACK Done", UI_GRAY);
+    if (s_editing){
+        char line[31];
+        (void)snprintf(line,sizeof(line),"Step:%.6g ENT:OK Hold:Step",(double)current_edit_step());
+        ui_line(UI_FOOTER_Y,line,UI_GRAY);
+    }
     else
         ui_line(UI_FOOTER_Y, "UP/DN Move    ENT Select", UI_GRAY);
 }
@@ -461,6 +499,7 @@ static void draw_status(void)
 static uint8 key_event(key_index_enum key, uint8 repeat)
 {
     key_state_enum state = key_get_state(key);
+    if(key==MENU_KEY_ENTER)s_enter_event_long=(uint8)(state==KEY_LONG_PRESS);
     uint8 index = (uint8)key;
     uint32 now = g_control_uptime_ms;
 
@@ -698,7 +737,7 @@ static void draw_param_row(uint8 row, uint8 absolute_index, const menu_param_ite
                    (s_editing && absolute_index == s_cursor) ? '*' :
                    ((absolute_index == s_cursor) ? '>' : ' '),
                    item->label);
-    (void)snprintf(value, sizeof(value), "%.*f", (int)item->decimals, (double)current);
+    (void)snprintf(value, sizeof(value), "%.*f", (int)Menu_Edit_Decimals(parameter_step(item,Menu_Tree_Child(s_folder,absolute_index)),item->decimals), (double)current);
 
     ui_clear_line(y);
     ui_text(0, y, label, label_color);
@@ -1298,14 +1337,14 @@ static void edit_current_parameter(float direction)
     if (!param_get_by_name(item->name, &value)) return;
     if (strcmp(item->name, "imu_forward_dir") == 0)
     {
-        int new_direction = (value + direction * item->step < 0.0f) ? -1 : 1;
+        int new_direction = (value + direction * parameter_step(item,s_folder->cursor) < 0.0f) ? -1 : 1;
         uint32 irq = interrupt_global_disable();
         param_set_imu_forward_dir(new_direction);
         g_param_revision++;
         interrupt_global_enable(irq);
         menu_status(imu_forward_pending() ? "SAVE + REBOOT" : "IMU DIRECTION ACTIVE");
     }
-    else (void)param_set_by_name(item->name, value + direction * item->step);
+    else (void)param_set_by_name(item->name, value + direction * parameter_step(item,s_folder->cursor));
     if (strcmp(item->name, "cam_exposure") == 0)
         display_set_exposure((uint16)g_param.cam_exposure);
     s_dirty = 1;
@@ -2128,10 +2167,13 @@ void menu_run(void)
     uint8 up = key_event(MENU_KEY_UP, 1);
     uint8 down = key_event(MENU_KEY_DOWN, 1);
     uint8 enter = 0;
+    key_state_enum enter_state;
     uint8 back = key_event(MENU_KEY_RETURN, 0);
     uint32 now = g_control_uptime_ms;
 
     enter = key_event(MENU_KEY_ENTER, 0);
+    enter_state=s_enter_event_long?KEY_LONG_PRESS:KEY_SHORT_PRESS;
+    enter=editing_enter(enter,enter_state);
 
     if (back && start_flag != START_STOP)
     {

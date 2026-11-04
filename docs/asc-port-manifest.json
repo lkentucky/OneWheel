@@ -356,7 +356,7 @@
     {
       "path": "code/Menu/menu.c",
       "reference_sha256_lf": "4863511cb6b696671add5d33fe93ff34e01f2ea4fcf5142f47eb4ab24cd89522",
-      "target_sha256_lf": "5b67c427e68178f6220468c2067d88c28adc35e0a4d79124fdf369889d673974",
+      "target_sha256_lf": "ef87df80babef107846a9fad640e4adfe103dd3eea8b1c2319cebeb6329e85b6",
       "unchanged_lf": false
     },
     {
@@ -368,8 +368,8 @@
     {
       "path": "code/Menu/menu_path.inc",
       "reference_sha256_lf": "84b16a25aa4f93aac6a2824d15c441b4c5027964472c38f5eed523c0537e92db",
-      "target_sha256_lf": "84b16a25aa4f93aac6a2824d15c441b4c5027964472c38f5eed523c0537e92db",
-      "unchanged_lf": true
+      "target_sha256_lf": "3fcb9f2b56f4b71ec33b85771737ad9f8b69adf6db09f8a48dbb7276d75eed8f",
+      "unchanged_lf": false
     },
     {
       "path": "code/Protocols/station_wifi.c",
@@ -462,5 +462,12 @@
   ],
   "boot_display_fix": "2026-11-04: auto-start applies only in vision_core_init; manual restart always allowed; SDK camera nonfatal LCD logging off by default, VISION_CORE_FAILED still reported.",
   "linked_menu": "Static node pool; actual child/parent transitions, sibling movement, node-local cursor/scroll and folder callbacks. No heap allocation.",
-  "imu_diagnostics": "First SPI/sample failure retained until imu_init; low-level SPI timeout, not-ready, all-FF/zero-accel, clipping, identity and nonfinite values reported through menu."
+  "imu_diagnostics": "First SPI/sample failure retained until imu_init; low-level SPI timeout, not-ready, all-FF/zero-accel, clipping, identity and nonfinite values reported through menu.",
+  "menu_edit_step_support": {
+    "code/Menu/menu.c": "ef87df80babef107846a9fad640e4adfe103dd3eea8b1c2319cebeb6329e85b6",
+    "code/Menu/menu_path.inc": "3fcb9f2b56f4b71ec33b85771737ad9f8b69adf6db09f8a48dbb7276d75eed8f",
+    "code/Menu/menu_tree.c": "b75c062b5a0e1195da6eef7cde8f8066a657e801b96787383cd211775e38d05a",
+    "code/Menu/menu_tree.h": "ef48da80826b1255f0eaed10e615701474426e29b056cf03cb5575aa85219829"
+  },
+  "menu_edit_steps": "Per-node 0.01/0.1/1/10/100 scale, effective-step footer, long Enter once per hold; short Enter done, integer minimum 1 and fixed direction/switch steps; preferences last until menu reinitialization."
 }

@@ -43,7 +43,7 @@ static void render_path(void)
     draw_action_row(1, 1, st.state == PATH_RECORDING ? "Finish Recording" : "New Push Record");
     draw_action_row(2, 2, control_remote_running() ? "Stop Teaching" : "New Remote Teach");
     draw_action_row(3, 3, control_path_active() ? "Stop Path / Balance" : "Run Path");
-    (void)snprintf(line, sizeof(line), "Speed %.2f m/s%s", (double)s_path_menu_speed, s_editing ? " *" : "");
+    (void)snprintf(line, sizeof(line), "Speed %.*f m/s%s", (int)Menu_Edit_Decimals(Menu_Edit_Step(Menu_Tree_Child(s_folder,4),.05f,0,0),2), (double)s_path_menu_speed, s_editing ? " *" : "");
     draw_action_row(4, 4, line);
     draw_action_row(5, 5, "Save Path");
     draw_action_row(6, 6, "Load Path");
@@ -153,8 +153,8 @@ static void handle_path(uint8 up, uint8 down, uint8 enter, uint8 back)
     }
     if (s_editing)
     {
-        if (up) s_path_menu_speed += 0.05f;
-        if (down) s_path_menu_speed -= 0.05f;
+        if (up) s_path_menu_speed += current_edit_step();
+        if (down) s_path_menu_speed -= current_edit_step();
         s_path_menu_speed=constrain_float(s_path_menu_speed,0.05f,PATH_SPEED_MAX);
         if (enter) s_editing=0;
         s_dirty=1;
