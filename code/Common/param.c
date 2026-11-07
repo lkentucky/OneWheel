@@ -43,6 +43,9 @@ const param_desc_t g_param_table[] =
     { "r_rate_kp",        &g_param.r_rate_kp,        1, -2000.0f, 2000.0f},
     { "r_rate_ki",        &g_param.r_rate_ki,        1, -200.0f,  200.0f },
     { "r_rate_kd",        &g_param.r_rate_kd,        1, -500.0f,  500.0f },
+    { "r_rate_notch_hz",  &g_param.r_rate_notch_hz,  1, R_RATE_NOTCH_HZ_MIN, R_RATE_NOTCH_HZ_MAX },
+    { "r_rate_notch_q",   &g_param.r_rate_notch_q,   1, R_RATE_NOTCH_Q_MIN,  R_RATE_NOTCH_Q_MAX  },
+    { "r_rate_notch_db",  &g_param.r_rate_notch_db,  1, R_RATE_NOTCH_DB_MIN, R_RATE_NOTCH_DB_MAX },
     // Pitch 串级
     { "p_vel_kp",         &g_param.p_vel_kp,         1, -50.0f,   50.0f  },
     { "p_vel_ki",         &g_param.p_vel_ki,         1, -20.0f,   20.0f  },
@@ -425,6 +428,9 @@ void param_load_defaults(void)
     g_param.r_rate_kp  = R_RATE_KP_DEFAULT;
     g_param.r_rate_ki  = R_RATE_KI_DEFAULT;
     g_param.r_rate_kd  = R_RATE_KD_DEFAULT;
+    g_param.r_rate_notch_hz = R_RATE_NOTCH_HZ_DEFAULT;
+    g_param.r_rate_notch_q  = R_RATE_NOTCH_Q_DEFAULT;
+    g_param.r_rate_notch_db = R_RATE_NOTCH_DB_DEFAULT;
 
     g_param.p_vel_kp   = P_VEL_KP_DEFAULT;
     g_param.p_vel_ki   = P_VEL_KI_DEFAULT;

@@ -110,7 +110,10 @@ static const menu_param_item_t s_roll_items[] =
     { "Angle Kd", "r_angle_kd", 0.2f,   2 },    // 位置式内环之后这一路可用
     { "Speed Kp", "r_rcy_kp",   0.0001f, 4 },   // 飞轮转速差(RPM)换倾角(°)，符号为正
     { "Speed Ki", "r_rcy_ki",   0.0001f, 4 },  // 与同环 kp 同尺度，见本表头的约定
-    { "Speed Kd", "r_rcy_kd",   0.0001f, 4 }   // 同上
+    { "Speed Kd", "r_rcy_kd",   0.0001f, 4 },   // 同上
+    { "Notch Hz", "r_rate_notch_hz", 1.0f, 1 }, // 47Hz 机械共振，0 深度时旁路
+    { "Notch Q",  "r_rate_notch_q",  0.5f, 1 },
+    { "Notch dB", "r_rate_notch_db", 1.0f, 0 }  // 0=严格旁路，-40=全深度
 };
 
 static const menu_param_item_t s_pitch_items[] =

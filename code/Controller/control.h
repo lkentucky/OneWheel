@@ -94,6 +94,7 @@ typedef struct
     float  vision_quality;
     uint16 vision_age_ms;
     uint16 state_flags;
+    float  roll_rate_filt;      // 陷波后的 Roll 角速度反馈(deg/s)，旁路时等于 roll_rate
 } control_run_diag_t;
 
 typedef enum

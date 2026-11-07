@@ -402,6 +402,9 @@ static uint8 cfg_live_control(const char *name)
         "lean_speed_kp",
         "lean_slew_dps",
         "lean_max_angle",
+        "r_rate_notch_hz",
+        "r_rate_notch_q",
+        "r_rate_notch_db",
     };
     uint8 i;
     for (i = 0; i < (uint8)(sizeof(names) / sizeof(names[0])); i++)
@@ -501,6 +504,8 @@ static uint8 cfg_status(void)
 
 #include "Protocols/vofa_path.inc"
 
+#include "Protocols/vofa_trace.inc"
+
 static vofa_cmd_result_t cfg_execute(char *line)
 {
     char *fields[6];
@@ -533,6 +538,8 @@ static vofa_cmd_result_t cfg_execute(char *line)
     }
     if (seq32 == 0u) return VOFA_CMD_FORMAT;
     seq = (uint16)seq32;
+    if (strncmp(fields[0], "trace_", 6) == 0)
+    { trace_cfg(fields,count,seq); return VOFA_CMD_APPLIED; }
     if (strncmp(fields[0], "path_", 5) == 0)
     { path_cfg(fields,count,seq); return VOFA_CMD_APPLIED; }
     if (s_path_save_seq) { (void)cfg_reply(seq,"err","BUSY,Path storage pending"); return VOFA_CMD_FORMAT; }
@@ -714,6 +721,7 @@ static vofa_cmd_result_t cmd_execute_line(char *line)
     {
         s_schema_seq = 0; s_save_seq = 0;
         path_transfer_cancel();
+        if(s_trace_state==TRACE_ARMED || s_trace_state==TRACE_RECORDING) trace_finish(2u);
         control_stop();                 // 三电机清零 + A/B 刹车锁死，与返回键急停同一条路
         return VOFA_CMD_STOPPED;
     }
@@ -756,6 +764,7 @@ void vofa_snapshot(void)
 {
     vofa_mode_t mode = vofa_effective_mode();
 
+    trace_tick1ms();
     task_capture();
     if (mode == VOFA_OFF) return;
 

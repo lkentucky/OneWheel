@@ -40,6 +40,9 @@ typedef struct
     float r_rate_kp;                    // 横滚角速度环 P
     float r_rate_ki;                    // 横滚角速度环 I
     float r_rate_kd;                    // 横滚角速度环 D
+    float r_rate_notch_hz;              // 横滚角速度反馈陷波中心频率(Hz)
+    float r_rate_notch_q;               // 横滚角速度反馈陷波品质因数
+    float r_rate_notch_db;              // 横滚角速度反馈陷波深度(dB)，0=旁路
 
     // Pitch 串级
     float p_vel_kp;                     // 俯仰速度环 P
@@ -128,6 +131,9 @@ extern volatile uint32 g_param_revision;// 参数修订号
 #define R_RATE_KP               (g_param.r_rate_kp)
 #define R_RATE_KI               (g_param.r_rate_ki)
 #define R_RATE_KD               (R_RATE_KD_BASE * g_param.r_rate_kd)
+#define R_RATE_NOTCH_HZ         (g_param.r_rate_notch_hz)
+#define R_RATE_NOTCH_Q          (g_param.r_rate_notch_q)
+#define R_RATE_NOTCH_DB         (g_param.r_rate_notch_db)
 
 // Pitch 串级
 #define P_VEL_KP                (g_param.p_vel_kp)

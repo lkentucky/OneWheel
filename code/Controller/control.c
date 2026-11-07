@@ -204,6 +204,7 @@ static uint8 fly_overspeed(void)
 // 使用示例     cascade_gain_refresh();
 //-------------------------------------------------------------------------------------------------------------------
 #include "control_angle.inc"
+#include "control_notch.inc"
 
 static void cascade_gain_refresh(void)
 {
@@ -246,6 +247,7 @@ static void cascade_reset(void)
     s_direction_last_mode = TRACK_MODE_MIDDLE;
     s_roll_angle_target = g_roll_zero;
     s_yaw_output_applied = 0.0f;
+    roll_notch_reset_state();
 }
 
 //-------------------------------------------------------------------------------------------------------------------
@@ -837,7 +839,9 @@ static float roll_recovery_offset(uint8 run20)
 static float roll_rate_ctrl(float limit)
 {
     // 位置式内环在误差回零时同步撤销输出，并在 PID 内完成抗饱和。
-    return pid_loc_calc_limited(&r_rate_pid, att.roll_rate + r_angle_pid.out, -limit, limit);
+    // 只滤测量反馈：陀螺 Roll 角速度先过可旁路 notch，角度环输出保持原样。
+    float rate = roll_rate_notch_apply(att.roll_rate);
+    return pid_loc_calc_limited(&r_rate_pid, rate + r_angle_pid.out, -limit, limit);
 }
 
 //-------------------------------------------------------------------------------------------------------------------
@@ -1727,6 +1731,7 @@ void control_run_diag_snapshot(volatile control_run_diag_t *out)
     out->roll                 = att.roll;
     out->roll_target          = s_roll_angle_target;
     out->roll_rate            = att.roll_rate;
+    out->roll_rate_filt       = s_roll_notch.last;
     /* Read actual driver feedback even when the recovery loop is bypassed. */
     out->flywheel_a_rpm       = W_Motor_GetSpeed1();
     out->flywheel_b_rpm       = W_Motor_GetSpeed2();

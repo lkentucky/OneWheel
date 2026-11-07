@@ -84,6 +84,16 @@
 #define R_RATE_KI_DEFAULT       (0.0f)         // 横滚角速度环 I
 #define R_RATE_KD_DEFAULT       (8.0f)        // 横滚角速度环 D
 #define R_RATE_IMAX             (100.0f)       // 横滚角速度环积分限幅
+// Roll 角速度反馈陷波：默认旁路(db=0)，只滤陀螺反馈，不改变前向通路
+#define R_RATE_NOTCH_HZ_DEFAULT (47.0f)        // 机械共振中心频率(Hz)
+#define R_RATE_NOTCH_Q_DEFAULT  (7.0f)         // 品质因数，越大越窄
+#define R_RATE_NOTCH_DB_DEFAULT (0.0f)         // 深度(dB)，0=严格旁路
+#define R_RATE_NOTCH_HZ_MIN     (5.0f)
+#define R_RATE_NOTCH_HZ_MAX     (200.0f)
+#define R_RATE_NOTCH_Q_MIN      (0.5f)
+#define R_RATE_NOTCH_Q_MAX      (20.0f)
+#define R_RATE_NOTCH_DB_MIN     (-40.0f)
+#define R_RATE_NOTCH_DB_MAX     (0.0f)
 
 // Pitch：速度环 -> 角度环 -> 角速度环。
 #define P_VEL_KP_DEFAULT        (0.06f)       // 俯仰速度环 P

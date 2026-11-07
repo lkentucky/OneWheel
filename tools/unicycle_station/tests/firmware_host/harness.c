@@ -81,6 +81,8 @@ uint8 control_remote_command(float a,float b) {(void)a;(void)b;return mock_remot
 void control_run_diag_snapshot(volatile control_run_diag_t *out) {memset((void *)out,0,sizeof(*out));out->uptime_ms=g_control_uptime_ms;out->roll=12.5f;out->state_flags=mock_run ? 1 : 2;}
 imu_calib_state_t imu_calib_state(void) {return IMU_CALIB_OK;}
 uint8 imu_link_lost(void) {return 0;}
+float g_pwm_roll;
+uint8 imu_get_raw_sample(imu_data_t *out) { memset(out,0,sizeof(*out)); out->acc_z=1.0f; out->gyro_x=2.0f; return 1; }
 uint8 W_Motor_LinkLost(void) {return 0;}
 int16 W_Motor_GetSpeed1(void) {return (int16)wheel_speed;}
 int16 W_Motor_GetSpeed2(void) {return (int16)wheel_speed;}
@@ -196,5 +198,6 @@ int main(void) {
     feed("cfg:set,52,lean_speed_kp,1.5\n");assert(strstr(drain(),"RUNNING_LOCKED"));
     mock_path_active=0;
     #include "path_contract.inc"
+    #include "trace_contract.inc"
     printf("MCU host contract checks passed (not an ADS/TASKING build)\n");return 0;
 }
