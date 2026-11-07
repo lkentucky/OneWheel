@@ -8,11 +8,11 @@ dual_roll_actual_deg,dual_roll_target_deg,dual_roll_target_rate_dps,dual_roll_ra
 
 分别为 Roll 实际角度、目标角度、目标角速度、实际角速度、控制器 PWM、左飞轮实际下发 PWM、右飞轮实际下发 PWM。角度单位为 °，角速度为 °/s。其他模式沿用原有默认遥测。
 
-地轮正、负 PWM 方向的静摩擦补偿现可分别在线修改，默认值为 1800、2800：
+地轮正、负 PWM 方向的静摩擦补偿现可分别在线修改，当前编译默认值为 1800、3200：
 
 ```text
 [slider,ground_deadzone_pos_pwm,1800]
-[slider,ground_deadzone_neg_pwm,2800]
+[slider,ground_deadzone_neg_pwm,3200]
 ```
 
 两个值均填非负数，允许 0..8000；设为 0 关闭该方向补偿。方向按 `motor_ground_pwm` 的正负判断，不能直接等同于车身前后。闭环控制量为 0 时保持零输出；补偿随启动斜坡增加，最终输出仍受地轮 PWM 限幅约束。Mode8 和菜单开环测试不加此补偿。参数修改即时写入 RAM，Stop/Start 保留，重启恢复编译默认值，现有 Storage/Save 不保存这两项。
