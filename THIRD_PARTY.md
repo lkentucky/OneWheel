@@ -50,3 +50,19 @@
 上述来源记录为移植历史。本轮删除了视觉、轨迹、遥控和未使用算法，原直立状态机移至balance_control.c，通用PID独立为pid.c。EKF仍保留，未使用的Z零偏跟踪已删除；IPS200中应用追加的轮廓/信标叠加函数已移除。驱动可调接线与IRQ值移至config.h，原版权声明继续保留。
 
 ADS工程和TC26B链接脚本恢复自本机此前编译过的逐飞工程；必需的zf_device_config.a同样来自该本机TC264库。主机回归编译器和临时验证产物位于仓库外，不作为固件依赖。
+
+
+## ASC controller and A+ r10h port
+
+Source: https://github.com/Kongmengwuwei/ASC_SummerTraining_Unicycle at 0eed51b8fd0f4e72ab92f737642ab1900f60cbd3.
+
+- code/r10h retains original notices, GPL-3.0 license, provenance and the uncalibrated identity matrix. Algorithm files are unchanged; local README links are adapted.
+- code/asc_pid.c/.h namespace the reference PID implementation. code/asc_control.c/.h extract and adapt the balance controller without vision/planning.
+- code/imu_spi.inc retains the 100us bounded transaction; code/imu.c adapts Qcar wiring, proper frame rotation and startup gates.
+- tests/asc_r10h and tools/ads retain the reference test/build tooling with local path/project adaptations.
+- Changes, units, validation and canonical Git-blob hashes are documented in ASC_PORT.md and docs/asc-port-manifest.json. Original authorship and license statements remain in force.
+
+
+## Complete reference application/layout port
+
+The current application, user entry/ISR, Menu/Display, parameter/cfg protocol, SDK integration and tools are ported from Kongmengwuwei/ASC_SummerTraining_Unicycle @ 0eed51b8fd0f4e72ab92f737642ab1900f60cbd3. Earlier flat-adapter descriptions above are historical. Original notices/licenses are retained. Qcar changes are limited to documented physical defaults, key pins, camera boot policy, UART3 text mailbox/parser and project/network adaptation. See ASC_PORT.md and docs/asc-port-manifest.json.
