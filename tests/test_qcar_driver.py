@@ -1,8 +1,11 @@
 """Actual nonblocking UART3 driver: framing, latest-wins, zero, RX and watchdog."""
 from pathlib import Path
 import subprocess
+import os
+import pytest
 ROOT=Path(__file__).resolve().parents[1]
-def test_text_mailbox_and_binary_rpm(tmp_path):
+@pytest.mark.parametrize('polarity_a,polarity_b', [(1,1),(1,-1),(-1,1),(-1,-1)])
+def test_text_mailbox_and_binary_rpm(tmp_path,polarity_a,polarity_b):
  (tmp_path/'zf_common_headfile.h').write_text(r'''#ifndef HOST_HW
 #define HOST_HW
 #include <stdint.h>
@@ -46,19 +49,47 @@ static void drain(void){for(unsigned i=0;i<10000;i++){
  }assert(!"TX did not finish");}
 static void feed(const uint8 *b,unsigned n){assert(n<sizeof(rx));memcpy(rx,b,n);rn=n;ri=0;W_Motor_RxHandler();}
 int main(void){
- g_param.motor_dir_a=g_param.motor_dir_b=1;g_param.fly_slew=0;W_Motor_Init();assert(written<=16);drain();
+ g_param.motor_dir_a=g_param.motor_dir_b=1;
+ g_param.enc_dir_a=ENC_DIR_A_DEFAULT;g_param.enc_dir_b=ENC_DIR_B_DEFAULT;
+ g_param.fly_slew=0;W_Motor_Init();assert(written<=16);drain();
  assert(strstr(wire,"SET-DUTY,0,0\n")&&strstr(wire,"GET-SPEED\n"));assert(W_Motor_LinkLost());
  W_Motor_Release();wn=0;unsigned before=written;W_Motor_SetDuty(-4000,4000);assert(written-before<=16);drain();assert(!strcmp(wire,"SET-DUTY,-4000,4000\n"));
  wn=0;W_Motor_SetDuty(10000,-10000);for(int i=0;i<100;i++)W_Motor_SetDuty(i,-i);W_Motor_Stop();drain();
  assert(strstr(wire,"SET-DUTY,10000,-10000\n"));assert(strstr(wire,"SET-DUTY,0,0\n"));assert(!strstr(wire,"SET-DUTY,99,-99\n"));
- feed((const uint8*)"123,-456\n",9);W_Motor_Tick1ms();assert(W_Motor_GetSpeed1()==123&&W_Motor_GetSpeed2()==-456&&!W_Motor_LinkLost());
+ feed((const uint8*)"123,-456\n",9);W_Motor_Tick1ms();assert(W_Motor_GetSpeed1()==123*FLY_SPEED_DIR_A&&W_Motor_GetSpeed2()==-456*FLY_SPEED_DIR_B&&!W_Motor_LinkLost());
  uint32 frames=w_motor_rx_frames;feed((const uint8*)"bad,123\n",8);assert(w_motor_rx_frames==frames);
  uint8 bad[90];memset(bad,'1',sizeof(bad));bad[86]=',';bad[87]='2';bad[88]='\n';feed(bad,89);assert(w_motor_rx_frames==frames);
- uint8 packet[7]={0xa5,2,0x0a,0xf0,0xf5,0x10,0};for(int i=0;i<6;i++)packet[6]+=packet[i];feed(packet,7);W_Motor_Tick1ms();assert(W_Motor_GetSpeed1()==2800&&W_Motor_GetSpeed2()==-2800);
+ uint8 packet[7]={0xa5,2,0x0a,0xf0,0xf5,0x10,0};for(int i=0;i<6;i++)packet[6]+=packet[i];feed(packet,7);W_Motor_Tick1ms();assert(W_Motor_GetSpeed1()==2800*FLY_SPEED_DIR_A&&W_Motor_GetSpeed2()==-2800*FLY_SPEED_DIR_B);
  for(int i=0;i<W_MOTOR_LINK_TIMEOUT_MS;i++)W_Motor_Tick1ms();assert(W_Motor_LinkLost());
+ feed((const uint8*)"123,-456\n",9);W_Motor_Tick1ms();
+ int old_a=W_Motor_GetSpeed1(),old_b=W_Motor_GetSpeed2();frames=w_motor_rx_frames;
+ g_param.enc_dir_a=-g_param.enc_dir_a;
+ assert(W_Motor_GetSpeed1()==-old_a&&W_Motor_GetSpeed2()==old_b&&w_motor_rx_frames==frames);
+ g_param.enc_dir_b=-g_param.enc_dir_b;
+ assert(W_Motor_GetSpeed1()==-old_a&&W_Motor_GetSpeed2()==-old_b);
+ for(int da=-1;da<=1;da+=2)for(int db=-1;db<=1;db+=2){
+ for(int ea=-1;ea<=1;ea+=2)for(int eb=-1;eb<=1;eb+=2){
+  g_param.motor_dir_a=da;g_param.motor_dir_b=db;
+  g_param.enc_dir_a=ea;g_param.enc_dir_b=eb;
+  W_Motor_Release();wn=0;W_Motor_SetDuty(-1200,2300);drain();
+  char expected[80],reply[80];
+  snprintf(expected,sizeof(expected),"SET-DUTY,%d,%d\n",-1200*MOTOR_DIR_A,2300*MOTOR_DIR_B);
+  assert(!strcmp(wire,expected)); // encoder signs must never change actuation
+  snprintf(reply,sizeof(reply),"%d,%d\n",-1200*MOTOR_DIR_A*g_param.enc_dir_a,2300*MOTOR_DIR_B*g_param.enc_dir_b);
+  feed((const uint8*)reply,(unsigned)strlen(reply));W_Motor_Tick1ms();
+  assert(W_Motor_GetSpeed1()==-1200&&W_Motor_GetSpeed2()==2300);
+  const char *edge="-32768,-32768\n";feed((const uint8*)edge,(unsigned)strlen(edge));
+  assert(W_Motor_GetSpeed1()==(FLY_SPEED_DIR_A<0?32767:-32768));
+  assert(W_Motor_GetSpeed2()==(FLY_SPEED_DIR_B<0?32767:-32768));
+ }
+ }
  puts("PASS: bounded UART3 TX, complete-line latest-wins/stop, strict overflow/malformed text RX, binary LF payload and watchdog");return 0;}
 '''
  (tmp_path/'test.c').write_text(c);exe=tmp_path/'driver.exe'
- r=subprocess.run(['gcc','-std=c99','-Wall','-Wextra','-Wno-unknown-pragmas','-I'+str(tmp_path),'-I'+str(ROOT/'code'),str(tmp_path/'test.c'),'-o',str(exe)],capture_output=True,text=True)
+ if os.environ.get('ONEWHEEL_HOST_TCC'):
+  r=subprocess.run([os.environ['ONEWHEEL_HOST_TCC'],f'-DFLY_ENCODER_POLARITY_A={polarity_a}',f'-DFLY_ENCODER_POLARITY_B={polarity_b}','-I'+str(tmp_path),'-I'+str(ROOT/'code'),'-run',str(tmp_path/'test.c')],capture_output=True,text=True,timeout=30)
+  assert r.returncode==0,r.stdout+r.stderr
+  return
+ r=subprocess.run(['gcc','-std=c99','-Wall','-Wextra','-Wno-unknown-pragmas',f'-DFLY_ENCODER_POLARITY_A={polarity_a}',f'-DFLY_ENCODER_POLARITY_B={polarity_b}','-I'+str(tmp_path),'-I'+str(ROOT/'code'),str(tmp_path/'test.c'),'-o',str(exe)],capture_output=True,text=True)
  assert r.returncode==0,r.stderr
  r=subprocess.run([str(exe)],capture_output=True,text=True,timeout=10);assert r.returncode==0,r.stdout+r.stderr

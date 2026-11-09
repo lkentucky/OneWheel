@@ -10,11 +10,21 @@
 #define W_MOTOR_FRAME_SIZE       (7u)       // 定长帧字节数
 #define W_MOTOR_TX_FIFO_DEPTH    (16u)      // ASCLIN 发送 FIFO 深度
 
+/* Both reply formats retain raw RPM. Normalize on read so stopped-menu edits
+ * take effect immediately, even before the next frame. Widen before negation. */
+static int16 W_Motor_NormalizeSpeed(int16 raw, int direction)
+{
+    int32 speed = (int32)raw * direction;
+    if (speed > 32767) speed = 32767;
+    if (speed < -32768) speed = -32768;
+    return (int16)speed;
+}
+
 #pragma section all "cpu0_dsram"
 static uint8  w_motor_rx_buffer[W_MOTOR_FRAME_SIZE];    // 接收拼帧缓冲，只由 UART3 中断写
 static uint8  w_motor_rx_length;                        // 接收拼帧长度，只由 UART3 中断写
-static volatile int16  w_motor_speed_1;                 // 动量轮 A 转速(RPM)，UART3 中断写
-static volatile int16  w_motor_speed_2;                 // 动量轮 B 转速(RPM)，UART3 中断写
+static volatile int16  w_motor_speed_1;                 // A原始编码器RPM，UART3中断写
+static volatile int16  w_motor_speed_2;                 // B原始编码器RPM，UART3中断写
 static volatile uint32 w_motor_rx_frames;               // 合法转速帧计数，UART3 中断写
 static uint32 w_motor_seen_frames;                      // 1ms 中断上次看到的帧计数
 static uint16 w_motor_link_age_ms;                      // 距上一帧回传的时间(ms)
@@ -83,7 +93,8 @@ static void wm_text_rx(uint8 byte)
   if(end==(char *)wm_rx_line||*end!=','){wm_rx_used=0;return;}
   b=strtol(end+1,&tail,10);
   if(tail!=end+1&&*tail==0&&a>=-32768&&a<=32767&&b>=-32768&&b<=32767){
-   w_motor_speed_1=(int16)(a*MOTOR_DIR_A);w_motor_speed_2=(int16)(b*MOTOR_DIR_B);++w_motor_rx_frames;
+   w_motor_speed_1=(int16)a;
+   w_motor_speed_2=(int16)b;++w_motor_rx_frames;
   }
   wm_rx_used=0;return;
  }
@@ -320,9 +331,9 @@ void W_Motor_RxHandler(void)
             continue;
 
         w_motor_speed_1 =
-            (int16)((int16)(((uint16)w_motor_rx_buffer[2] << 8) | w_motor_rx_buffer[3]) * MOTOR_DIR_A);
+            (int16)(((uint16)w_motor_rx_buffer[2] << 8) | w_motor_rx_buffer[3]);
         w_motor_speed_2 =
-            (int16)((int16)(((uint16)w_motor_rx_buffer[4] << 8) | w_motor_rx_buffer[5]) * MOTOR_DIR_B);
+            (int16)(((uint16)w_motor_rx_buffer[4] << 8) | w_motor_rx_buffer[5]);
         w_motor_rx_frames++;
     }
 }
@@ -369,7 +380,7 @@ void W_Motor_Tick1ms(void)
 //-------------------------------------------------------------------------------------------------------------------
 int16 W_Motor_GetSpeed1(void)
 {
-    return w_motor_speed_1;
+    return W_Motor_NormalizeSpeed(w_motor_speed_1, FLY_SPEED_DIR_A);
 }
 
 //-------------------------------------------------------------------------------------------------------------------
@@ -380,7 +391,7 @@ int16 W_Motor_GetSpeed1(void)
 //-------------------------------------------------------------------------------------------------------------------
 int16 W_Motor_GetSpeed2(void)
 {
-    return w_motor_speed_2;
+    return W_Motor_NormalizeSpeed(w_motor_speed_2, FLY_SPEED_DIR_B);
 }
 
 //-------------------------------------------------------------------------------------------------------------------

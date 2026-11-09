@@ -1,6 +1,7 @@
 """Execute extracted firmware paths; no vehicle dynamics or target timing model."""
 from pathlib import Path
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -18,6 +19,18 @@ def _function(source, name):
 
 
 def _compile_run(tmp_path, source):
+    # Optional in-memory C99 runner for Windows machines where native compiler
+    # subprocesses cannot create object/executable files. Same production C,
+    # same assertions; this does not replace the ADS target build.
+    tcc = os.environ.get('ONEWHEEL_HOST_TCC')
+    if tcc:
+        c_file = tmp_path / 'contract.c'
+        c_file.write_text(source, encoding='utf-8')
+        run = subprocess.run([tcc, '-I'+str(ROOT/'tools/unicycle_station/tests/firmware_host/tcc'),
+            '-I'+str(ROOT/'tools/unicycle_station/tests/firmware_host'),
+            '-I'+str(ROOT/'code'), '-run', str(c_file)], capture_output=True, text=True, timeout=30)
+        assert run.returncode == 0, run.stdout + run.stderr
+        return
     gcc = shutil.which('gcc') or 'D:/Tools/Dev-Cpp/MinGW64/bin/gcc.exe'
     if not Path(gcc).exists():
         pytest.skip('Optional GCC host compiler not installed')

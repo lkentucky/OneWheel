@@ -2,6 +2,12 @@
 
 Read [ASC_PORT.md](ASC_PORT.md) for this vehicle, [validation](ASC_PORT_VALIDATION.md), and the retained upstream guide below. This revision uses the original reference menu, 8x16 LCD font, layered application and station protocol. Hardware pins, physical zeros, driver text protocol and local network configuration are Qcar adaptations.
 
+2026-11-09：Roll角速度内环改为1ms增量式PI，独立配置左右编码器反馈极性，统一Speed回收方向及单轴测试目标。旧Rate KD固定为0，其他Flash参数继续加载。当前逻辑、验证边界和上板顺序见 [Roll方向与增量PI修订](docs/design/Roll方向与增量PI修订.md)；下方历史说明中的位置式Roll Rate和回收减号以该修订为准。
+
+左右飞轮编码器极性现在可在`Params → Motor → Enc A / Enc B`分别修改为±1，停车修改后立即生效，通过Motor页`Save`保存并在重启后恢复。它们独立于`Dir A / Dir B`，不改变PWM输出方向。操作与验收见 [Motor编码器极性菜单](docs/design/Motor编码器极性菜单.md)。
+
+最新Roll默认参数按用户2026-11-09提供的实车菜单照片固化：Rate KP/KI为**45/0.05**，Angle KP/KI/KD为**30/0/20**，Speed KP/KI/KD为**0.0001/0/0**，Rate陷波为**45Hz、Q=3、dB=0（旁路）**。用户报告当前参数可稳定直立；本次软件验收没有代替实车复测。完整参数及适用范围见 [Roll实车参数记录](docs/design/Roll实车参数20261109.md)。
+
 ---
 
 # Q-SmartCar

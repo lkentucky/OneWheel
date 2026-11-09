@@ -550,8 +550,8 @@
       "label": "横滚回收环 KP",
       "step": 0.0001,
       "decimals": 4,
-      "default": 0.0015,
-      "description": "当前范围、类型与权限由 MCU Schema 确认；默认值仅供参考。"
+      "default": 0.0001,
+      "description": "归一化转速差A−B经Speed PID生成Roll目标偏移；目标=机械零点+回收偏移，合成偏移限幅±10°。需先验证两路编码器符号。"
     },
     "r_rcy_ki": {
       "label": "横滚回收环 KI",
@@ -571,7 +571,7 @@
       "label": "横滚角度环 KP",
       "step": 0.2,
       "decimals": 2,
-      "default": 36.00006,
+      "default": 30.0,
       "description": "角度参数沿用原 5 ms 基准；1 kHz 固件内部 Kp 保持原值，无需手动换算。"
     },
     "r_angle_ki": {
@@ -585,29 +585,29 @@
       "label": "横滚角度环 KD",
       "step": 0.2,
       "decimals": 2,
-      "default": 0.0,
+      "default": 20.0,
       "description": "角度参数沿用原 5 ms 基准；1 kHz 固件内部 Kd×5，无需手动换算。"
     },
     "r_rate_kp": {
       "label": "横滚角速度环 KP",
       "step": 1.0,
       "decimals": 2,
-      "default": 20.0,
-      "description": "当前范围、类型与权限由 MCU Schema 确认；默认值仅供参考。"
+      "default": 45.0,
+      "description": "Roll增量式PI的P：每拍PWM增量包含Kp×(本拍角速度误差−上拍误差)。周期1ms。"
     },
     "r_rate_ki": {
       "label": "横滚角速度环 KI",
       "step": 0.01,
       "decimals": 3,
-      "default": 0.0,
-      "description": "当前范围、类型与权限由 MCU Schema 确认；默认值仅供参考。"
+      "default": 0.05,
+      "description": "Roll增量式PI的I：每1ms增加Ki×角速度误差；Ki=0时不增加积分，Stop/Start清除累计输出。"
     },
     "r_rate_kd": {
       "label": "横滚角速度环 KD",
       "step": 0.5,
       "decimals": 2,
-      "default": 8.0,
-      "description": "正数表示已确认实车的 D 作用方向，内部系数为负；不与 Roll P 一起翻转。"
+      "default": 0.0,
+      "description": "兼容旧协议字段；Roll角速度内环已改为1ms增量式PI，D固定为0且不可启用。"
     },
     "p_vel_kp": {
       "label": "俯仰速度环 KP",
@@ -916,6 +916,41 @@
       "decimals": 0,
       "default": 0,
       "description": "当前范围、类型与权限由 MCU Schema 确认；默认值仅供参考。"
+    },
+    "enc_dir_a": {
+      "label": "Flywheel A encoder polarity",
+      "step": 2.0,
+      "decimals": 0,
+      "default": 1,
+      "description": "Motor > Enc A: +1/-1 raw encoder polarity relative to driver duty. Stop all motors before editing; save Motor page to Flash. Does not reverse PWM output."
+    },
+    "enc_dir_b": {
+      "label": "Flywheel B encoder polarity",
+      "step": 2.0,
+      "decimals": 0,
+      "default": 1,
+      "description": "Motor > Enc B: +1/-1 raw encoder polarity relative to driver duty. Stop all motors before editing; save Motor page to Flash. Does not reverse PWM output."
+    },
+    "r_rate_notch_hz": {
+      "label": "Roll Rate Notch Hz",
+      "step": 1.0,
+      "decimals": 1,
+      "default": 45.0,
+      "description": "Roll measured-rate notch, 1 kHz sampling. dB=0 bypasses; positive depth is not supported. Defaults transcribed from user vehicle photo, 2026-11-09."
+    },
+    "r_rate_notch_q": {
+      "label": "Roll Rate Notch Q",
+      "step": 0.5,
+      "decimals": 1,
+      "default": 3.0,
+      "description": "Roll measured-rate notch, 1 kHz sampling. dB=0 bypasses; positive depth is not supported. Defaults transcribed from user vehicle photo, 2026-11-09."
+    },
+    "r_rate_notch_db": {
+      "label": "Roll Rate Notch dB",
+      "step": 1.0,
+      "decimals": 0,
+      "default": 0.0,
+      "description": "Roll measured-rate notch, 1 kHz sampling. dB=0 bypasses; positive depth is not supported. Defaults transcribed from user vehicle photo, 2026-11-09."
     }
   },
   "parameter_groups": [
@@ -1197,7 +1232,7 @@
       "type": "float",
       "min": -50.0,
       "max": 50.0,
-      "value": 0.0015,
+      "value": 0.0001,
       "group": "Roll",
       "step": 0.0001,
       "flags": 5
@@ -1227,7 +1262,7 @@
       "type": "float",
       "min": -2000.0,
       "max": 2000.0,
-      "value": 36.00006,
+      "value": 30.0,
       "group": "Roll",
       "step": 0.2,
       "flags": 5
@@ -1247,7 +1282,7 @@
       "type": "float",
       "min": -500.0,
       "max": 500.0,
-      "value": 0.0,
+      "value": 20.0,
       "group": "Roll",
       "step": 0.2,
       "flags": 5
@@ -1257,7 +1292,7 @@
       "type": "float",
       "min": -2000.0,
       "max": 2000.0,
-      "value": 20.0,
+      "value": 45.0,
       "group": "Roll",
       "step": 1.0,
       "flags": 5
@@ -1267,7 +1302,7 @@
       "type": "float",
       "min": -200.0,
       "max": 200.0,
-      "value": 0.0,
+      "value": 0.05,
       "group": "Roll",
       "step": 0.01,
       "flags": 5
@@ -1275,9 +1310,9 @@
     {
       "name": "r_rate_kd",
       "type": "float",
-      "min": -500.0,
-      "max": 500.0,
-      "value": 8.0,
+      "min": 0.0,
+      "max": 0.0,
+      "value": 0.0,
       "group": "Roll",
       "step": 0.5,
       "flags": 5
@@ -1623,6 +1658,26 @@
       "flags": 6
     },
     {
+      "name": "enc_dir_a",
+      "type": "int",
+      "min": -1.0,
+      "max": 1.0,
+      "value": 1,
+      "group": "Motor",
+      "step": 2.0,
+      "flags": 6
+    },
+    {
+      "name": "enc_dir_b",
+      "type": "int",
+      "min": -1.0,
+      "max": 1.0,
+      "value": 1,
+      "group": "Motor",
+      "step": 2.0,
+      "flags": 6
+    },
+    {
       "name": "enc_dir_c",
       "type": "int",
       "min": -1.0,
@@ -1681,6 +1736,36 @@
       "group": "Motor",
       "step": 100.0,
       "flags": 6
+    },
+    {
+      "name": "r_rate_notch_hz",
+      "type": "float",
+      "min": 5.0,
+      "max": 200.0,
+      "value": 45.0,
+      "group": "Roll",
+      "step": 1.0,
+      "flags": 21
+    },
+    {
+      "name": "r_rate_notch_q",
+      "type": "float",
+      "min": 0.5,
+      "max": 20.0,
+      "value": 3.0,
+      "group": "Roll",
+      "step": 0.5,
+      "flags": 21
+    },
+    {
+      "name": "r_rate_notch_db",
+      "type": "float",
+      "min": -40.0,
+      "max": 0.0,
+      "value": 0.0,
+      "group": "Roll",
+      "step": 1.0,
+      "flags": 21
     }
   ],
   "pid_mask": {

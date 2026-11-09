@@ -48,10 +48,13 @@
 #define Y_MOTOR_ENCODER_PERIOD_MS       (5)
 
 
-// A/B 的极性同时作用于占空比下发和转速回读，两者必须同源，否则回收环变正反馈。
+// A/B motor directions select the local output frame. Raw encoder polarity is
+// configured independently by Motor -> Enc A / Enc B (stored in Flash).
 #define MOTOR_DIR_A_DEFAULT     (1)             // A轮输出与转速极性
 #define MOTOR_DIR_B_DEFAULT     (1)             // B轮输出与转速极性
 #define MOTOR_DIR_C_DEFAULT     (1)             // C轮输出极性
+#define ENC_DIR_A_DEFAULT       (FLY_ENCODER_POLARITY_A)
+#define ENC_DIR_B_DEFAULT       (FLY_ENCODER_POLARITY_B)
 #define ENC_DIR_C_DEFAULT       (1)             // C轮脉冲/方向编码器计数极性
 #define STEER_DIR_DEFAULT       (1)            // 转向极性，只允许 +1 或 -1
 
@@ -70,23 +73,23 @@
 
 // 平衡串级 PID 参数
 // Roll：飞轮回收环 -> 角度环 -> 角速度环。
-#define R_RCY_KP_DEFAULT        (0.0015f)      // 飞轮回收环 P
+#define R_RCY_KP_DEFAULT        (0.0001f)      // 2026-11-09 用户实车照片参数
 #define R_RCY_KI_DEFAULT        (0.0f)         // 飞轮回收环 I
 #define R_RCY_KD_DEFAULT        (0.0f)         // 飞轮回收环 D
 #define R_RCY_IMAX              (50.0f)        // 飞轮回收环积分限幅
-#define R_ANGLE_KP_DEFAULT      (36.00006f)        // 横滚角度环 P
+#define R_ANGLE_KP_DEFAULT      (30.0f)        // 横滚角度环 P
 #define R_ANGLE_KI_DEFAULT      (0.0f)         // 横滚角度环 I
-#define R_ANGLE_KD_DEFAULT      (0.0f)         // 横滚角度环 D
+#define R_ANGLE_KD_DEFAULT      (20.0f)        // 横滚角度环 D（菜单5ms参考值）
 
 // 角度环输出由角速度环统一限幅，积分只限制累计状态。
 #define R_ANGLE_IMAX            (2000.0f)      // 横滚角度环积分限幅
-#define R_RATE_KP_DEFAULT       (20.0f)       // 横滚角速度环 P
-#define R_RATE_KI_DEFAULT       (0.0f)         // 横滚角速度环 I
-#define R_RATE_KD_DEFAULT       (8.0f)        // 横滚角速度环 D
+#define R_RATE_KP_DEFAULT       (45.0f)        // 增量式PI角速度环 P
+#define R_RATE_KI_DEFAULT       (0.05f)        // 增量式PI角速度环 I，每1ms一拍
+#define R_RATE_KD_DEFAULT       (0.0f)        // 增量式PI，无D；旧Flash KD加载时归零
 #define R_RATE_IMAX             (100.0f)       // 横滚角速度环积分限幅
 // Roll 角速度反馈陷波：默认旁路(db=0)，只滤陀螺反馈，不改变前向通路
-#define R_RATE_NOTCH_HZ_DEFAULT (47.0f)        // 机械共振中心频率(Hz)
-#define R_RATE_NOTCH_Q_DEFAULT  (7.0f)         // 品质因数，越大越窄
+#define R_RATE_NOTCH_HZ_DEFAULT (45.0f)        // 照片菜单值(Hz)，dB=0时旁路
+#define R_RATE_NOTCH_Q_DEFAULT  (3.0f)         // 品质因数，越大越窄
 #define R_RATE_NOTCH_DB_DEFAULT (0.0f)         // 深度(dB)，0=严格旁路
 #define R_RATE_NOTCH_HZ_MIN     (5.0f)
 #define R_RATE_NOTCH_HZ_MAX     (200.0f)

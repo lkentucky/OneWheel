@@ -42,7 +42,7 @@ const param_desc_t g_param_table[] =
     { "r_angle_kd",       &g_param.r_angle_kd,       1, -500.0f,  500.0f },
     { "r_rate_kp",        &g_param.r_rate_kp,        1, -2000.0f, 2000.0f},
     { "r_rate_ki",        &g_param.r_rate_ki,        1, -200.0f,  200.0f },
-    { "r_rate_kd",        &g_param.r_rate_kd,        1, -500.0f,  500.0f },
+    { "r_rate_kd",        &g_param.r_rate_kd,        1, 0.0f,     0.0f   }, // legacy PI compatibility
     { "r_rate_notch_hz",  &g_param.r_rate_notch_hz,  1, R_RATE_NOTCH_HZ_MIN, R_RATE_NOTCH_HZ_MAX },
     { "r_rate_notch_q",   &g_param.r_rate_notch_q,   1, R_RATE_NOTCH_Q_MIN,  R_RATE_NOTCH_Q_MAX  },
     { "r_rate_notch_db",  &g_param.r_rate_notch_db,  1, R_RATE_NOTCH_DB_MIN, R_RATE_NOTCH_DB_MAX },
@@ -86,6 +86,8 @@ const param_desc_t g_param_table[] =
     { "motor_dir_a",      &g_param.motor_dir_a,      0, -1.0f,    1.0f   },
     { "motor_dir_b",      &g_param.motor_dir_b,      0, -1.0f,    1.0f   },
     { "motor_dir_c",      &g_param.motor_dir_c,      0, -1.0f,    1.0f   },
+    { "enc_dir_a",        &g_param.enc_dir_a,        0, -1.0f,    1.0f   },
+    { "enc_dir_b",        &g_param.enc_dir_b,        0, -1.0f,    1.0f   },
     { "enc_dir_c",        &g_param.enc_dir_c,        0, -1.0f,    1.0f   },
     { "steer_dir",        &g_param.steer_dir,        0, -1.0f,    1.0f   },
     { "jog_duty_fly",     &g_param.jog_duty_fly,     0,  0.0f,    10000.0f },
@@ -170,6 +172,9 @@ uint8 param_set_by_name(const char *name, float value)
 {
     const param_desc_t *d = param_find(name);
     if (d == 0 || !param_float_is_finite(value)) return 0;
+    if (d->ptr == &g_param.r_rate_kd && value != 0.0f) return 0;
+    if ((d->ptr == &g_param.enc_dir_a || d->ptr == &g_param.enc_dir_b) &&
+        value != 1.0f && value != -1.0f) return 0;
 
     if (d->ptr == &g_param.imu_forward_dir)
     {
@@ -186,7 +191,8 @@ uint8 param_set_by_name(const char *name, float value)
 
     // 极性字段归一化
     if (d->ptr == &g_param.motor_dir_a || d->ptr == &g_param.motor_dir_b ||
-        d->ptr == &g_param.motor_dir_c || d->ptr == &g_param.enc_dir_c ||
+        d->ptr == &g_param.motor_dir_c || d->ptr == &g_param.enc_dir_a ||
+        d->ptr == &g_param.enc_dir_b || d->ptr == &g_param.enc_dir_c ||
         d->ptr == &g_param.steer_dir)
         *(int *)d->ptr = (*(int *)d->ptr >= 0) ? 1 : -1;
 
@@ -284,6 +290,8 @@ static uint8 param_validate_current(void)
     if ((g_param.motor_dir_a != 1 && g_param.motor_dir_a != -1) ||
         (g_param.motor_dir_b != 1 && g_param.motor_dir_b != -1) ||
         (g_param.motor_dir_c != 1 && g_param.motor_dir_c != -1) ||
+        (g_param.enc_dir_a   != 1 && g_param.enc_dir_a   != -1) ||
+        (g_param.enc_dir_b   != 1 && g_param.enc_dir_b   != -1) ||
         (g_param.enc_dir_c   != 1 && g_param.enc_dir_c   != -1) ||
         (g_param.steer_dir   != 1 && g_param.steer_dir   != -1) ||
         (g_param.imu_forward_dir != 1 && g_param.imu_forward_dir != -1))
@@ -378,6 +386,8 @@ static void param_normalize_dirs(void)
     g_param.motor_dir_a = (g_param.motor_dir_a >= 0) ? 1 : -1;
     g_param.motor_dir_b = (g_param.motor_dir_b >= 0) ? 1 : -1;
     g_param.motor_dir_c = (g_param.motor_dir_c >= 0) ? 1 : -1;
+    g_param.enc_dir_a   = (g_param.enc_dir_a   >= 0) ? 1 : -1;
+    g_param.enc_dir_b   = (g_param.enc_dir_b   >= 0) ? 1 : -1;
     g_param.enc_dir_c   = (g_param.enc_dir_c   >= 0) ? 1 : -1;
     g_param.steer_dir   = (g_param.steer_dir   >= 0) ? 1 : -1;
     g_param.imu_forward_dir = (g_param.imu_forward_dir >= 0) ? 1 : -1;
@@ -471,6 +481,8 @@ void param_load_defaults(void)
     g_param.motor_dir_a = MOTOR_DIR_A_DEFAULT;
     g_param.motor_dir_b = MOTOR_DIR_B_DEFAULT;
     g_param.motor_dir_c = MOTOR_DIR_C_DEFAULT;
+    g_param.enc_dir_a   = ENC_DIR_A_DEFAULT;
+    g_param.enc_dir_b   = ENC_DIR_B_DEFAULT;
     g_param.enc_dir_c   = ENC_DIR_C_DEFAULT;
     g_param.steer_dir   = STEER_DIR_DEFAULT;
     g_param.jog_duty_fly   = JOG_DUTY_FLY_DEFAULT;

@@ -104,10 +104,9 @@ static const menu_param_item_t s_roll_items[] =
 {
     { "Rate Kp",  "r_rate_kp",  1.0f,   2 },    // 落点 10~80
     { "Rate Ki",  "r_rate_ki",  0.01f,  3 },    // 落点 0.2~1.0
-    { "Rate Kd",  "r_rate_kd",  0.5f,   2 },
     { "Angle Kp", "r_angle_kp", 0.2f,   2 },    // 落点 2~20
     { "Angle Ki", "r_angle_ki", 0.01f,  3 },
-    { "Angle Kd", "r_angle_kd", 0.2f,   2 },    // 位置式内环之后这一路可用
+    { "Angle Kd", "r_angle_kd", 0.2f,   2 },    // 位置式角度环D，非Rate内环D
     { "Speed Kp", "r_rcy_kp",   0.0001f, 4 },   // 飞轮转速差(RPM)换倾角(°)，符号为正
     { "Speed Ki", "r_rcy_ki",   0.0001f, 4 },  // 与同环 kp 同尺度，见本表头的约定
     { "Speed Kd", "r_rcy_kd",   0.0001f, 4 },   // 同上
@@ -189,6 +188,8 @@ static const menu_param_item_t s_motor_items[] =
     { "Dir A",    "motor_dir_a",    2.0f,   0 },
     { "Dir B",    "motor_dir_b",    2.0f,   0 },
     { "Dir C",    "motor_dir_c",    2.0f,   0 },
+    { "Enc A",    "enc_dir_a",      2.0f,   0 },
+    { "Enc B",    "enc_dir_b",      2.0f,   0 },
     { "Enc C",    "enc_dir_c",      2.0f,   0 },
     { "Steer Dir","steer_dir",      2.0f,   0 },
     { "Duty Fly", "jog_duty_fly",   100.0f, 0 },
@@ -1341,6 +1342,8 @@ static void edit_current_parameter(float direction)
     float value = 0.0f;
 
     if (s_cursor >= group_item_count(group)) return;
+    if (group->kind == GROUP_KIND_MOTOR && (start_flag != START_STOP ||
+        control_test_running() || control_jog_running() != MOTOR_JOG_NONE)) return;
     if (group->kind == GROUP_KIND_ZERO && (start_flag != START_STOP ||
         control_test_running() || control_jog_running() != MOTOR_JOG_NONE)) return;
     item = (const menu_param_item_t *)s_folder->cursor->data;
@@ -1371,6 +1374,8 @@ static uint8 group_param_edit_allowed(const menu_group_t *group, uint8 item_inde
     uint8 item_ring;
 
     if (path_nav_busy() || control_path_active()) return 0;
+    if (group->kind == GROUP_KIND_MOTOR &&
+        (control_test_running() || control_jog_running() != MOTOR_JOG_NONE)) return 0;
     if (group->kind == GROUP_KIND_ZERO &&
         (control_test_running() || control_jog_running() != MOTOR_JOG_NONE)) return 0;
     if (start_flag != START_STOP &&
@@ -1384,13 +1389,13 @@ static uint8 group_param_edit_allowed(const menu_group_t *group, uint8 item_inde
     if (group->kind != GROUP_KIND_AXIS || !control_test_running()) return 1;
     if (group->axis != g_tune_axis) return 0;
 
-    // Roll 在角度环之后插入 Ang Lim，不能再用 item_index / 3 推断所属环。
-    // 0~2 为角速度环，3~6 为角度环，7~11 为飞轮速度回收环。
+    // Determine Roll loop ownership from names, not mutable display indices.
     if (group->axis == TUNE_AXIS_ROLL)
     {
-        if (item_index <= 2u)      item_ring = (uint8)TUNE_RING_RATE;
-        else if (item_index <= 6u) item_ring = (uint8)TUNE_RING_ANGLE;
-        else                       item_ring = (uint8)TUNE_RING_VEL;
+        const char *name = group->items[item_index].name;
+        if (strncmp(name, "r_rcy_", 6u) == 0)        item_ring = (uint8)TUNE_RING_VEL;
+        else if (strncmp(name, "r_angle_", 8u) == 0) item_ring = (uint8)TUNE_RING_ANGLE;
+        else                                       item_ring = (uint8)TUNE_RING_RATE;
     }
     else
     {

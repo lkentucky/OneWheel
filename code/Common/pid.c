@@ -123,3 +123,32 @@ float pid_inc_calc_limited(pid_t *p, float error, float low, float high)
     p->out = constrain_float(output_without_i + p->out_i, low, high);
     return p->out;
 }
+
+float pid_inc_pi_calc_limited(pid_t *p, float error, float low, float high)
+{
+    float previous_output;
+    float base;
+    float candidate;
+    float old_integral;
+
+    // Retain the UNCLIPPED P+I state, not the clipped actuator output. Otherwise
+    // P saturation loses history and can leave full PWM at zero error (Ki=0).
+    if (p->ki == 0.0f) p->integrator = 0.0f;
+    old_integral = p->integrator; // PI stores the I contribution in output units.
+    previous_output = p->kp * p->last_error + old_integral;
+    p->out_p = p->kp * (error - p->last_error);
+    p->out_i = p->ki * error;
+    p->out_d = 0.0f;
+    base = previous_output + p->out_p;
+    candidate = base + p->out_i;
+    if (candidate > high && p->out_i > 0.0f)
+        p->out_i = (base < high) ? high - base : 0.0f;
+    else if (candidate < low && p->out_i < 0.0f)
+        p->out_i = (base > low) ? low - base : 0.0f;
+    p->integrator = constrain_float(old_integral + p->out_i, low, high);
+    p->out_i = p->integrator - old_integral;
+    p->last_error = error;
+    p->last_derivative = 0.0f;
+    p->out = constrain_float(base + p->out_i, low, high);
+    return p->out;
+}

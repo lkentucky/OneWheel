@@ -9,7 +9,8 @@ def test_latest_complete_flash_snapshot_roundtrip_and_partial_save(tmp_path):
     rows=[]
     for n,p in snapshot['raw_parameters'].items():
         f=p['type']=='float';v=repr(float(p['value']))+'f'
-        rows.append('{"'+n+'",'+str(int(f))+','+v+','+repr(float(snapshot['parameters'][n]['value']))+'f}')
+        expected = 0.0 if n == 'r_rate_kd' else float(snapshot['parameters'][n]['value'])
+        rows.append('{"'+n+'",'+str(int(f))+','+v+','+repr(expected)+'f}')
     source=param_host_source()+r'''
 typedef struct {const char *name;int floating;float old,expected;} sample;
 static sample samples[]={'''+','.join(rows)+r'''};
@@ -26,7 +27,7 @@ static void check(void) {
     for(unsigned i=0;i<75;i++) {float v;assert(param_get_by_name(samples[i].name,&v));assert(v==samples[i].expected);}
     assert(IMU_FORWARD_DIR==-1 && MOTOR_DIR_A==1 && MOTOR_DIR_B==1);
     assert(MOTOR_DIR_C==-1 && ENC_DIR_C==-1 && STEER_DIR==-1);
-    assert(R_RATE_KP==20 && R_RATE_KD==-8 && Y_RATE_KP==-56);
+    assert(R_RATE_KP==20 && R_RATE_KD==0 && Y_RATE_KP==-56);
 }
 int main(void) {
     const char *camera[]={"cam_exposure"};
@@ -69,12 +70,12 @@ int main(void) {
     /* Nonzero I/D also exercise integral hold, output saturation and reversal. */
     g_param.r_rate_kp=20;g_param.r_rate_ki=.2f;g_param.r_rate_kd=8;
     g_param.y_rate_kp=56;g_param.y_rate_ki=.3f;g_param.y_rate_kd=4;
-    pid_set(&old_roll,20,.2f,-8,100);pid_set(&r_rate_pid,0,0,0,100);
+    pid_set(&old_roll,20,.2f,0,100);pid_set(&r_rate_pid,0,0,0,100);
     pid_set(&old_yaw,-56,-.3f,-4,100);pid_set(&y_rate_pid,0,0,0,100);
     for(int i=0;i<1000;i++) {
         float error=(float)((i*17)%79-39);
         cascade_gain_refresh();
-        assert(pid_loc_calc_limited(&old_roll,error,-100,100)==pid_loc_calc_limited(&r_rate_pid,error,-100,100));
+        assert(pid_inc_pi_calc_limited(&old_roll,error,-100,100)==pid_inc_pi_calc_limited(&r_rate_pid,error,-100,100));
         assert(pid_loc_calc_limited(&old_yaw,error,-100,100)==pid_loc_calc_limited(&y_rate_pid,error,-100,100));
         assert(old_roll.integrator==r_rate_pid.integrator && old_yaw.integrator==y_rate_pid.integrator);
     }

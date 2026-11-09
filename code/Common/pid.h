@@ -9,7 +9,7 @@ typedef struct {
     float imax;                  // 积分限幅，只对位置式生效
     float out_p, out_i, out_d;   // 三个分项的输出，调试用
     float out;                   // 本环输出
-    float integrator;            // 位置式的积分累加量
+    float integrator;            // 位置式:误差累加；增量PI:I输出分量
     float last_error;            // 上一拍误差
     float last_derivative;       // 上一拍的误差增量，增量式算二阶差分用
 } pid_t;
@@ -53,6 +53,13 @@ float pid_loc_calc_limited(pid_t *p, float error, float low, float high);
 // 使用示例     pid_inc_calc_limited(&r_rate_pid, error, -limit, limit);
 //-------------------------------------------------------------------------------------------------------------------
 float pid_inc_calc_limited(pid_t *p, float error, float low, float high);
+
+/* Incremental PI: du=Kp*(e-e_prev)+Ki*e, u=clip(u_prev+du).
+ * Ki is per sample (Roll: 1 ms). kd/imax are not used. Track unclipped P+I
+ * separately, conditionally integrate at limits, and bound the I contribution
+ * to the output range. Clipping P must not create an artificial integral bias.
+ * Reset with pid_reset on Stop, mode change and every new Start. */
+float pid_inc_pi_calc_limited(pid_t *p, float error, float low, float high);
 
 //-------------------------------------------------------------------------------------------------------------------
 // 函数简介     浮点限幅

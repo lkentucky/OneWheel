@@ -831,17 +831,28 @@ static float roll_recovery_offset(uint8 run20)
 }
 
 //-------------------------------------------------------------------------------------------------------------------
-// 函数简介     跑一拍 Roll 角速度内环(1ms)，位置式 + 输出限幅
+// 函数简介     跑一拍 Roll 角速度内环(1ms)，增量式PI + 输出限幅
 // 参数说明     limit           输出限幅，Test 用 BAL_TEST_FLY_LIMIT，三轴串级用 FLYWHEEL_OUT_LIMIT
 // 返回参数     float           限幅后的占空比输出
 // 使用示例     return roll_rate_ctrl((float)BAL_TEST_FLY_LIMIT);
 //-------------------------------------------------------------------------------------------------------------------
 static float roll_rate_ctrl(float limit)
 {
-    // 位置式内环在误差回零时同步撤销输出，并在 PID 内完成抗饱和。
+    // Incremental PI holds its accumulated output; Stop/Start resets history.
     // 只滤测量反馈：陀螺 Roll 角速度先过可旁路 notch，角度环输出保持原样。
     float rate = roll_rate_notch_apply(att.roll_rate);
-    return pid_loc_calc_limited(&r_rate_pid, rate + r_angle_pid.out, -limit, limit);
+    return pid_inc_pi_calc_limited(&r_rate_pid, rate + r_angle_pid.out, -limit, limit);
+}
+
+/* For normalized RPM and A=-u/B=+u, positive A-B momentum needs a
+ * positive Roll target offset for gravity-assisted unloading. Share the sign,
+ * limit and telemetry target between Balance and single-axis Speed tests. */
+static float roll_target_update(float zero, float recovery)
+{
+    s_roll_angle_target = g_roll_zero + constrain_float(zero + recovery - g_roll_zero,
+                                                       -ROLL_TARGET_LIMIT,
+                                                        ROLL_TARGET_LIMIT);
+    return s_roll_angle_target;
 }
 
 //-------------------------------------------------------------------------------------------------------------------
@@ -853,16 +864,11 @@ static float roll_rate_ctrl(float limit)
 static float roll_cascade_ctrl(float zero, uint8 run_angle, uint8 run20)
 {
     float rcy = roll_recovery_offset(run20);         // 回收环给出的零点偏移(°)
-    float angle_target = zero - rcy;
-
-    angle_target = g_roll_zero + constrain_float(angle_target - g_roll_zero,
-                                                  -ROLL_TARGET_LIMIT,
-                                                   ROLL_TARGET_LIMIT);
-    s_roll_angle_target = angle_target;
+    float angle_target = roll_target_update(zero, rcy);
 
     if (run_angle)
         pid_loc_calc(&r_angle_pid, att.roll - angle_target); // 回收与压弯合成目标限制在 ±10°
-    roll_rate_ctrl((float)FLYWHEEL_OUT_LIMIT);               // 角速度环，位置式
+    roll_rate_ctrl((float)FLYWHEEL_OUT_LIMIT);               // 角速度环，增量式PI
 
     // 角度环不重复限幅，最终输出由角速度环限制。
     return r_rate_pid.out;
@@ -1144,6 +1150,7 @@ static control_test_status_t test_input_reason(void)
 //-------------------------------------------------------------------------------------------------------------------
 static float roll_test_ctrl(uint8 run_angle, uint8 run20)
 {
+    float angle_target;
     if (s_test_ring >= TUNE_RING_VEL)
     {
         (void)roll_recovery_offset(run20);           // 与三轴串级使用同一条回收路径
@@ -1153,10 +1160,11 @@ static float roll_test_ctrl(uint8 run_angle, uint8 run20)
         pid_reset(&r_rcy_pid);
     }
 
+    angle_target = roll_target_update(g_roll_zero, r_rcy_pid.out);
     if (s_test_ring >= TUNE_RING_ANGLE)
     {
         if (run_angle)
-            pid_loc_calc(&r_angle_pid, r_rcy_pid.out + att.roll - g_roll_zero);
+            pid_loc_calc(&r_angle_pid, att.roll - angle_target);
     }
     else
     {

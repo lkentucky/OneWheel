@@ -580,7 +580,7 @@ static vofa_cmd_result_t cfg_execute(char *line)
         {
             if (!cmd_parse_float_strict(fields[3], &value) || (!d->is_float && value != floorf(value)))
             { (void)cfg_reply(seq, "err", "INVALID_VALUE,Finite typed value required"); return VOFA_CMD_FORMAT; }
-            if ((strncmp(d->name, "motor_dir_", 10) == 0 || strcmp(d->name, "enc_dir_c") == 0 || strcmp(d->name, "steer_dir") == 0 || strcmp(d->name, "imu_forward_dir") == 0) && value != 1.0f && value != -1.0f)
+            if ((strncmp(d->name, "motor_dir_", 10) == 0 || strncmp(d->name, "enc_dir_", 8) == 0 || strcmp(d->name, "steer_dir") == 0 || strcmp(d->name, "imu_forward_dir") == 0) && value != 1.0f && value != -1.0f)
             { (void)cfg_reply(seq, "err", "OUT_OF_RANGE,Polarity must be plus or minus one"); return VOFA_CMD_FORMAT; }
             if (s_save_seq) { (void)cfg_reply(seq, "err", "BUSY,Save pending"); return VOFA_CMD_FORMAT; }
             pid_index = cfg_pid_index(d->name);

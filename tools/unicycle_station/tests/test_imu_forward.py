@@ -100,7 +100,7 @@ def test_station_direction_reads_linked_zeros_and_respects_explicit_batch_values
     e=StationEngine(p);e.auto_record=False
     def idle(): return not e.requests.pending and not e.requests.queue
     try:
-        e.start('mock');wait_until(lambda:len(e.params)==75);wait_until(e.stopped)
+        e.start('mock');wait_until(lambda:len(e.params)==len(p.data['mock_parameters']));wait_until(e.stopped)
         with e.transport.lock: e.transport.mode='STOP';e.transport.manual_stopped=True
         assert e.params['imu_forward_dir'].group=='Zero'
         assert not e.permission(e.params['imu_forward_dir'],False)[0]

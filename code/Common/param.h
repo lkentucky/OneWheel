@@ -39,7 +39,7 @@ typedef struct
     float r_angle_kd;                   // 横滚角度环 D
     float r_rate_kp;                    // 横滚角速度环 P
     float r_rate_ki;                    // 横滚角速度环 I
-    float r_rate_kd;                    // 横滚角速度环 D
+    float r_rate_kd;                    // 旧协议/Flash兼容字段，增量式PI固定为0
     float r_rate_notch_hz;              // 横滚角速度反馈陷波中心频率(Hz)
     float r_rate_notch_q;               // 横滚角速度反馈陷波品质因数
     float r_rate_notch_db;              // 横滚角速度反馈陷波深度(dB)，0=旁路
@@ -90,6 +90,8 @@ typedef struct
     int   motor_dir_a;                  // 动量轮A占空比与转速回读极性
     int   motor_dir_b;                  // 动量轮B占空比与转速回读极性
     int   motor_dir_c;                  // 行进轮C输出极性
+    int   enc_dir_a;                    // A原始编码器RPM相对驱动正PWM的极性
+    int   enc_dir_b;                    // B原始编码器RPM相对驱动正PWM的极性
     int   enc_dir_c;                    // C轮脉冲/方向编码器计数符号
     int   steer_dir;                    // 转向极性，遥控与视觉转向共用
     int   jog_duty_fly;                 // A/B 架空点动占空比，满量程 10000
@@ -130,7 +132,7 @@ extern volatile uint32 g_param_revision;// 参数修订号
 #define R_ANGLE_KD              (g_param.r_angle_kd)
 #define R_RATE_KP               (g_param.r_rate_kp)
 #define R_RATE_KI               (g_param.r_rate_ki)
-#define R_RATE_KD               (R_RATE_KD_BASE * g_param.r_rate_kd)
+#define R_RATE_KD               (0.0f) // Roll Rate is incremental PI; legacy D is disabled.
 #define R_RATE_NOTCH_HZ         (g_param.r_rate_notch_hz)
 #define R_RATE_NOTCH_Q          (g_param.r_rate_notch_q)
 #define R_RATE_NOTCH_DB         (g_param.r_rate_notch_db)
@@ -170,6 +172,9 @@ extern volatile uint32 g_param_revision;// 参数修订号
 // 电机与编码器极性
 #define MOTOR_DIR_A             (MOTOR_DIR_A_BASE * g_param.motor_dir_a)
 #define MOTOR_DIR_B             (MOTOR_DIR_B_BASE * g_param.motor_dir_b)
+// Normalize raw encoder RPM to the SAME local frame as the requested duty.
+#define FLY_SPEED_DIR_A         (g_param.enc_dir_a * MOTOR_DIR_A)
+#define FLY_SPEED_DIR_B         (g_param.enc_dir_b * MOTOR_DIR_B)
 #define MOTOR_DIR_C             (MOTOR_DIR_C_BASE * g_param.motor_dir_c)
 #define ENC_DIR_C               (ENC_DIR_C_BASE * g_param.enc_dir_c)
 #define STEER_DIR               (STEER_DIR_BASE * g_param.steer_dir)
