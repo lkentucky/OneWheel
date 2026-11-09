@@ -18,6 +18,8 @@ start_state_t start_flag = START_STOP;          // 发车状态机，上电全�
 float g_roll_zero, g_pitch_zero;                // 机械零点(°)
 static float s_lean_speed_mps;                 // 压弯使用的带符号低通实际速度
 float g_lean_offset = 0;                        // 压弯动态零点偏移(°)
+beacon_result_t g_beacon_result;
+uint8 g_vision_source_mode;
 float g_pwm_roll, g_pwm_pitch, g_pwm_yaw;       // 三轴串级输出，混控前
 int16 g_motor_a, g_motor_b, g_motor_c;          // 混控后的三电机控制量
 int   g_target_distance = 0;                    // Pitch 速度环目标(counts/20ms)
@@ -682,6 +684,7 @@ static void direction_control_update(void)
         }
         s_direction_yaw_rate_target = direction_balance_Control(s_direction_offset, 0.0f);
     }
+    if(g_param.beacon.mode!=0) s_direction_yaw_rate_target=constrain_float(s_direction_yaw_rate_target,-g_param.beacon.yaw_limit_dps,g_param.beacon.yaw_limit_dps);
     s_direction_last_mode = mode;
 }
 
@@ -1589,6 +1592,7 @@ uint8 control_balance_start(void)
 //-------------------------------------------------------------------------------------------------------------------
 uint8 control_ipm_calib_request(void)
 {
+    if (g_param.beacon.mode != 0) return 0; // lane IPM is not beacon calibration
     if (vision_core_state() != VISION_CORE_READY) return 0;
     return vision_command_request(VISION_CMD_CALIB_IPM, 0);
 }
@@ -1642,7 +1646,8 @@ uint8 control_run_start(void)
     }
     // 视觉不可用就不许发车：跑车全靠它给转向
     if (vision_core_state() != VISION_CORE_READY || vision_link_lost() ||
-        !g_vision_ipm_ok || !g_track_valid)
+        (g_param.beacon.mode==0 && !g_vision_ipm_ok) ||
+        g_vision_source_mode!=g_param.beacon.mode || !g_track_valid)
     {
         s_test_status = CTRL_TEST_STATUS_INVALID;
         return 0;
@@ -2159,6 +2164,7 @@ static void control_vision_exchange(uint8 publish_feedback)
 
     if (publish_feedback)
     {
+        feedback.beacon = g_param.beacon;
         feedback.input_seq = ++input_seq;
         feedback.uptime_ms = g_control_uptime_ms;
         feedback.param_revision = g_param_revision;
@@ -2243,7 +2249,8 @@ static void control_vision_exchange(uint8 publish_feedback)
         {
             g_vision_stop_request = 0;
         }
-        g_track_valid = result.track_valid;
+        g_beacon_result=result.beacon;g_vision_source_mode=result.source_mode;
+        g_track_valid = (uint8)(result.track_valid && result.source_mode==g_param.beacon.mode);
 
         // 丢线不等于居中：转向误差清零，丢线计数继续累加。
         if (result.track_valid)

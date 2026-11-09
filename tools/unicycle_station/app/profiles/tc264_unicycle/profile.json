@@ -951,6 +951,111 @@
       "decimals": 0,
       "default": 0.0,
       "description": "Roll measured-rate notch, 1 kHz sampling. dB=0 bypasses; positive depth is not supported. Defaults transcribed from user vehicle photo, 2026-11-09."
+    },
+    "beacon_mode": {
+      "label": "Mode (0 lane /1 distance /2 time /3 pro)",
+      "default": 0,
+      "step": 1,
+      "decimals": 0,
+      "description": "Restored Qcar beacon pipeline. Stopped-state editing only; save Beacon page to Flash. Mode 0 keeps existing lane Run; never starts motors automatically."
+    },
+    "beacon_threshold": {
+      "label": "Threshold",
+      "default": 60,
+      "step": 1,
+      "decimals": 0,
+      "description": "Restored Qcar beacon pipeline. Stopped-state editing only; save Beacon page to Flash. Mode 0 keeps existing lane Run; never starts motors automatically."
+    },
+    "beacon_radius": {
+      "label": "Connectivity radius",
+      "default": 3,
+      "step": 1,
+      "decimals": 0,
+      "description": "Restored Qcar beacon pipeline. Stopped-state editing only; save Beacon page to Flash. Mode 0 keeps existing lane Run; never starts motors automatically."
+    },
+    "beacon_min_gray": {
+      "label": "Small target min gray",
+      "default": 100,
+      "step": 1,
+      "decimals": 0,
+      "description": "Restored Qcar beacon pipeline. Stopped-state editing only; save Beacon page to Flash. Mode 0 keeps existing lane Run; never starts motors automatically."
+    },
+    "beacon_max_miss": {
+      "label": "Max missed frames",
+      "default": 5,
+      "step": 1,
+      "decimals": 0,
+      "description": "Restored Qcar beacon pipeline. Stopped-state editing only; save Beacon page to Flash. Mode 0 keeps existing lane Run; never starts motors automatically."
+    },
+    "beacon_min_std": {
+      "label": "Small target min std",
+      "default": 20,
+      "step": 1,
+      "decimals": 2,
+      "description": "Restored Qcar beacon pipeline. Stopped-state editing only; save Beacon page to Flash. Mode 0 keeps existing lane Run; never starts motors automatically."
+    },
+    "beacon_min_ratio": {
+      "label": "Min width/height",
+      "default": 1,
+      "step": 0.1,
+      "decimals": 2,
+      "description": "Restored Qcar beacon pipeline. Stopped-state editing only; save Beacon page to Flash. Mode 0 keeps existing lane Run; never starts motors automatically."
+    },
+    "beacon_near_area": {
+      "label": "Near target min area",
+      "default": 20,
+      "step": 1,
+      "decimals": 2,
+      "description": "Restored Qcar beacon pipeline. Stopped-state editing only; save Beacon page to Flash. Mode 0 keeps existing lane Run; never starts motors automatically."
+    },
+    "beacon_match_px": {
+      "label": "Tracker match pixels",
+      "default": 3,
+      "step": 0.5,
+      "decimals": 2,
+      "description": "Restored Qcar beacon pipeline. Stopped-state editing only; save Beacon page to Flash. Mode 0 keeps existing lane Run; never starts motors automatically."
+    },
+    "beacon_speed_mps": {
+      "label": "Beacon speed m/s",
+      "default": 0.15,
+      "step": 0.01,
+      "decimals": 2,
+      "description": "Restored Qcar beacon pipeline. Stopped-state editing only; save Beacon page to Flash. Mode 0 keeps existing lane Run; never starts motors automatically."
+    },
+    "beacon_yaw_limit_dps": {
+      "label": "Beacon yaw limit deg/s",
+      "default": 30,
+      "step": 1,
+      "decimals": 2,
+      "description": "Restored Qcar beacon pipeline. Stopped-state editing only; save Beacon page to Flash. Mode 0 keeps existing lane Run; never starts motors automatically."
+    },
+    "beacon_mid_x": {
+      "label": "Image middle x",
+      "default": 93,
+      "step": 1,
+      "decimals": 2,
+      "description": "Restored Qcar beacon pipeline. Stopped-state editing only; save Beacon page to Flash. Mode 0 keeps existing lane Run; never starts motors automatically."
+    },
+    "beacon_weight_dist": {
+      "label": "Route distance weight",
+      "default": 0.5,
+      "step": 0.1,
+      "decimals": 2,
+      "description": "Restored Qcar beacon pipeline. Stopped-state editing only; save Beacon page to Flash. Mode 0 keeps existing lane Run; never starts motors automatically."
+    },
+    "beacon_weight_angle": {
+      "label": "Route turn weight",
+      "default": 0.5,
+      "step": 0.1,
+      "decimals": 2,
+      "description": "Restored Qcar beacon pipeline. Stopped-state editing only; save Beacon page to Flash. Mode 0 keeps existing lane Run; never starts motors automatically."
+    },
+    "beacon_weight_continuity": {
+      "label": "Route continuity weight",
+      "default": 0.2,
+      "step": 0.1,
+      "decimals": 2,
+      "description": "Restored Qcar beacon pipeline. Stopped-state editing only; save Beacon page to Flash. Mode 0 keeps existing lane Run; never starts motors automatically."
     }
   },
   "parameter_groups": [
@@ -964,7 +1069,8 @@
     "Motor",
     "Zero",
     "Odometry",
-    "IPM"
+    "IPM",
+    "Beacon"
   ],
   "mock_parameters": [
     {
@@ -1766,6 +1872,156 @@
       "group": "Roll",
       "step": 1.0,
       "flags": 21
+    },
+    {
+      "name": "beacon_mode",
+      "type": "int",
+      "min": 0,
+      "max": 3,
+      "value": 0,
+      "group": "Beacon",
+      "step": 1,
+      "flags": 6
+    },
+    {
+      "name": "beacon_threshold",
+      "type": "int",
+      "min": 1,
+      "max": 254,
+      "value": 60,
+      "group": "Beacon",
+      "step": 1,
+      "flags": 6
+    },
+    {
+      "name": "beacon_radius",
+      "type": "int",
+      "min": 1,
+      "max": 4,
+      "value": 3,
+      "group": "Beacon",
+      "step": 1,
+      "flags": 6
+    },
+    {
+      "name": "beacon_min_gray",
+      "type": "int",
+      "min": 0,
+      "max": 255,
+      "value": 100,
+      "group": "Beacon",
+      "step": 1,
+      "flags": 6
+    },
+    {
+      "name": "beacon_max_miss",
+      "type": "int",
+      "min": 0,
+      "max": 40,
+      "value": 5,
+      "group": "Beacon",
+      "step": 1,
+      "flags": 6
+    },
+    {
+      "name": "beacon_min_std",
+      "type": "float",
+      "min": 0,
+      "max": 128,
+      "value": 20,
+      "group": "Beacon",
+      "step": 1,
+      "flags": 6
+    },
+    {
+      "name": "beacon_min_ratio",
+      "type": "float",
+      "min": 0,
+      "max": 10,
+      "value": 1,
+      "group": "Beacon",
+      "step": 0.1,
+      "flags": 6
+    },
+    {
+      "name": "beacon_near_area",
+      "type": "float",
+      "min": 0,
+      "max": 2000,
+      "value": 20,
+      "group": "Beacon",
+      "step": 1,
+      "flags": 6
+    },
+    {
+      "name": "beacon_match_px",
+      "type": "float",
+      "min": 0,
+      "max": 50,
+      "value": 3,
+      "group": "Beacon",
+      "step": 0.5,
+      "flags": 6
+    },
+    {
+      "name": "beacon_speed_mps",
+      "type": "float",
+      "min": 0,
+      "max": 0.5,
+      "value": 0.15,
+      "group": "Beacon",
+      "step": 0.01,
+      "flags": 6
+    },
+    {
+      "name": "beacon_yaw_limit_dps",
+      "type": "float",
+      "min": 0,
+      "max": 60,
+      "value": 30,
+      "group": "Beacon",
+      "step": 1,
+      "flags": 6
+    },
+    {
+      "name": "beacon_mid_x",
+      "type": "float",
+      "min": 0,
+      "max": 187,
+      "value": 93,
+      "group": "Beacon",
+      "step": 1,
+      "flags": 6
+    },
+    {
+      "name": "beacon_weight_dist",
+      "type": "float",
+      "min": 0,
+      "max": 10,
+      "value": 0.5,
+      "group": "Beacon",
+      "step": 0.1,
+      "flags": 6
+    },
+    {
+      "name": "beacon_weight_angle",
+      "type": "float",
+      "min": 0,
+      "max": 10,
+      "value": 0.5,
+      "group": "Beacon",
+      "step": 0.1,
+      "flags": 6
+    },
+    {
+      "name": "beacon_weight_continuity",
+      "type": "float",
+      "min": 0,
+      "max": 10,
+      "value": 0.2,
+      "group": "Beacon",
+      "step": 0.1,
+      "flags": 6
     }
   ],
   "pid_mask": {

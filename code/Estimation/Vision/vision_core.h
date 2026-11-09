@@ -38,6 +38,8 @@ typedef enum
 // CPU1 每帧发布的循迹结果
 typedef struct
 {
+    beacon_result_t beacon;
+    uint8       source_mode;
     uint32      frame_seq;          // 视觉帧序号，单调递增
     uint32      input_seq;          // 本帧用到的 CPU0 参数快照序号
     uint32      heartbeat;          // CPU1 主循环心跳
@@ -67,6 +69,7 @@ typedef struct
 // CPU0 发给 CPU1 的参数快照，视觉算法要用的运行参数都从这里过去
 typedef struct
 {
+    beacon_config_t beacon;
     uint32 input_seq;               // 发布序号
     uint32 uptime_ms;               // CPU0 运行时间(ms)
     uint32 param_revision;          // 参数修订号

@@ -78,7 +78,7 @@ def test_motor_edits_blocked_during_jog_balance_and_axis_tests(tmp_path):
 #include <string.h>
 #include <stdint.h>
 typedef uint8_t uint8;
-enum {GROUP_KIND_AXIS,GROUP_KIND_ZERO,GROUP_KIND_MOTOR,GROUP_KIND_ODOMETRY};
+enum {GROUP_KIND_AXIS,GROUP_KIND_ZERO,GROUP_KIND_MOTOR,GROUP_KIND_ODOMETRY,GROUP_KIND_BEACON};
 enum {TUNE_AXIS_ROLL,TUNE_AXIS_PITCH};
 enum {TUNE_RING_RATE,TUNE_RING_ANGLE,TUNE_RING_VEL};
 #define START_STOP 0

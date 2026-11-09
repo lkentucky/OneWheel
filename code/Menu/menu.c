@@ -77,6 +77,7 @@ typedef enum
     GROUP_KIND_ELEMENT,     // 元素使能与阈值，实时显示识别到的元素，无动作行
     GROUP_KIND_ODOMETRY,    // C 轮每米脉冲标定与 1m 验证
     GROUP_KIND_LEAN,        // 压弯动态零点，纯参数页，无动作行也无实时行
+    GROUP_KIND_BEACON, // restored beacon detection and route selection
     GROUP_KIND_RUN,         // 正式跑车速度规划与视觉转向参数
 } group_kind_t;
 
@@ -223,6 +224,24 @@ static const char * const s_motor_action_names[] =
 
 #define MENU_ITEMS_OF(a) ((uint8)(sizeof(a) / sizeof((a)[0])))
 
+static const menu_param_item_t s_beacon_items[] = {
+    { "Mode 0..3", "beacon_mode", 1.000f, 0 },
+    { "Threshold", "beacon_threshold", 1.000f, 0 },
+    { "Radius", "beacon_radius", 1.000f, 0 },
+    { "Min Gray", "beacon_min_gray", 1.000f, 0 },
+    { "Max Miss", "beacon_max_miss", 1.000f, 0 },
+    { "Min Std", "beacon_min_std", 1.000f, 1 },
+    { "Min Ratio", "beacon_min_ratio", 0.100f, 2 },
+    { "Near Area", "beacon_near_area", 1.000f, 1 },
+    { "Match px", "beacon_match_px", 0.500f, 1 },
+    { "Speed m/s", "beacon_speed_mps", 0.010f, 2 },
+    { "Yaw Max", "beacon_yaw_limit_dps", 1.000f, 1 },
+    { "Mid X", "beacon_mid_x", 1.000f, 1 },
+    { "W Distance", "beacon_weight_dist", 0.100f, 2 },
+    { "W Turn", "beacon_weight_angle", 0.100f, 2 },
+    { "W Continue", "beacon_weight_continuity", 0.100f, 2 },
+};
+
 static const menu_group_t s_groups[] =
 {
     { "Roll",   s_roll_items,   MENU_ITEMS_OF(s_roll_items),   TUNE_AXIS_ROLL,  3, GROUP_KIND_AXIS   },
@@ -234,7 +253,8 @@ static const menu_group_t s_groups[] =
     { "Element", s_element_items, MENU_ITEMS_OF(s_element_items), TUNE_AXIS_YAW,  0, GROUP_KIND_ELEMENT },
     { "Motor",   s_motor_items,   MENU_ITEMS_OF(s_motor_items),   TUNE_AXIS_ROLL, 6, GROUP_KIND_MOTOR   },
     { "Zero",    s_zero_items,    MENU_ITEMS_OF(s_zero_items),    TUNE_AXIS_ROLL, 0, GROUP_KIND_ZERO    },
-    { "Odometry",s_odometry_items,MENU_ITEMS_OF(s_odometry_items),TUNE_AXIS_PITCH,2, GROUP_KIND_ODOMETRY}
+    { "Odometry",s_odometry_items,MENU_ITEMS_OF(s_odometry_items),TUNE_AXIS_PITCH,2, GROUP_KIND_ODOMETRY},
+    { "Beacon",s_beacon_items,MENU_ITEMS_OF(s_beacon_items),TUNE_AXIS_YAW,2,GROUP_KIND_BEACON }
 };
 
 //-------------------------------------------------------------------------------------------------------------------
@@ -261,7 +281,8 @@ static uint8 group_item_count(const menu_group_t *group)
 
 // save_group_action() 在栈上开 UI_MAX_GROUP_ITEMS 个名字指针，任何一页的行数超了都会越界写
 typedef char menu_group_items_fit[
-    (MENU_ITEMS_OF(s_roll_items)    <= UI_MAX_GROUP_ITEMS &&
+    (MENU_ITEMS_OF(s_beacon_items) <= UI_MAX_GROUP_ITEMS &&
+     MENU_ITEMS_OF(s_roll_items)    <= UI_MAX_GROUP_ITEMS &&
      MENU_ITEMS_OF(s_pitch_items)   <= UI_MAX_GROUP_ITEMS &&
      MENU_ITEMS_OF(s_yaw_items)     <= UI_MAX_GROUP_ITEMS &&
      MENU_ITEMS_OF(s_lean_items)    <= UI_MAX_GROUP_ITEMS &&
@@ -285,6 +306,7 @@ static const char * const s_param_page_names[] =
     "Motor",
     "Zero",
     "Odometry",
+    "Beacon",
     "Save",
     "Reset",
     "Back"
@@ -295,6 +317,7 @@ static const char * const s_param_page_names[] =
 
 static Menu_Item *s_root,*s_folder,*s_views[MENU_PAGE_COUNT],*s_group_nodes[GROUP_COUNT];
 static int menu_tree_build(void);
+static void run_action(void);
 static void menu_enter(void);
 static void menu_back(void);
 
@@ -986,6 +1009,17 @@ static void render_group_live(void)
     const menu_group_t *group = &s_groups[s_group_index];
     char line[30];
 
+    if (group->kind == GROUP_KIND_BEACON) {
+        beacon_result_t b;
+        uint32 irq=interrupt_global_disable();b=g_beacon_result;interrupt_global_enable(irq);
+        (void)snprintf(line,sizeof(line),"MODE%d N%u/%u NEXT%u",g_param.beacon.mode,(unsigned)b.count,(unsigned)b.total,(unsigned)b.next);
+        ui_line(229,line,UI_CYAN);
+        (void)snprintf(line,sizeof(line),"TARGET X%.1f Y%.1f",(double)b.cx,(double)b.cy);ui_line(245,line,UI_CYAN);
+        (void)snprintf(line,sizeof(line),"DIST%.2fm TURN%u",(double)b.distance_m,(unsigned)b.turn);ui_line(261,line,UI_CYAN);
+        ui_line(277,b.valid?"BEACON VALID":"NO BEACON / CHECK IMAGE",b.valid?UI_GREEN:UI_YELLOW);
+        return;
+    }
+
     if (group->kind == GROUP_KIND_MOTOR)
     {
         motor_jog_t jog = control_jog_running();
@@ -1108,6 +1142,7 @@ static const char *action_name(uint8 action_index)
 {
     const menu_group_t *group = &s_groups[s_group_index];
 
+    if (group->kind == GROUP_KIND_BEACON) return action_index==0u?"Camera On":"Run Beacon";
     if (group->kind == GROUP_KIND_MOTOR) return s_motor_action_names[action_index];
     if (group->kind == GROUP_KIND_CAMERA)
         return g_vision_ipm_ok ? "Calib IPM: OK" : "Calib IPM";
@@ -1187,7 +1222,7 @@ static void render_group(void)
             uint8 action = (uint8)(index - action_begin);
 
             if (group->kind == GROUP_KIND_MOTOR || group->kind == GROUP_KIND_ZERO ||
-                group->kind == GROUP_KIND_ODOMETRY)
+                group->kind == GROUP_KIND_BEACON || group->kind == GROUP_KIND_ODOMETRY)
                 (void)snprintf(label, sizeof(label), "%s", action_name(action));
             else
                 (void)snprintf(label, sizeof(label), "%s %s Test",
@@ -1271,6 +1306,16 @@ static void toggle_group_action(uint8 action_index)
     if (action_index >= group->action_count)
         return;
 
+    if (group->kind == GROUP_KIND_BEACON) {
+        if(g_param.beacon.mode==0){menu_status("SET MODE:1 DIST 2 TIME 3 PRO");return;}
+        if(action_index==0u) {
+            if(start_flag!=START_STOP || control_test_running() || control_jog_running()!=MOTOR_JOG_NONE){menu_status("STOP MOTORS FIRST");return;}
+            if(vision_core_state()!=VISION_CORE_READY)(void)vision_command_request(VISION_CMD_RESTART_CAMERA,0);
+            menu_status("CAMERA ON / IMAGE TO VIEW");
+        } else run_action();
+        s_dirty=1;return;
+    }
+
     if (group->kind == GROUP_KIND_MOTOR)
     {
         motor_jog_action(action_index);
@@ -1342,7 +1387,7 @@ static void edit_current_parameter(float direction)
     float value = 0.0f;
 
     if (s_cursor >= group_item_count(group)) return;
-    if (group->kind == GROUP_KIND_MOTOR && (start_flag != START_STOP ||
+    if ((group->kind == GROUP_KIND_MOTOR || group->kind == GROUP_KIND_BEACON) && (start_flag != START_STOP ||
         control_test_running() || control_jog_running() != MOTOR_JOG_NONE)) return;
     if (group->kind == GROUP_KIND_ZERO && (start_flag != START_STOP ||
         control_test_running() || control_jog_running() != MOTOR_JOG_NONE)) return;
@@ -1374,12 +1419,13 @@ static uint8 group_param_edit_allowed(const menu_group_t *group, uint8 item_inde
     uint8 item_ring;
 
     if (path_nav_busy() || control_path_active()) return 0;
-    if (group->kind == GROUP_KIND_MOTOR &&
+    if ((group->kind == GROUP_KIND_MOTOR || group->kind == GROUP_KIND_BEACON) &&
         (control_test_running() || control_jog_running() != MOTOR_JOG_NONE)) return 0;
     if (group->kind == GROUP_KIND_ZERO &&
         (control_test_running() || control_jog_running() != MOTOR_JOG_NONE)) return 0;
     if (start_flag != START_STOP &&
         (group->kind == GROUP_KIND_MOTOR ||
+         group->kind == GROUP_KIND_BEACON ||
          group->kind == GROUP_KIND_ZERO ||
          group->kind == GROUP_KIND_ODOMETRY))
         return 0;
@@ -1508,6 +1554,7 @@ static void remote_action(void)
 // 车辆静止并位于直道中央时，CPU1 根据当前边线计算并回传矩阵。
 static void ipm_calib_action(void)
 {
+    if (g_param.beacon.mode != 0) {menu_status("IPM: SET BEACON MODE 0");return;}
     if (start_flag != START_STOP)
     {
         menu_status("IPM: STOP FIRST");

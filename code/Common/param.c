@@ -95,6 +95,23 @@ const param_desc_t g_param_table[] =
     { "jog_duty_drive",   &g_param.jog_duty_drive,   0,  0.0f,    3500.0f  },
     { "fly_speed_limit",  &g_param.fly_speed_limit,  0,  0.0f,    20000.0f },
     { "fly_slew",         &g_param.fly_slew,         0,  0.0f,    10000.0f },
+    // Restored Qcar beacon pipeline (CPU1), stopped-state settings.
+    { "beacon_mode", &g_param.beacon.mode, 0, 0.000000f, 3.000000f },
+    { "beacon_threshold", &g_param.beacon.threshold, 0, 1.000000f, 254.000000f },
+    { "beacon_radius", &g_param.beacon.radius, 0, 1.000000f, 4.000000f },
+    { "beacon_min_gray", &g_param.beacon.min_gray, 0, 0.000000f, 255.000000f },
+    { "beacon_max_miss", &g_param.beacon.max_miss, 0, 0.000000f, 40.000000f },
+    { "beacon_min_std", &g_param.beacon.min_std, 1, 0.000000f, 128.000000f },
+    { "beacon_min_ratio", &g_param.beacon.min_ratio, 1, 0.000000f, 10.000000f },
+    { "beacon_near_area", &g_param.beacon.near_area, 1, 0.000000f, 2000.000000f },
+    { "beacon_match_px", &g_param.beacon.match_px, 1, 0.000000f, 50.000000f },
+    { "beacon_speed_mps", &g_param.beacon.speed_mps, 1, 0.000000f, 0.500000f },
+    { "beacon_yaw_limit_dps", &g_param.beacon.yaw_limit_dps, 1, 0.000000f, 60.000000f },
+    { "beacon_mid_x", &g_param.beacon.mid_x, 1, 0.000000f, 187.000000f },
+    { "beacon_weight_dist", &g_param.beacon.weight_dist, 1, 0.000000f, 10.000000f },
+    { "beacon_weight_angle", &g_param.beacon.weight_angle, 1, 0.000000f, 10.000000f },
+    { "beacon_weight_continuity", &g_param.beacon.weight_continuity, 1, 0.000000f, 10.000000f },
+
 };
 
 #define PARAM_TABLE_NUM  ((uint16)(sizeof(g_param_table) / sizeof(g_param_table[0])))
@@ -489,6 +506,7 @@ void param_load_defaults(void)
     g_param.jog_duty_drive = JOG_DUTY_DRIVE_DEFAULT;
     g_param.fly_speed_limit = FLY_SPEED_LIMIT_DEFAULT;
     g_param.fly_slew        = FLY_SLEW_DEFAULT;
+    beacon_defaults(&g_param.beacon);
     g_param_revision++;
 }
 

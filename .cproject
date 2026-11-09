@@ -32,6 +32,7 @@
 									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/code/Estimation/Attitude/r10h/core}&quot;"/>
 									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/code/Estimation/Attitude/r10h/core/candidate}&quot;"/>
 									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/code/Estimation/Attitude/r10h/include}&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/code/Estimation/Beacon}&quot;"/>
 									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/code/Estimation/Vision}&quot;"/>
 									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/code/HW_Drivers}&quot;"/>
 									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/${ProjName}/code/HW_Drivers/IMU}&quot;"/>

@@ -414,6 +414,7 @@ static uint8 cfg_live_control(const char *name)
 
 static const char *cfg_group(const char *n)
 {
+    if (strncmp(n,"beacon_",7)==0) return "Beacon";
     if (strncmp(n, "r_", 2) == 0) return "Roll";
     if (strncmp(n, "p_", 2) == 0) return "Pitch";
     if (strncmp(n, "y_", 2) == 0) return "Yaw";
@@ -433,7 +434,7 @@ static const char *cfg_group(const char *n)
 static uint8 cfg_dangerous(const char *name)
 {
     const char *group = cfg_group(name);
-    return (uint8)(strcmp(group, "Motor") == 0 || strcmp(group, "Zero") == 0 || strcmp(group, "IPM") == 0);
+    return (uint8)(strcmp(group,"Beacon")==0 || strcmp(group, "Motor") == 0 || strcmp(group, "Zero") == 0 || strcmp(group, "IPM") == 0);
 }
 
 static uint8 cfg_stopped(void)

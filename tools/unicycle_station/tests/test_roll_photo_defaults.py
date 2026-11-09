@@ -41,7 +41,7 @@ def test_profile_matches_photo_and_complete_parameter_name_set(relative):
     rows={r['name']:r for r in profile['mock_parameters']}
     source=(ROOT/'code/Common/param.c').read_text(encoding='utf-8')
     names=re.findall(r'\{\s*"([^"]+)",\s*&g_param\.',source)
-    assert len(names)==80 and set(rows)==set(names)
+    assert len(names)==len(set(names)) and set(rows)==set(names)
     for key,value in values.items():
         assert rows[key]['value']==value and profile['parameters'][key]['default']==value
     for key in ('r_rate_notch_hz','r_rate_notch_q','r_rate_notch_db'):

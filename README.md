@@ -8,6 +8,8 @@ Read [ASC_PORT.md](ASC_PORT.md) for this vehicle, [validation](ASC_PORT_VALIDATI
 
 最新Roll默认参数按用户2026-11-09提供的实车菜单照片固化：Rate KP/KI为**45/0.05**，Angle KP/KI/KD为**30/0/20**，Speed KP/KI/KD为**0.0001/0/0**，Rate陷波为**45Hz、Q=3、dB=0（旁路）**。用户报告当前参数可稳定直立；本次软件验收没有代替实车复测。完整参数及适用范围见 [Roll实车参数记录](docs/design/Roll实车参数20261109.md)。
 
+2026-11-09：旧 Qcar 信标识别、时序追踪和三目标路径排序已恢复到 `code/Estimation/Beacon/`，通过 **Params → Beacon** 调试及启动运行；Mode=0 保留原循迹，Mode=1/2/3 为距离/时序/增强时序识别。当前 Roll 参数和增量 PI 保留。菜单操作、参数、相机标定及验证边界见 [信标识别与运行](docs/guides/信标识别与运行.md)。
+
 ---
 
 # Q-SmartCar
@@ -48,9 +50,9 @@ TC264D 双核 Q 型独轮车工程，包含三轴平衡、视觉循迹、路径�
 | 视觉 | 188×120 整帧、大津二值化、逐行提边、来源标记、半宽表、中线拟合、IPM |
 | 元素 | 斑马线、十字、左右环岛、坡道；没有路障实现 |
 | 通信 | cfg v1 / task1；att、run、stat、par、rsp、task、taskevt |
-| 参数 | 75 项运行参数、按名称及类型键保存、CRC 与逐字回读校验 |
+| 参数 | 95 项运行参数（含 15 项 Beacon）、按名称及类型键保存、CRC 与逐字回读校验 |
 
-PID 默认值已经不是全零；例如 Roll rate 界面为 `(20, 0, 8)`，内部有效系数为 `(20, 0, -8)`，Pitch rate 约为 `(20, 0.64, 0)`，Yaw rate 界面为 `(56, 0, 0)`，内部有效系数为 `(-56, 0, 0)`。Reset 会恢复这些非零默认值及默认零点、IPM 矩阵。源码默认参数不是适用于其他车辆的通用整定值。
+当前 Roll rate 为增量 PI，默认 `(45, 0.05, 0)`；Angle 为 `(30, 0, 20)`；Speed 为 `(0.0001, 0, 0)`，Rate 陷波 45Hz/Q3/dB0（旁路）。Pitch rate 约为 `(20, 0.64, 0)`，Yaw rate 界面为 `(56, 0, 0)`。上电 Flash 可覆盖默认值，Reset 恢复当前源码默认值。历史文档中的 Roll 位置式 Rate 与旧参数不再适用。
 
 ## 双核与实时调度
 
@@ -88,10 +90,10 @@ Roll 为左右倾斜，A/B 差动；Pitch 为前后倾斜，C 轮驱动；Yaw �
 
 ## 运行与停止
 
-主菜单为 `Params / Image / Run / Run Test / Path`。`Run Test` 内有 `Balance / Remote / Back`，参数页另有 Lean、Run、Odometry。
+主菜单为 `Params / Image / Run / Run Test / Path`。`Run Test` 内有 `Balance / Remote / Back`，参数页另有 Lean、Run、Odometry、Beacon。
 
 - Balance：三轴原地平衡，目标速度 0，启动时锁存航向，视觉不参与。
-- Run：要求 STOP、摄像头 READY、新鲜且有效的视觉结果、IPM 有效，以及全部 Balance 安全条件；按键两次确认。
+- Run：要求 STOP、摄像头 READY、新鲜且有效、模式匹配的视觉结果，以及全部 Balance 安全条件；循迹模式额外要求 IPM 有效，信标模式使用自己的相机标定。按键两次确认。
 - Remote：由车身两次确认启动后，才接受 `speed:turn,speed`；没有 cfg 远程发车命令。
 - Path：手推或遥控采集路线，停车后保存；从相对起点两次确认启动导航，终点减速后保留 Balance。路线在 Path → View Route 显示，详见路径导航指南。
 - 1m Test：使用三轴平衡直行验证里程，完成后仍保持平衡。

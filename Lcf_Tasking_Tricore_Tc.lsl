@@ -307,7 +307,9 @@ derivative tc26B
             select ".data.cpu1_dsram|.data.cpu1_dsram.*";
         }
         
-        group (ordered, contiguous, align = 4, run_addr = mem:dsram0)
+        /* Individual objects remain contiguous; allow CPU0 data sections to
+         * fill the fixed-stack gaps rather than requiring one large block. */
+        group (ordered, align = 4, run_addr = mem:dsram0)
         {
             select "(.data.data_cpu0|.data.data_cpu0*)";
             select "(.bss.bss_cpu0|.bss.bss_cpu0*)";

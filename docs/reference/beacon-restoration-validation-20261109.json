@@ -1,0 +1,46 @@
+{
+  "baseline_commit": "76c961ed7895bad7b60ce5559e042d05a04ef562",
+  "legacy_source_commit": "7a053b2a966b72461266abb3c2b32254fadcb053",
+  "build": {
+    "success": true,
+    "errors": 0,
+    "warnings": 0,
+    "source_hash_matches": true,
+    "input_sha256": "f399c6568f6441775de4165e5186ca311ceeec2cdb0f6a416e1a7a7f8a565fa9",
+    "artifacts": [
+      {
+        "file": "Debug/OneWheelUpright.elf",
+        "sha256": "572d3e66c6b1cb964b51b6fff837fe63050f76356aa275348fd0e0567cf4d566",
+        "bytes": 13467912
+      },
+      {
+        "file": "Debug/OneWheelUpright.hex",
+        "sha256": "d1f780be208a473a42d1ce083e38d4302013de62d289c03ed1d2115feea5f287",
+        "bytes": 528168
+      },
+      {
+        "file": "Debug/OneWheelUpright.map",
+        "sha256": "423c6ccbb86237bc5738885b09ad3b78fa2a5829ffd74e766a77879f2867a575",
+        "bytes": 3267761
+      }
+    ],
+    "ads_project_beacon_include_path_verified": true
+  },
+  "tests": {
+    "targeted_passed": 35,
+    "additional_lean_defaults_and_flash_passed": 3,
+    "imu_native_test_deselected": 1,
+    "baseline_lean_host_test_failed": 1,
+    "baseline_lean_note": "Same first assertion fails with unchanged production lean_offset_update and HEAD board_config/param/direction headers under TCC. Not represented as passed.",
+    "gui_suite": "Not run: PySide6 unavailable in test Python."
+  },
+  "memory_free_bytes": {
+    "cpu0_dsram": 1877,
+    "cpu1_dsram": 2200,
+    "cpu1_psram": 3616
+  },
+  "flashed": false,
+  "hardware_validated": false,
+  "committed": false,
+  "pushed": false
+}

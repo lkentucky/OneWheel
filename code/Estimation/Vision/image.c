@@ -2263,3 +2263,6 @@ ipm_pick_t image_ipm_pick_points(float pts[4], int *rn, int *rf, float *len_rati
 }
 
 #pragma section all restore
+
+/* CPU1 only: immutable until the next image_grab(). */
+const uint8 *image_gray_data(void) { return &img_gray[0][0]; }

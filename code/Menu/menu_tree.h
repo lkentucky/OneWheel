@@ -3,7 +3,7 @@
 #define QCAR_LINKED_MENU_TREE_H
 #include <stdint.h>
 #ifndef MENU_TREE_CAPACITY
-#define MENU_TREE_CAPACITY 160u
+#define MENU_TREE_CAPACITY 192u
 #endif
 typedef void (*Menu_Draw)(void);
 typedef void (*Menu_Keys)(uint8_t,uint8_t,uint8_t,uint8_t);

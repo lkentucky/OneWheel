@@ -53,7 +53,7 @@ static float  s_ipm_ratio_sum;      // 纵横尺度比累加值
 static uint32 s_ipm_param_revision; // 已应用的 CPU0 参数修订号
 #pragma section all restore
 
-#pragma section code "cpu1_psram"
+#pragma section code "vision_flash"
 
 //-------------------------------------------------------------------------------------------------------------------
 // 函数简介     将整数压缩到图像列坐标范围
@@ -98,6 +98,7 @@ static uint8 vision_feedback_read(vision_feedback_t *feedback)
 static void vision_feedback_defaults(vision_feedback_t *feedback)
 {
     memset(feedback, 0, sizeof(*feedback));
+    beacon_defaults(&feedback->beacon);
     feedback->speed_cross_mps = RUN_SPEED_CROSS_DEFAULT;
     feedback->speed_ring_mps = RUN_SPEED_RING_DEFAULT;
     feedback->speed_ramp_mps = RUN_SPEED_RAMP_DEFAULT;
@@ -375,6 +376,38 @@ void vision_core_run(void)
             ipm_clear();
         }
     }
+
+    if (feedback.beacon.mode != 0) {
+        int row;
+        memset(&result,0,sizeof(result));
+        beacon_process(image_gray_data(),my_image.image_two_value,&feedback.beacon,&result.beacon);
+        my_image.Track_Valid=result.beacon.valid;
+        my_image.Threshold=feedback.beacon.threshold;
+        my_image.Search_Stop_Line=0;
+        g_elem_action.active_elem=ELEM_NONE;
+        for(row=0;row<IMG_H;row++) {
+            my_image.Left_Lost_Flag[row]=my_image.Right_Lost_Flag[row]=my_image.Mid_Lost_Flag[row]=1;
+            if(result.beacon.valid && abs(row-(int)result.beacon.cy)<=4) {
+                my_image.Mid_Line[row]=(int)result.beacon.cx;
+                my_image.Mid_Lost_Flag[row]=0;
+            }
+        }
+        result.source_mode=(uint8)feedback.beacon.mode;
+        result.frame_seq=++s_frame_seq;result.input_seq=feedback.input_seq;result.heartbeat=s_heartbeat;
+        result.track_valid=result.beacon.valid;result.camera_ok=1;result.run_active=feedback.run_active;
+        result.track_mode=result.beacon.valid?TRACK_MODE_MIDDLE:TRACK_MODE_HOLD;
+        result.active_elem=ELEM_NONE;result.threshold=(uint16)feedback.beacon.threshold;
+        result.ipm_ok=ipm_ready();ipm_store(result.ipm_h);
+        if(result.beacon.valid) {
+            result.lateral_error=(feedback.beacon.mid_x-result.beacon.cx)/94.0f;
+            result.direction_camera=(feedback.beacon.mid_x-result.beacon.cx)*DIRECTION_CAMERA_WEIGHT_SUM;
+            result.quality=1;result.speed_limit_mps=feedback.beacon.speed_mps;
+        }
+        vision_display_publish((vision_display_mode_t)s_display_mode);
+        vision_result_publish(&result);
+        return;
+    }
+    {beacon_result_t unused;beacon_process(0,0,&feedback.beacon,&unused);}
 
     // 元素检测只读本帧原始边线；补线完成后统一生成一次中线和转向量。
     if (my_image.Track_Valid)

@@ -14,6 +14,7 @@ def param_host_source():
     return r'''
 #include "Common/board_config.h"
 #include "Common/param.h"
+#include "Estimation/Beacon/beacon_config.c"
 #include <assert.h>
 #include <math.h>
 float g_roll_zero,g_pitch_zero;

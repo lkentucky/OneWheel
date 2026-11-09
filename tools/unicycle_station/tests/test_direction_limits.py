@@ -11,6 +11,7 @@ def test_direction_large_errors_and_existing_gates(tmp_path):
 #include "Common/board_config.h"
 #include <assert.h>
 #include <math.h>
+param_t g_param;
 #define TRACK_MODE_MIDDLE 0
 #define TRACK_MODE_LEFT 1
 #define TRACK_MODE_RIGHT 2
@@ -101,6 +102,12 @@ int main(void){
  s_run_active=0;direction_control_update();
  near(s_direction_offset,0);near(s_direction_yaw_rate_target,0);
  near(s_direction_yaw_rate_cmd,0);
+ /* Beacon steering reuses the path but has its own low initial rate limit. */
+ s_run_active=1;g_track_valid=1;g_vision_track_mode=TRACK_MODE_MIDDLE;
+ g_vision_direction_camera=15000;g_yaw_momentum_scale=1;
+ g_param.beacon.mode=1;g_param.beacon.yaw_limit_dps=15;
+ for(int i=0;i<100;i++)direction_control_update();
+ assert(fabsf(s_direction_yaw_rate_target)<=15);
  return 0;
 }
 '''

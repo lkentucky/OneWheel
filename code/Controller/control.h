@@ -1,5 +1,6 @@
 #ifndef CONTROL_H_
 #define CONTROL_H_
+#include "Estimation/Beacon/beacon_core.h"
 
 #include "zf_common_headfile.h"
 #include "Common/pid.h"
@@ -382,5 +383,8 @@ motor_jog_t control_jog_running(void);
 // 使用示例     control_camera_debug_start();
 //-------------------------------------------------------------------------------------------------------------------
 uint8 control_camera_debug_start(void);
+
+extern beacon_result_t g_beacon_result;
+extern uint8 g_vision_source_mode;
 
 #endif

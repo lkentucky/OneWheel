@@ -3,6 +3,7 @@
 
 #include "zf_common_headfile.h"
 #include "Common/direction_config.h"
+#include "Estimation/Beacon/beacon_core.h"
 
 #define PARAM_MAGIC_LEGACY      (0x51434145u)   // 旧绝对符号参数
 #define PARAM_MAGIC             (0x51434146u)   // 2026-09-21 相对基准符号参数
@@ -98,6 +99,7 @@ typedef struct
     int   jog_duty_drive;               // C 架空点动占空比，满量程 10000
     int   fly_speed_limit;              // A/B 转速上限(RPM)，超了停测试，0=关闭
     int   fly_slew;                     // A/B 占空比变化率上限(每1ms)，0=不限
+    beacon_config_t beacon; // CPU1 beacon settings; persisted by individual name
 } param_t;
 
 extern param_t g_param;                 // 运行参数

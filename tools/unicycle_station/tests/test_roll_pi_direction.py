@@ -148,7 +148,7 @@ def test_roll_menu_ownership_follows_names(tmp_path):
 #include <string.h>
 #include <stdint.h>
 typedef uint8_t uint8;
-enum {GROUP_KIND_AXIS,GROUP_KIND_ZERO,GROUP_KIND_MOTOR,GROUP_KIND_ODOMETRY};
+enum {GROUP_KIND_AXIS,GROUP_KIND_ZERO,GROUP_KIND_MOTOR,GROUP_KIND_ODOMETRY,GROUP_KIND_BEACON};
 enum {TUNE_AXIS_ROLL,TUNE_AXIS_PITCH};
 enum {TUNE_RING_RATE,TUNE_RING_ANGLE,TUNE_RING_VEL};
 #define START_STOP 0

@@ -193,6 +193,7 @@ def test_real_flash_load_preserves_old_tuning_and_ignores_old_lean_gain(tmp_path
     source = r'''
 #include "Common/param.h"
 #include "Common/board_config.h"
+#include "Estimation/Beacon/beacon_config.c"
 #include <assert.h>
 #include <math.h>
 param_t g_param;
@@ -214,7 +215,7 @@ static void record(int index,const char *name,float value) {
 }
 int main(void) {
     assert(param_keys_unique());
-    assert(PARAM_TABLE_NUM==75 && PARAM_TABLE_NUM<=PARAM_MAX_RECORDS);
+    assert(PARAM_TABLE_NUM==95 && PARAM_TABLE_NUM<=PARAM_MAX_RECORDS);
     flash_union_buffer[0].uint32_type=PARAM_MAGIC_LEGACY;
     flash_union_buffer[1].uint32_type=5;
     record(0,"lean_roll_kp",100);record(1,"lean_max_angle",8);
