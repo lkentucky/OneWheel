@@ -6,6 +6,8 @@
 #include "Estimation/Vision/vision_core.h"
 #include "zf_device_ips200.h"
 
+#define UI_CAM_STATUS_TIMEOUT_MS (500u)
+
 #define IMAGE_PAGE_X       (40)         // 图像区在横屏 320 像素宽屏幕内水平居中
 #define IMAGE_PAGE_Y       (74)         // 图像区在状态栏下方垂直居中
 #define IMAGE_PAGE_W       (240)        // 横屏显示区
@@ -16,6 +18,9 @@ static uint8       s_last_mode = 0xFF;                  // 上次已绘制的模
 static uint8       s_dirty = 1;                         // 需要重画标志
 static uint16      s_exposure = CAM_EXPOSURE_DEFAULT;   // 当前曝光时间
 static uint8       s_image_page_active = 0;             // IPS200 处于横屏图像页
+static vision_camera_status_t s_camera_view;
+static uint32 s_lcd_frame_seq, s_lcd_frame_ms;
+static uint8 s_view_has_frame, s_exposure_waiting, s_exposure_enqueue_failed;
 static const vision_display_frame_t *s_frame;           // 本次绘制期间锁定的 CPU1 快照
 
 static uint8       s_ipm_pick = IPM_PICK_NO_TRACK;      // 上一帧取角点的结果，ipm_pick_t
@@ -110,7 +115,7 @@ static void image_page_overlay_lines(void)
     int last_mid_col = 0;
 
     if (s_frame == 0) return;
-    top = IMG_H - (int)s_frame->search_stop_line;
+    top = s_frame->source_mode ? 0 : IMG_H - (int)s_frame->search_stop_line;
     if (top < 0) top = 0;
     if (top >= IMG_H) top = IMG_H - 1;
 
@@ -169,38 +174,61 @@ static void image_page_overlay_lines(void)
 // 返回参数     void
 // 使用示例     image_page_draw_header();
 //-------------------------------------------------------------------------------------------------------------------
+static void image_diag_line(uint16 y, const char *text, uint16 color)
+{
+    char padded[41];
+    (void)snprintf(padded, sizeof(padded), "%-40.40s", text);
+    ips200_set_color(color, RGB565_BLACK);
+    ips200_show_string(0, y, padded);
+}
+
 static void image_page_draw_header(void)
 {
-    ips200_set_font(IPS200_8X16_FONT);
-    ips200_set_color(RGB565_WHITE, RGB565_BLACK);
-
-    switch (s_mode)
+    vision_camera_status_t status;
+    const char *mode = s_mode == DISP_MODE_GRAY ? "GRAY" : s_mode == DISP_MODE_BIN ? "BIN" : "BIN+L";
+    const char *exp;
+    char line[41];
+    if (vision_camera_status_read(&status))
     {
-    case DISP_MODE_BIN:      ips200_show_string(0, 0, "BIN  "); break;
-    case DISP_MODE_GRAY:     ips200_show_string(0, 0, "GRAY "); break;
-    default:                 ips200_show_string(0, 0, "BIN+L"); break;
+        if (status.diagnostic != s_camera_view.diagnostic) s_exposure_waiting = 0;
+        s_camera_view = status;
+        if (s_exposure_waiting && status.exposure_requested == s_exposure) s_exposure_waiting = 0;
+        if (!status.diagnostic) s_exposure = (uint16)CAM_EXPOSURE;
+        else if (!s_exposure_waiting) s_exposure = status.exposure_requested;
     }
-
-    ips200_show_string(48, 0, "E");
-    ips200_show_int(56, 0, (int32)s_exposure, 4);
-    ips200_show_string(96, 0, "T");
-    ips200_show_int(104, 0, (int32)((s_frame != 0) ? s_frame->threshold : 0), 3);
-    ips200_show_string(136, 0, "V");
-    ips200_show_int(144, 0, (int32)((s_frame != 0) ? s_frame->track_valid : 0), 1);
-
-    ips200_show_string(0, 16,
-        element_name((s_frame != 0) ? s_frame->active_elem : (uint8)ELEM_NONE));
-
-    ips200_show_string(48, 16, "F");
-    ips200_show_int(56, 16, (int32)(g_vision_fps + 0.5f), 3);
-
-    ips200_show_string(96, 16, "L");
-    ips200_show_int(104, 16, (int32)((s_frame != 0) ? s_frame->search_stop_line : 0), 3);
-
-    ips200_set_color(g_vision_ipm_ok ? RGB565_GREEN : RGB565_RED, RGB565_BLACK);
-    ips200_show_string(136, 16, "P");
-    ips200_show_int(144, 16, (int32)g_vision_ipm_ok, 1);
-    ips200_set_color(RGB565_WHITE, RGB565_BLACK);
+    exp = (s_exposure_waiting || s_camera_view.exposure_requested != s_exposure) ? "QUEUE" :
+          s_camera_view.exposure_state == VISION_EXPOSURE_OK ? "OK" :
+          s_camera_view.exposure_state == VISION_EXPOSURE_FAILED ? "ERR" :
+          s_camera_view.exposure_state == VISION_EXPOSURE_PENDING ? "WAIT" : "--";
+    ips200_set_font(IPS200_8X16_FONT);
+    (void)snprintf(line,sizeof(line),"%s E%u A%u EXP:%s",mode,(unsigned)s_exposure,
+                   (unsigned)s_camera_view.exposure_applied,exp);
+    image_diag_line(0,line,s_camera_view.exposure_state==VISION_EXPOSURE_FAILED?RGB565_RED:RGB565_WHITE);
+    (void)snprintf(line,sizeof(line),"T%u V%u F%u P%u %s%u",
+                   (unsigned)(s_frame?s_frame->threshold:0),(unsigned)(s_frame?s_frame->track_valid:0),
+                   (unsigned)(g_vision_fps+.5f),(unsigned)g_vision_ipm_ok,
+                   s_camera_view.diagnostic?"RAW":"NORMAL",(unsigned)s_camera_view.configured_fps);
+    image_diag_line(16,line,RGB565_WHITE);
+    (void)snprintf(line,sizeof(line),"RAW:%lu LCD:%lu",(unsigned long)s_camera_view.frame_seq,(unsigned long)s_lcd_frame_seq);
+    image_diag_line(32,line,RGB565_WHITE);
+    if (s_camera_view.gray_valid)
+        (void)snprintf(line,sizeof(line),"GRAY min:%u avg:%u max:%u",(unsigned)s_camera_view.gray_min,
+                       (unsigned)s_camera_view.gray_mean,(unsigned)s_camera_view.gray_max);
+    else (void)snprintf(line,sizeof(line),"GRAY: NO CAPTURE");
+    image_diag_line(48,line,RGB565_WHITE);
+    (void)snprintf(line,sizeof(line),"VS%lu DM%lu DROP%lu",(unsigned long)s_camera_view.vsync_count,
+                   (unsigned long)s_camera_view.dma_count,(unsigned long)s_camera_view.busy_drop_count);
+    image_diag_line(184,line,RGB565_WHITE);
+    if (s_exposure_enqueue_failed) (void)snprintf(line,sizeof(line),"COMMAND QUEUE FULL / RETRY");
+    else if (!s_camera_view.gray_valid || g_vision_age_ms >= UI_CAM_STATUS_TIMEOUT_MS)
+        (void)snprintf(line,sizeof(line),"WAIT CAMERA FRAME");
+    else if (!s_view_has_frame || (uint32)(g_control_uptime_ms-s_lcd_frame_ms)>500u)
+        (void)snprintf(line,sizeof(line),"WAIT DISPLAY SNAPSHOT");
+    else if (s_camera_view.gray_max == 0u) (void)snprintf(line,sizeof(line),"CAPTURE PIXELS ALL ZERO");
+    else if (s_camera_view.gray_max <= 8u) (void)snprintf(line,sizeof(line),"CAPTURE VERY DARK / CHECK EXP");
+    else (void)snprintf(line,sizeof(line),"SNAPSHOT DRAWN / CHECK IMAGE");
+    image_diag_line(200,line,RGB565_YELLOW);
+    image_diag_line(216,"UP/DN Exp ENT View BACK Return",RGB565_WHITE);
 }
 
 //-------------------------------------------------------------------------------------------------------------------
@@ -275,7 +303,7 @@ int display_ipm_width(uint8 near)
 }
 
 //-------------------------------------------------------------------------------------------------------------------
-// 函数简介     复位显示模式并按运行参数下发一次曝光
+// 函数简介     复位显示模式；进入页面不额外发送曝光命令
 // 参数说明     void
 // 返回参数     void
 // 使用示例     display_init();
@@ -287,7 +315,10 @@ void display_init(void)
     s_dirty = 1;
     s_image_page_active = 0;
     s_frame = 0;
-    display_set_exposure((uint16)CAM_EXPOSURE);
+    s_exposure = (uint16)CAM_EXPOSURE;
+    memset(&s_camera_view,0,sizeof(s_camera_view));
+    s_lcd_frame_seq=s_lcd_frame_ms=0;
+    s_view_has_frame=s_exposure_waiting=s_exposure_enqueue_failed=0;
 }
 
 //-------------------------------------------------------------------------------------------------------------------
@@ -302,6 +333,7 @@ void display_next_mode(void)
     if (s_mode >= DISP_MODE_MAX) s_mode = DISP_MODE_BIN_LINE;
     s_last_mode = 0xFF;
     s_dirty = 1;
+    s_view_has_frame = 0;
     vision_display_request((vision_display_mode_t)s_mode);
 }
 
@@ -374,14 +406,20 @@ void display_exposure_step(int step)
 //-------------------------------------------------------------------------------------------------------------------
 void display_set_exposure(uint16 exposure)
 {
-    int v = (int)exposure;
-
+    vision_camera_status_t status;
+    int v = exposure;
+    uint8 diagnostic = s_camera_view.diagnostic;
+    if (vision_camera_status_read(&status)) diagnostic = status.diagnostic;
     if (v < CAM_EXP_MIN) v = CAM_EXP_MIN;
     if (v > CAM_EXP_MAX) v = CAM_EXP_MAX;
-
+    /* Diagnostic edits never replace the normal RAM/Flash exposure setting. */
+    if (!diagnostic && !param_set_by_name("cam_exposure",(float)v)) return;
     s_exposure = (uint16)v;
-    (void)param_set_by_name("cam_exposure", (float)v);
-    (void)vision_command_request(VISION_CMD_SET_EXPOSURE, s_exposure);
+    /* Normal exposure follows the latest 5ms parameter snapshot, coalescing
+     * rapid key/remote edits without queuing stale values. Diagnostic values
+     * use the ordered command queue because they must not change g_param. */
+    s_exposure_enqueue_failed = diagnostic ? (uint8)!vision_command_request(VISION_CMD_SET_EXPOSURE,s_exposure) : 0;
+    s_exposure_waiting = (uint8)(diagnostic && !s_exposure_enqueue_failed);
     s_dirty = 1;
 }
 
@@ -408,6 +446,7 @@ uint8 display_view_dirty(void)
 void display_track_view(void)
 {
     const vision_display_frame_t *frame;
+    vision_camera_status_t status;
 
     if (!s_image_page_active) return;
 
@@ -417,7 +456,8 @@ void display_track_view(void)
         image_page_draw_header();
         return;
     }
-    if (frame->mode != (uint8)s_mode)
+    if (frame->mode != (uint8)s_mode ||
+        (vision_camera_status_read(&status) && frame->generation != status.generation))
     {
         vision_display_release();
         vision_display_request((vision_display_mode_t)s_mode);
@@ -433,6 +473,9 @@ void display_track_view(void)
     }
 
     image_page_blit();
+    s_lcd_frame_seq=frame->frame_seq;
+    s_lcd_frame_ms=g_control_uptime_ms;
+    s_view_has_frame=1;
     if (s_mode == DISP_MODE_BIN_LINE)
         image_page_overlay_lines();
     image_page_draw_header();

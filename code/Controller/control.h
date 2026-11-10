@@ -383,6 +383,7 @@ motor_jog_t control_jog_running(void);
 // 使用示例     control_camera_debug_start();
 //-------------------------------------------------------------------------------------------------------------------
 uint8 control_camera_debug_start(void);
+uint8 control_camera_profile_request(uint8 diagnostic);
 
 extern beacon_result_t g_beacon_result;
 extern uint8 g_vision_source_mode;

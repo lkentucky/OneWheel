@@ -249,7 +249,7 @@ static const menu_group_t s_groups[] =
     { "Yaw",    s_yaw_items,    MENU_ITEMS_OF(s_yaw_items),    TUNE_AXIS_YAW,   2, GROUP_KIND_AXIS   },
     { "Lean",    s_lean_items,    MENU_ITEMS_OF(s_lean_items),    TUNE_AXIS_ROLL, 0, GROUP_KIND_LEAN },
     { "Run",     s_run_items,     MENU_ITEMS_OF(s_run_items),     TUNE_AXIS_YAW,  0, GROUP_KIND_RUN     },
-    { "Camera",  s_camera_items,  MENU_ITEMS_OF(s_camera_items),  TUNE_AXIS_YAW,  1, GROUP_KIND_CAMERA  },
+    { "Camera",  s_camera_items,  MENU_ITEMS_OF(s_camera_items),  TUNE_AXIS_YAW,  3, GROUP_KIND_CAMERA  },
     { "Element", s_element_items, MENU_ITEMS_OF(s_element_items), TUNE_AXIS_YAW,  0, GROUP_KIND_ELEMENT },
     { "Motor",   s_motor_items,   MENU_ITEMS_OF(s_motor_items),   TUNE_AXIS_ROLL, 6, GROUP_KIND_MOTOR   },
     { "Zero",    s_zero_items,    MENU_ITEMS_OF(s_zero_items),    TUNE_AXIS_ROLL, 0, GROUP_KIND_ZERO    },
@@ -1144,8 +1144,11 @@ static const char *action_name(uint8 action_index)
 
     if (group->kind == GROUP_KIND_BEACON) return action_index==0u?"Camera On":"Run Beacon";
     if (group->kind == GROUP_KIND_MOTOR) return s_motor_action_names[action_index];
-    if (group->kind == GROUP_KIND_CAMERA)
+    if (group->kind == GROUP_KIND_CAMERA) {
+        if (action_index == 1u) return "Diag 50/512";
+        if (action_index == 2u) return "Normal Camera";
         return g_vision_ipm_ok ? "Calib IPM: OK" : "Calib IPM";
+    }
     if (group->kind == GROUP_KIND_ODOMETRY)
     {
         if (action_index == 0u) return "Reset Counter";
@@ -1222,7 +1225,7 @@ static void render_group(void)
             uint8 action = (uint8)(index - action_begin);
 
             if (group->kind == GROUP_KIND_MOTOR || group->kind == GROUP_KIND_ZERO ||
-                group->kind == GROUP_KIND_BEACON || group->kind == GROUP_KIND_ODOMETRY)
+                group->kind == GROUP_KIND_BEACON || group->kind == GROUP_KIND_CAMERA || group->kind == GROUP_KIND_ODOMETRY)
                 (void)snprintf(label, sizeof(label), "%s", action_name(action));
             else
                 (void)snprintf(label, sizeof(label), "%s %s Test",
@@ -1310,8 +1313,10 @@ static void toggle_group_action(uint8 action_index)
         if(g_param.beacon.mode==0){menu_status("SET MODE:1 DIST 2 TIME 3 PRO");return;}
         if(action_index==0u) {
             if(start_flag!=START_STOP || control_test_running() || control_jog_running()!=MOTOR_JOG_NONE){menu_status("STOP MOTORS FIRST");return;}
-            if(vision_core_state()!=VISION_CORE_READY)(void)vision_command_request(VISION_CMD_RESTART_CAMERA,0);
-            menu_status("CAMERA ON / IMAGE TO VIEW");
+            vision_core_state_t state=vision_core_state();
+            if ((state==VISION_CORE_OFF || state==VISION_CORE_FAILED) &&
+                !vision_command_request(VISION_CMD_RESTART_CAMERA,0)) menu_status("CAMERA QUEUE FULL");
+            else menu_status(state==VISION_CORE_READY ? "CAMERA READY / IMAGE TO VIEW" : "CAMERA REQUESTED / WAIT");
         } else run_action();
         s_dirty=1;return;
     }
@@ -2034,8 +2039,12 @@ static void handle_group(uint8 up, uint8 down, uint8 enter, uint8 back)
     }
     else if (s_cursor >= action_begin && s_cursor < save_index)
     {
-        if (group->kind == GROUP_KIND_CAMERA)
-            ipm_calib_action();
+        if (group->kind == GROUP_KIND_CAMERA) {
+            uint8 action=(uint8)(s_cursor-action_begin);
+            if (action==0u) ipm_calib_action();
+            else menu_status(control_camera_profile_request((uint8)(action==1u)) ?
+                             "CAMERA PROFILE REQUESTED" : "CAM PROFILE BLOCKED/FULL");
+        }
         else
             toggle_group_action((uint8)(s_cursor - action_begin));
     }
@@ -2072,7 +2081,15 @@ static void handle_image(uint8 up, uint8 down, uint8 enter, uint8 back)
     if (up) display_exposure_step(CAM_EXP_STEP);
     if (down) display_exposure_step(-CAM_EXP_STEP);
     if (enter)
-        display_next_mode();
+    {
+        state = vision_core_state();
+        if (state == VISION_CORE_OFF || state == VISION_CORE_FAILED)
+        {
+            (void)control_camera_debug_start();
+            s_last_image_state = 0xFFu;
+        }
+        else display_next_mode();
+    }
 
     state = vision_core_state();
     s_image_ok = (uint8)(state == VISION_CORE_READY);
@@ -2095,7 +2112,7 @@ static void handle_image(uint8 up, uint8 down, uint8 enter, uint8 back)
                 ui_line(48, "CAMERA STARTING", UI_YELLOW);
                 ui_line(72, "Waiting for CPU1...", UI_GRAY);
             }
-            ui_line(216, "BACK Return", UI_GRAY);
+            ui_line(216, "ENT Retry / BACK Return", UI_GRAY);
         }
     }
 
@@ -2166,7 +2183,7 @@ static int menu_tree_build(void)
   }
   s_group_index=(uint8)i;
   for(j=0;j<s_groups[i].action_count;++j){
-   if(s_groups[i].kind==GROUP_KIND_CAMERA){
+   if(s_groups[i].kind==GROUP_KIND_CAMERA && j==0u){
     n=add_folder(group,"IPM",MENU_PAGE_IPM,(uint8)i,0,handle_ipm);if(!n)return 0;s_views[MENU_PAGE_IPM]=n;
    }else if(!Menu_Tree_Add(group,action_name((uint8)j),MENU_Action,MENU_PAGE_GROUP,(uint8)i,0))return 0;
   }

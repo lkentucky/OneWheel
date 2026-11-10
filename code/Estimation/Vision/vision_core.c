@@ -18,17 +18,21 @@ typedef struct
     vision_feedback_t payload;
 } vision_feedback_box_t;
 
+#define VISION_COMMAND_CAPACITY 8u
+typedef struct { vision_command_t command; uint16 value; } vision_command_entry_t;
 typedef struct
 {
-    volatile uint32 seq;
-    vision_command_t command;
-    uint16 value;
+    volatile uint32 head, tail;
+    vision_command_entry_t entries[VISION_COMMAND_CAPACITY];
 } vision_command_box_t;
+typedef struct { volatile uint32 seq; vision_camera_status_t payload; } vision_camera_box_t;
 
 #pragma section all "vision_shared"
 static vision_result_box_t   s_result_box;
 static vision_feedback_box_t s_feedback_box;
 static vision_command_box_t  s_command_box;
+static vision_camera_box_t s_camera_box;
+static volatile uint8 s_camera_reconfiguring;
 static volatile uint32       s_heartbeat;
 static volatile uint8        s_display_request;
 static volatile uint8        s_display_ready;
@@ -39,7 +43,9 @@ static vision_display_frame_t s_display_frame;
 
 #pragma section all "cpu1_dsram"
 static uint32 s_frame_seq;
-static uint32 s_command_seq;
+static vision_camera_status_t s_camera_status;
+static uint16 s_feedback_exposure;
+static uint8 s_exposure_pending;
 static uint16 s_camera_exposure;
 static vision_feedback_t s_feedback_cache;
 static uint8  s_ipm_calib_seq;      // 本核完成的标定次数，随结果发回 CPU0
@@ -140,19 +146,69 @@ static void vision_result_publish(const vision_result_t *result)
 //-------------------------------------------------------------------------------------------------------------------
 static uint8 vision_command_read(vision_command_t *command, uint16 *value)
 {
-    uint32 seq_begin;
-    uint32 seq_end;
-
-    seq_begin = s_command_box.seq;
-    if (seq_begin == s_command_seq || (seq_begin & 1u)) return 0;
+    uint32 tail = s_command_box.tail;
+    if (tail == s_command_box.head) return 0;
     __dsync();
-    *command = s_command_box.command;
-    *value = s_command_box.value;
+    *command = s_command_box.entries[tail % VISION_COMMAND_CAPACITY].command;
+    *value = s_command_box.entries[tail % VISION_COMMAND_CAPACITY].value;
     __dsync();
-    seq_end = s_command_box.seq;
-    if (seq_begin != seq_end || (seq_end & 1u)) return 0;
-    s_command_seq = seq_end;
+    if (*command == VISION_CMD_RESTART_CAMERA || *command == VISION_CMD_SET_PROFILE)
+    {
+        s_camera_reconfiguring = 1;
+        __dsync();
+    }
+    s_command_box.tail = tail + 1u;
     return 1;
+}
+
+static void vision_camera_status_publish(void)
+{
+    uint32 seq = s_camera_box.seq;
+    s_camera_status.vsync_count = mt9v03x_vsync_count;
+    s_camera_status.dma_count = mt9v03x_dma_count;
+    s_camera_status.busy_drop_count = mt9v03x_busy_drop_count;
+    s_camera_status.exposure_requested = s_camera_exposure;
+    s_camera_box.seq = seq + 1u;
+    __dsync();
+    s_camera_box.payload = s_camera_status;
+    __dsync();
+    s_camera_box.seq = seq + 2u;
+    __dsync();
+}
+
+static void vision_exposure_apply(void)
+{
+    if (!s_exposure_pending || s_core_state != VISION_CORE_READY) return;
+    s_camera_status.exposure_state = VISION_EXPOSURE_PENDING;
+    vision_camera_status_publish();
+    if (mt9v03x_set_exposure_time(s_camera_exposure) == 0u)
+    {
+        s_camera_status.exposure_applied = s_camera_exposure;
+        s_camera_status.exposure_state = VISION_EXPOSURE_OK;
+    }
+    else s_camera_status.exposure_state = VISION_EXPOSURE_FAILED;
+    s_exposure_pending = 0; /* retry only on a new request, never block every frame */
+    vision_camera_status_publish();
+}
+
+static void vision_capture_status(void)
+{
+    const uint8 *gray = image_gray_data();
+    uint32 i, sum = 0;
+    uint8 lo = 255, hi = 0;
+    for (i = 0; i < (uint32)(IMG_W * IMG_H); ++i)
+    {
+        uint8 v = gray[i];
+        if (v < lo) lo = v;
+        if (v > hi) hi = v;
+        sum += v;
+    }
+    s_camera_status.frame_seq = ++s_frame_seq;
+    s_camera_status.gray_min = lo;
+    s_camera_status.gray_max = hi;
+    s_camera_status.gray_mean = (uint8)((sum + IMG_W * IMG_H / 2u) / (IMG_W * IMG_H));
+    s_camera_status.gray_valid = 1;
+    vision_camera_status_publish();
 }
 
 //-------------------------------------------------------------------------------------------------------------------
@@ -166,6 +222,7 @@ static void vision_display_publish(vision_display_mode_t mode)
     int row;
 
     if (s_display_ready || !s_display_request) return;
+    s_display_frame.generation = s_camera_status.generation;
     s_display_frame.frame_seq = s_frame_seq;
     s_display_frame.threshold = (uint16)my_image.Threshold;
     s_display_frame.search_stop_line = (uint16)my_image.Search_Stop_Line;
@@ -185,6 +242,7 @@ static void vision_display_publish(vision_display_mode_t mode)
     s_display_frame.mode = (uint8)mode;
     s_display_frame.track_valid = (uint8)my_image.Track_Valid;
     s_display_frame.active_elem = (uint8)g_elem_action.active_elem;
+    s_display_frame.source_mode = (uint8)s_feedback_cache.beacon.mode;
 
     if (mode == VISION_DISPLAY_GRAY)
         image_copy_gray(&s_display_frame.pixels[0][0]);
@@ -216,20 +274,34 @@ static void vision_display_publish(vision_display_mode_t mode)
 static uint8 vision_camera_start(void)
 {
     uint8 ok;
-
     s_core_state = VISION_CORE_STARTING;
+    s_camera_status.generation++;
+    s_ipm_collecting = 0;
+    s_ipm_collect_count = 0;
+    s_camera_status.gray_valid = 0;
+    s_camera_status.frame_seq = 0;
+    s_camera_status.exposure_applied = 0;
+    s_camera_status.exposure_state = VISION_EXPOSURE_PENDING;
+    vision_camera_status_publish();
+    beacon_reset();
     image_init();
     element_init();
-    ok = (uint8)(mt9v03x_init() == 0u);
+    ok = (uint8)(mt9v03x_init_profile(s_camera_status.configured_fps, s_camera_exposure) == 0u);
     if (ok)
     {
-        (void)mt9v03x_set_exposure_time(s_camera_exposure);
         s_core_state = VISION_CORE_READY;
+        s_exposure_pending = 1;
+        vision_exposure_apply();
     }
     else
     {
         s_core_state = VISION_CORE_FAILED;
+        s_camera_status.exposure_state = VISION_EXPOSURE_UNKNOWN;
+        s_exposure_pending = 1;
     }
+    vision_camera_status_publish();
+    __dsync();
+    s_camera_reconfiguring = 0;
     return ok;
 }
 
@@ -243,19 +315,25 @@ static void vision_command_service(void)
 {
     vision_command_t command;
     uint16 value;
-
     if (!vision_command_read(&command, &value)) return;
     if (command == VISION_CMD_SET_EXPOSURE)
     {
         s_camera_exposure = value;
-        if (s_core_state == VISION_CORE_READY)
-            (void)mt9v03x_set_exposure_time(value);
+        s_camera_status.exposure_state = VISION_EXPOSURE_PENDING;
+        s_exposure_pending = 1;
+        vision_camera_status_publish();
     }
     else if (command == VISION_CMD_RESTART_CAMERA)
+        (void)vision_camera_start();
+    else if (command == VISION_CMD_SET_PROFILE)
     {
+        s_camera_status.diagnostic = (uint8)value;
+        s_camera_status.configured_fps = value ? CAM_DIAG_FPS : MT9V03X_FPS_DEF;
+        s_camera_exposure = value ? CAM_DIAG_EXPOSURE : s_feedback_cache.cam_exposure;
         (void)vision_camera_start();
     }
-    else if (command == VISION_CMD_CALIB_IPM)
+    else if (command == VISION_CMD_CALIB_IPM && !s_camera_status.diagnostic &&
+             s_feedback_cache.beacon.mode == 0 && s_core_state == VISION_CORE_READY)
     {
         memset(s_ipm_point_sum, 0, sizeof(s_ipm_point_sum));
         s_ipm_near_sum = 0.0f;
@@ -322,13 +400,17 @@ void vision_core_init(void)
     s_ipm_ratio_sum = 0.0f;
     memset(s_ipm_point_sum, 0, sizeof(s_ipm_point_sum));
     memset(s_ipm_applied, 0, sizeof(s_ipm_applied));
-    s_command_seq = s_command_box.seq;
+    memset(&s_camera_status, 0, sizeof(s_camera_status));
+    s_camera_status.configured_fps = MT9V03X_FPS_DEF;
     s_camera_exposure = s_feedback_cache.cam_exposure;
+    s_feedback_exposure = s_camera_exposure;
+    s_exposure_pending = 1;
     s_heartbeat = 0;
     s_display_request = 0;
     s_display_ready = 0;
     s_display_mode = (uint8)VISION_DISPLAY_BIN_LINE;
     s_core_state = VISION_CORE_OFF;
+    vision_camera_status_publish();
     if (QCAR_CAMERA_AUTO_START) (void)vision_camera_start();
 }
 
@@ -347,19 +429,53 @@ void vision_core_run(void)
     uint8 base_track_valid = 0;
 
     s_heartbeat++;
-    vision_command_service();
-    if (s_core_state != VISION_CORE_READY) return;
-
-    if (!image_grab()) return;
-
-    if (vision_feedback_read(&feedback))
-        s_feedback_cache = feedback;
-    feedback = s_feedback_cache;
-
-    if (feedback.cam_exposure != s_camera_exposure)
+    /* Read parameters without requiring a frame: exposure recovery works while
+     * the camera is dark or stopped. A direct queued command has final priority. */
+    if (vision_feedback_read(&feedback) && feedback.input_seq != s_feedback_cache.input_seq)
     {
-        s_camera_exposure = feedback.cam_exposure;
-        (void)mt9v03x_set_exposure_time(s_camera_exposure);
+        s_feedback_cache = feedback;
+        if (!s_camera_status.diagnostic && feedback.cam_exposure != s_feedback_exposure)
+        {
+            s_camera_exposure = feedback.cam_exposure;
+            s_exposure_pending = 1;
+            s_camera_status.exposure_state = VISION_EXPOSURE_PENDING;
+        }
+        s_feedback_exposure = feedback.cam_exposure;
+        vision_camera_status_publish();
+    }
+    feedback = s_feedback_cache;
+    vision_command_service();
+    vision_exposure_apply();
+    if (s_core_state != VISION_CORE_READY || !image_grab()) return;
+    vision_capture_status();
+
+    /* Optional diagnostic profile follows the reference's raw-camera path.
+     * Publish camera/FPS health but never an eligible Run target. */
+    if (s_camera_status.diagnostic)
+    {
+        int row, col;
+        const uint8 *gray = image_gray_data();
+        my_image.Track_Valid = 0;
+        my_image.Threshold = 128;
+        my_image.Search_Stop_Line = 0;
+        g_elem_action.active_elem = ELEM_NONE;
+        for (row = 0; row < IMG_H; ++row)
+        {
+            my_image.Left_Lost_Flag[row] = my_image.Right_Lost_Flag[row] = my_image.Mid_Lost_Flag[row] = 1;
+            for (col = 0; col < IMG_W; ++col)
+                my_image.image_two_value[row][col] = gray[row * IMG_W + col] >= 128 ? 255 : 0;
+        }
+        memset(&result, 0, sizeof(result));
+        result.frame_seq = s_frame_seq;
+        result.source_mode = (uint8)feedback.beacon.mode;
+        result.input_seq = feedback.input_seq;
+        result.heartbeat = s_heartbeat;
+        result.camera_ok = 1;
+        result.track_mode = TRACK_MODE_HOLD;
+        result.threshold = 128;
+        vision_display_publish((vision_display_mode_t)s_display_mode);
+        vision_result_publish(&result);
+        return;
     }
 
     // 前瞻行是运行参数，每帧从 CPU0 的快照里取，改完当帧生效。
@@ -393,7 +509,7 @@ void vision_core_run(void)
             }
         }
         result.source_mode=(uint8)feedback.beacon.mode;
-        result.frame_seq=++s_frame_seq;result.input_seq=feedback.input_seq;result.heartbeat=s_heartbeat;
+        result.frame_seq=s_frame_seq;result.input_seq=feedback.input_seq;result.heartbeat=s_heartbeat;
         result.track_valid=result.beacon.valid;result.camera_ok=1;result.run_active=feedback.run_active;
         result.track_mode=result.beacon.valid?TRACK_MODE_MIDDLE:TRACK_MODE_HOLD;
         result.active_elem=ELEM_NONE;result.threshold=(uint16)feedback.beacon.threshold;
@@ -443,7 +559,6 @@ void vision_core_run(void)
     element_process();
     image_process_finish();
 
-    s_frame_seq++;
     vision_display_publish((vision_display_mode_t)s_display_mode);
 
     memset(&result, 0, sizeof(result));
@@ -525,18 +640,51 @@ void vision_feedback_publish(const vision_feedback_t *feedback)
 //-------------------------------------------------------------------------------------------------------------------
 uint8 vision_command_request(vision_command_t command, uint16 value)
 {
-    uint32 seq;
-
-    // 命令范围使用枚举计数，确保后续新增命令可被接受。
+    uint32 head;
     if (command <= VISION_CMD_NONE || command >= VISION_CMD_COUNT) return 0;
-    seq = s_command_box.seq;
-    s_command_box.seq = seq + 1u;
+    if (command == VISION_CMD_SET_EXPOSURE && (value < 4u || value > 1600u)) return 0;
+    if (command == VISION_CMD_SET_PROFILE && value > 1u) return 0;
+    /* Single producer: CPU0 foreground only. CPU1 is the only consumer. */
+    head = s_command_box.head;
+    if ((uint32)(head - s_command_box.tail) >= VISION_COMMAND_CAPACITY) return 0;
+    s_command_box.entries[head % VISION_COMMAND_CAPACITY].command = command;
+    s_command_box.entries[head % VISION_COMMAND_CAPACITY].value = value;
     __dsync();
-    s_command_box.command = command;
-    s_command_box.value = value;
+    s_command_box.head = head + 1u;
     __dsync();
-    s_command_box.seq = seq + 2u;
+    return 1;
+}
+
+uint8 vision_camera_status_read(vision_camera_status_t *status)
+{
+    uint32 begin, end;
+    if (!status) return 0;
+    begin = s_camera_box.seq;
+    if (!begin || (begin & 1u)) return 0;
     __dsync();
+    *status = s_camera_box.payload;
+    __dsync();
+    end = s_camera_box.seq;
+    return (uint8)(begin == end && !(end & 1u));
+}
+
+/* CPU0 foreground gate. Pending reconfiguration cannot reuse a fresh old target. */
+uint8 vision_camera_run_allowed(void)
+{
+    vision_camera_status_t status;
+    uint32 head, tail;
+    if (s_camera_reconfiguring || s_core_state != VISION_CORE_READY ||
+        !vision_camera_status_read(&status) || status.diagnostic || !status.gray_valid) return 0;
+    tail = s_command_box.tail;
+    head = s_command_box.head;
+    __dsync();
+    if ((uint32)(head - tail) > VISION_COMMAND_CAPACITY) return 0;
+    while (tail != head)
+    {
+        vision_command_t command = s_command_box.entries[tail % VISION_COMMAND_CAPACITY].command;
+        if (command == VISION_CMD_RESTART_CAMERA || command == VISION_CMD_SET_PROFILE) return 0;
+        ++tail;
+    }
     return 1;
 }
 

@@ -158,6 +158,7 @@ uint16      mt9v03x_get_version         (void);                                 
 uint8       mt9v03x_set_exposure_time   (uint16 light);                         // 单独设置摄像头曝光时间
 uint8       mt9v03x_set_reg             (uint8 addr, uint16 data);              // 对摄像头内部寄存器进行写操作
 uint8       mt9v03x_init                (void);                                 // MT9V03X 摄像头初始化
+uint8       mt9v03x_init_profile        (uint16 fps, uint16 exposure);            // CPU1 only; restore default config after init
 //================================================声明 MT9V03X 基础函数================================================
 
 /* Qcar: CPU1 camera failures are reported through VISION_CORE_FAILED.

@@ -16,6 +16,7 @@ typedef struct {
     float route_distance_m, route_angle_deg;
 } beacon_result_t;
 void beacon_defaults(beacon_config_t *config);
+void beacon_reset(void); /* CPU1: discard tracking history after camera restart */
 /* CPU1 only, exact 188x120 frame; binary borrows the existing vision buffer. */
 void beacon_process(const uint8_t *gray, uint8_t (*binary)[188],
                     const beacon_config_t *config, beacon_result_t *result);

@@ -24,6 +24,7 @@ typedef enum
     VISION_CMD_SET_EXPOSURE,    // 改曝光时间
     VISION_CMD_RESTART_CAMERA,  // 重新初始化摄像头
     VISION_CMD_CALIB_IPM,       // 用当前这一帧直道图标定逆透视
+    VISION_CMD_SET_PROFILE,     // 0=normal, 1=raw diagnostic 50 FPS / exposure 512
     VISION_CMD_COUNT            // 合法命令上界，vision_command_request() 拿它做范围检查。
                                 
 } vision_command_t;
@@ -34,6 +35,25 @@ typedef enum
     VISION_DISPLAY_BIN,             // 二值图
     VISION_DISPLAY_GRAY,            // 灰度图
 } vision_display_mode_t;
+
+typedef enum
+{
+    VISION_EXPOSURE_UNKNOWN = 0,
+    VISION_EXPOSURE_PENDING,
+    VISION_EXPOSURE_OK,
+    VISION_EXPOSURE_FAILED,
+} vision_exposure_state_t;
+
+/* CPU1 publishes this small status even when no complete image is available.
+ * Configured FPS is a request, not measured sensor or display FPS. */
+typedef struct
+{
+    uint32 frame_seq, generation;
+    uint32 vsync_count, dma_count, busy_drop_count;
+    uint16 exposure_requested, exposure_applied, configured_fps;
+    uint8 exposure_state, diagnostic;
+    uint8 gray_valid, gray_min, gray_mean, gray_max;
+} vision_camera_status_t;
 
 // CPU1 每帧发布的循迹结果
 typedef struct
@@ -99,6 +119,7 @@ typedef struct
 // 屏幕快照。CPU1 填完后置 ready，CPU0 画完再 release，同一时间只有一份
 typedef struct
 {
+    uint32 generation;              // reject snapshots captured before a camera restart
     uint32 frame_seq;               // 生成本快照时的视觉帧序号
     uint16 threshold;               // 本帧大津阈值
     uint16 search_stop_line;        // 有效前瞻行数
@@ -109,6 +130,7 @@ typedef struct
     uint8  mode;                    // 本快照的图像内容，vision_display_mode_t
     uint8  track_valid;             // 本帧循迹是否可信
     uint8  active_elem;             // 当前元素编号
+    uint8  source_mode;             // 0=lane; 1..3=beacon, overlay scans whole frame
     uint8  pixels[IMG_H][IMG_W];    // 灰度图或二值图
     uint8  left_line[IMG_H];        // 左边线列坐标
     uint8  right_line[IMG_H];       // 右边线列坐标
@@ -157,6 +179,8 @@ void vision_feedback_publish(const vision_feedback_t *feedback);
 // 使用示例     vision_command_request(VISION_CMD_SET_EXPOSURE, 512);
 //-------------------------------------------------------------------------------------------------------------------
 uint8 vision_command_request(vision_command_t command, uint16 value);
+uint8 vision_camera_status_read(vision_camera_status_t *status);
+uint8 vision_camera_run_allowed(void);
 
 //-------------------------------------------------------------------------------------------------------------------
 // 函数简介     请求 CPU1 在下一帧生成指定模式的屏幕快照

@@ -8,6 +8,8 @@
 Mono_beacon mono_beacon;
 static int previous_mode = -1;
 
+void beacon_reset(void) { previous_mode = -1; }
+
 
 void beacon_process(const uint8_t *gray, uint8_t (*binary)[188],
                     const beacon_config_t *c, beacon_result_t *r)

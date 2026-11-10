@@ -77,6 +77,9 @@ int main(void){
  beacon_process(0,0,0,0);
  memset(gray.p,255,sizeof(gray.p));c.mode=1;
  beacon_process(&gray.p[0][0],binary.p,&c,&r);assert(!r.valid);guards();
+ /* Same-mode camera restarts must discard the old temporal tracker too. */
+ imageinfo.time_num=12;beacon_reset();memset(gray.p,0,sizeof(gray.p));
+ beacon_process(&gray.p[0][0],binary.p,&c,&r);assert(imageinfo.time_num==0 && !r.valid);
  return 0;
 }
 ''')
@@ -167,6 +170,7 @@ static int state=VISION_CORE_READY,lost=0,allowed=1,starts=0;
 #define VOFA_RUN 1
 vision_core_state_t vision_core_state(void){return (vision_core_state_t)state;}
 static uint8 vision_link_lost(void){return (uint8)lost;}
+uint8 vision_camera_run_allowed(void){return 1;}
 uint8 control_balance_start(void){starts++;return (uint8)allowed;}
 static float imu_get_angle_yaw(void){return 8;}
 '''+_function(code,'control_run_start')+r'''
@@ -214,7 +218,12 @@ uint8 g_direction_valid;int g_err_front_row;
 static vision_feedback_t s_feedback_cache,incoming;
 static vision_result_t published;
 static uint32 s_heartbeat,s_frame_seq,s_ipm_param_revision;
-static uint16 s_camera_exposure;
+static uint16 s_camera_exposure,s_feedback_exposure;
+static uint8 s_exposure_pending;
+static vision_camera_status_t s_camera_status;
+static void vision_camera_status_publish(void){}
+static void vision_exposure_apply(void){}
+static void vision_capture_status(void){s_frame_seq++;}
 static uint8 s_display_mode,s_ipm_calib_seq;
 static float s_ipm_applied[9];
 static int s_core_state=VISION_CORE_READY,have_frame=1,publications,edges;
@@ -245,9 +254,9 @@ int main(void){
  have_frame=1;memset(gray.p,0,sizeof(gray.p));vision_core_run();
  assert(publications==2 && !published.track_valid && !published.beacon.valid && published.speed_limit_mps==0 && published.direction_camera==0);
  assert(published.track_mode==TRACK_MODE_HOLD);
- incoming.beacon.mode=0;vision_core_run();
+ incoming.beacon.mode=0;incoming.input_seq++;vision_core_run();
  assert(publications==3 && edges==1 && published.source_mode==0 && !published.beacon.valid);
- incoming.beacon.mode=3;patch(70,65);vision_core_run();
+ incoming.beacon.mode=3;incoming.input_seq++;patch(70,65);vision_core_run();
  assert(published.source_mode==3 && published.beacon.valid && edges==1);
  return 0;
 }

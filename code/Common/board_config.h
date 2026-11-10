@@ -359,6 +359,8 @@ typedef enum
 #define MOTION_SPEED_UP_STEP_COUNT   (1.2f)
 #define MOTION_SPEED_DOWN_STEP_COUNT (1.9f)
 #define CAM_EXPOSURE_DEFAULT    (48)           // 摄像头曝光时间，实车可用值在 48 附近
+#define CAM_DIAG_FPS            (50)           // optional Seekfree raw-image diagnostic
+#define CAM_DIAG_EXPOSURE       (512)
 #define VISION_FPS_WIN_MS       (500u)         // 帧率统计窗口(ms)，窗口越长读数越稳、跟随越慢
 
 // C 轮里程标定

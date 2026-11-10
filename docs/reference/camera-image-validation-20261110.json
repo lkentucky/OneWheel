@@ -1,0 +1,57 @@
+{
+  "date": "2026-11-10",
+  "baseline_commit": "b39cb87afc122134c63016c1ea290017211f0975",
+  "scope": "Camera command FIFO, initialization and exposure status, raw image diagnostics, optional reference profile, stale snapshot rejection and beacon overlay",
+  "build": {
+    "success": true,
+    "errors": 0,
+    "warnings": 0,
+    "input_sha256": "b75eb846bd33e84a73aef59a09e3fca9c70dda8d7aef86051c272974a9206561",
+    "source_matches_build": true,
+    "artifacts": [
+      {
+        "file": "Debug/OneWheelUpright.elf",
+        "bytes": 13488080,
+        "sha256": "fbf48ff46413f0c5fb7634d8722ce920cf2c1cfd73b6a7f5161fa13240fe0648"
+      },
+      {
+        "file": "Debug/OneWheelUpright.hex",
+        "bytes": 535301,
+        "sha256": "8ba0b7a244e2266007331dbabc4c1800ea2f1da93d55ed7f3a3b419ab2efa927"
+      },
+      {
+        "file": "Debug/OneWheelUpright.map",
+        "bytes": 3293882,
+        "sha256": "9b613e31076af6485fc207b842ec4f02ca72e9835ffbeb14a23650db2b24e4ac"
+      }
+    ]
+  },
+  "tests": {
+    "passed": 51,
+    "deselected": {
+      "native_imu_runner": 1,
+      "previously_reproduced_baseline_lean_host_failure": 1
+    },
+    "gui_suite": "Not run; no desktop app changes required.",
+    "new_camera_cases": 9,
+    "camera_boot_cases": 4,
+    "behavioral_menu_tree_and_pool": "passed"
+  },
+  "memory_free_bytes": {
+    "cpu0_dsram": 1834,
+    "cpu1_dsram": 2096,
+    "cpu1_psram": 3446
+  },
+  "code_review": {
+    "ordered_full_queue_rejection_and_uint32_wrap": "passed",
+    "no_frame_exposure_processing_and_error_retry": "passed",
+    "diagnostic_run_block_and_stopped_profile_requests": "passed",
+    "raw_pixels_and_snapshot_mode_generation": "passed",
+    "normal_exposure_preserved_across_diagnostic_edits": "passed",
+    "beacon_marker_and_history_reset": "passed"
+  },
+  "flashed": false,
+  "hardware_verified": false,
+  "committed": false,
+  "pushed": false
+}

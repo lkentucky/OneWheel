@@ -1592,8 +1592,9 @@ uint8 control_balance_start(void)
 //-------------------------------------------------------------------------------------------------------------------
 uint8 control_ipm_calib_request(void)
 {
+    vision_camera_status_t status;
     if (g_param.beacon.mode != 0) return 0; // lane IPM is not beacon calibration
-    if (vision_core_state() != VISION_CORE_READY) return 0;
+    if (vision_core_state() != VISION_CORE_READY || !vision_camera_status_read(&status) || status.diagnostic) return 0;
     return vision_command_request(VISION_CMD_CALIB_IPM, 0);
 }
 
@@ -1645,7 +1646,7 @@ uint8 control_run_start(void)
         return 0;
     }
     // 视觉不可用就不许发车：跑车全靠它给转向
-    if (vision_core_state() != VISION_CORE_READY || vision_link_lost() ||
+    if (!vision_camera_run_allowed() || vision_core_state() != VISION_CORE_READY || vision_link_lost() ||
         (g_param.beacon.mode==0 && !g_vision_ipm_ok) ||
         g_vision_source_mode!=g_param.beacon.mode || !g_track_valid)
     {
@@ -2492,8 +2493,16 @@ uint8 control_camera_debug_start(void)
 {
     vision_core_state_t state = vision_core_state();
 
-    if (state == VISION_CORE_FAILED)
+    if (state == VISION_CORE_OFF || state == VISION_CORE_FAILED)
         (void)vision_command_request(VISION_CMD_RESTART_CAMERA, 0);
     g_cam_ok = (uint8)(state == VISION_CORE_READY);
     return g_cam_ok;
+}
+
+/* Profiles reinitialize the camera; request only from the stopped foreground. */
+uint8 control_camera_profile_request(uint8 diagnostic)
+{
+    if (diagnostic > 1u || start_flag != START_STOP || control_test_running() ||
+        control_jog_running() != MOTOR_JOG_NONE || path_nav_busy()) return 0;
+    return vision_command_request(VISION_CMD_SET_PROFILE, diagnostic);
 }

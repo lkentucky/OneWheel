@@ -469,6 +469,13 @@ uint8 mt9v03x_init (void)
     uint8 return_state = 0;
     soft_iic_info_struct mt9v03x_iic_struct;
 
+    /* Pause the old acquisition before reconfiguring a READY camera. */
+    exti_disable(MT9V03X_VSYNC_PIN);
+    dma_disable(MT9V03X_DMA_CH);
+    clear_dma_flag(MT9V03X_DMA_CH);
+    mt9v03x_dma_int_num = 0;
+    mt9v03x_dma_init_flag = 0;
+    mt9v03x_lost_flag = 1;
     mt9v03x_finish_flag = 0;
     mt9v03x_vsync_count = 0;
     mt9v03x_dma_count = 0;
@@ -539,6 +546,23 @@ uint8 mt9v03x_init (void)
         mt9v03x_link_list_num = camera_init(MT9V03X_DATA_ADD, mt9v03x_image[0], MT9V03X_IMAGE_SIZE);
     }while(0);
     return return_state;
+}
+
+/* CPU1 foreground only; use a temporary configuration for this initialization.
+ * The next normal restart still uses the driver's original default profile. */
+uint8 mt9v03x_init_profile(uint16 fps, uint16 exposure)
+{
+    int16 old_fps, old_exp;
+    uint8 result;
+    if (!fps || fps > 200u || exposure < 4u || exposure > 1600u) return 1;
+    old_fps = mt9v03x_set_confing_buffer[MT9V03X_FPS][1];
+    old_exp = mt9v03x_set_confing_buffer[MT9V03X_EXP_TIME][1];
+    mt9v03x_set_confing_buffer[MT9V03X_FPS][1] = (int16)fps;
+    mt9v03x_set_confing_buffer[MT9V03X_EXP_TIME][1] = (int16)exposure;
+    result = mt9v03x_init();
+    mt9v03x_set_confing_buffer[MT9V03X_FPS][1] = old_fps;
+    mt9v03x_set_confing_buffer[MT9V03X_EXP_TIME][1] = old_exp;
+    return result;
 }
 
 #pragma section all restore
