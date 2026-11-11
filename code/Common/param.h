@@ -63,6 +63,7 @@ typedef struct
     float y_rate_kp;                    // 航向角速度环 P
     float y_rate_ki;                    // 航向角速度内环 I
     float y_rate_kd;                    // 航向角速度内环 D
+    float yaw_hold_deg;                 // Balance 下相对启动航向的保持偏移(°)
 
     // 压弯
     float lean_turn_kp;                 // 转弯率预压弯增益(s)
@@ -157,6 +158,7 @@ extern volatile uint32 g_param_revision;// 参数修订号
 #define Y_RATE_KP               (Y_RATE_BASE * g_param.y_rate_kp)
 #define Y_RATE_KI               (Y_RATE_BASE * g_param.y_rate_ki)
 #define Y_RATE_KD               (Y_RATE_BASE * g_param.y_rate_kd)
+#define YAW_HOLD_DEG            (g_param.yaw_hold_deg)
 
 // 压弯
 #define LEAN_TURN_KP            (g_param.lean_turn_kp)

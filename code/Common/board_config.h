@@ -156,6 +156,25 @@
 #define YAW_MOMENTUM_WARN_RPM        (2500.0f)  // 单项实测：共模RPM超过该值后温和降低转向与Run速度
 #define YAW_MOMENTUM_HARD_RPM        (6000.0f)  // 共模RPM达到该值时进入最小权限，不依赖Flash软超速阈值
 #define YAW_MOMENTUM_MIN_SCALE       (0.25f)    // 动量紧张时保留的最小转向/速度比例
+
+// Yaw 共模动量回收。反作用轮只在转速变化时给车身力矩：P-only 航向环为了顶住静态
+// 误差会持续给占空比，共模转速因此单向累积，最后撞到 FLY_SPEED_LIMIT 停机。
+// 超出门限后让航向目标缓慢让角，让角本身产生反向转速变化，把飞轮带回 0。
+// 代价是航向缓慢漂移；低于门限时完全停止，设 YAW_DESAT_ENABLE=0 可整体关闭。
+#define YAW_DESAT_ENABLE             (1)
+#define YAW_DESAT_RPM                (1200.0f)  // 超过该共模转速开始回收
+#define YAW_DESAT_DPS                (3.0f)     // 让角速率(°/s)，越大回收越快、漂移越多
+#define YAW_DESAT_LIMIT_DEG          (90.0f)    // 累计让角上限(°)
+#define YAW_DESAT_MAX_ERR_DEG        (3.0f)     // 仅当航向误差小于此值(已稳住)才让角
+#define YAW_DESAT_MAX_OUTPUT         (6000.0f)  // 仅当 Yaw 输出低于此值(未打满)才让角
+
+// 角度环输出是角速度指令。不限幅时大误差会命令出几百 °/s，内环占空比打满、
+// 失去阻尼，飞轮冲向高速后 Roll 也会失去权限。与 DIRECTION_YAW_RATE_LIMIT 同量级。
+#define YAW_RATE_CMD_LIMIT           (120.0f)
+
+// Balance 下 Yaw Hold 目标的变化速率(°/s)。直接给阶跃会让角度环饱和，
+// 与大角度指令造成的超调是同一个问题。
+#define YAW_HOLD_SLEW_DPS            (30.0f)
 #define LEAN_DIR                     (1)        // +1=沿用实跑版本的压弯方向，-1=反向
 
 #if (LEAN_DIR != 1) && (LEAN_DIR != -1)

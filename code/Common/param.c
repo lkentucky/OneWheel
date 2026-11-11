@@ -63,6 +63,8 @@ const param_desc_t g_param_table[] =
     { "y_rate_kp",        &g_param.y_rate_kp,        1, -200.0f,  200.0f },
     { "y_rate_ki",        &g_param.y_rate_ki,        1, -50.0f,   50.0f  },
     { "y_rate_kd",        &g_param.y_rate_kd,        1, -200.0f,  200.0f },
+    // Balance 下相对启动航向的保持偏移。0 表示行为与改造前一致。
+    { "yaw_hold_deg",     &g_param.yaw_hold_deg,     1, -180.0f,  180.0f },
     // 压弯
     { "lean_turn_kp",      &g_param.lean_turn_kp,      1, 0.0f, LEAN_TURN_KP_MAX },
     { "lean_speed_kp",     &g_param.lean_speed_kp,     1, 0.0f, LEAN_SPEED_KP_MAX },
@@ -501,6 +503,7 @@ void param_load_defaults(void)
     g_param.enc_dir_a   = ENC_DIR_A_DEFAULT;
     g_param.enc_dir_b   = ENC_DIR_B_DEFAULT;
     g_param.enc_dir_c   = ENC_DIR_C_DEFAULT;
+    g_param.yaw_hold_deg = 0.0f;
     g_param.steer_dir   = STEER_DIR_DEFAULT;
     g_param.jog_duty_fly   = JOG_DUTY_FLY_DEFAULT;
     g_param.jog_duty_drive = JOG_DUTY_DRIVE_DEFAULT;
@@ -593,6 +596,22 @@ static uint8 param_migrate_signs(uint32 count)
 // 返回参数     void
 // 使用示例     param_init();
 //-------------------------------------------------------------------------------------------------------------------
+/* 2026-11-11: this car's yaw plant sign is opposite to what the former
+ * Y_RATE_BASE = -1 assumed, so the two yaw gains are positive user values now
+ * (direction_config.h). Flash records saved under the old convention hold the
+ * negated values; flip them on load so an already tuned pair survives the
+ * firmware change instead of becoming positive feedback. A negative yaw gain
+ * is unstable under the new convention, so this normalization is always safe. */
+static void param_normalize_yaw_sign(void)
+{
+    if (g_param.y_rate_kp  < 0.0f) g_param.y_rate_kp  = -g_param.y_rate_kp;
+    if (g_param.y_rate_ki  < 0.0f) g_param.y_rate_ki  = -g_param.y_rate_ki;
+    if (g_param.y_rate_kd  < 0.0f) g_param.y_rate_kd  = -g_param.y_rate_kd;
+    if (g_param.y_angle_kp < 0.0f) g_param.y_angle_kp = -g_param.y_angle_kp;
+    if (g_param.y_angle_ki < 0.0f) g_param.y_angle_ki = -g_param.y_angle_ki;
+    if (g_param.y_angle_kd < 0.0f) g_param.y_angle_kd = -g_param.y_angle_kd;
+}
+
 void param_init(void)
 {
     uint32 count;
@@ -623,6 +642,7 @@ void param_init(void)
                            flash_union_buffer[PARAM_FIRST_RECORD_INDEX + i * 2u + 1u]);
 
     param_normalize_dirs();
+    param_normalize_yaw_sign();
     g_param_revision++;
 }
 

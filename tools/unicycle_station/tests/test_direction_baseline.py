@@ -27,7 +27,7 @@ static void check(void) {
     for(unsigned i=0;i<75;i++) {float v;assert(param_get_by_name(samples[i].name,&v));assert(v==samples[i].expected);}
     assert(IMU_FORWARD_DIR==-1 && MOTOR_DIR_A==1 && MOTOR_DIR_B==1);
     assert(MOTOR_DIR_C==-1 && ENC_DIR_C==-1 && STEER_DIR==-1);
-    assert(R_RATE_KP==20 && R_RATE_KD==0 && Y_RATE_KP==-56);
+    assert(R_RATE_KP==20 && R_RATE_KD==0 && Y_RATE_KP==56);
 }
 int main(void) {
     const char *camera[]={"cam_exposure"};
@@ -45,7 +45,7 @@ int main(void) {
     storage[152].uint32_type=param_crc32_words((const uint32*)storage,152);
     param_init();assert(g_param.motor_dir_a==-1 && g_param.motor_dir_c==-1 && g_param.enc_dir_c==-1);
     assert(g_param.imu_forward_dir==-1 && g_param.steer_dir==-1);
-    assert(g_param.y_rate_kp==-13 && Y_RATE_KP==13);
+    assert(g_param.y_rate_kp==13 && Y_RATE_KP==13);
     assert(g_param.roll_zero_init==-.6f && g_param.pitch_zero_init==-2.999999f);
     assert(param_save_names(camera,1));param_init();assert(Y_RATE_KP==13 && IMU_FORWARD_DIR==1);
     return 0;
@@ -71,7 +71,7 @@ int main(void) {
     g_param.r_rate_kp=20;g_param.r_rate_ki=.2f;g_param.r_rate_kd=8;
     g_param.y_rate_kp=56;g_param.y_rate_ki=.3f;g_param.y_rate_kd=4;
     pid_set(&old_roll,20,.2f,0,100);pid_set(&r_rate_pid,0,0,0,100);
-    pid_set(&old_yaw,-56,-.3f,-4,100);pid_set(&y_rate_pid,0,0,0,100);
+    pid_set(&old_yaw,56,.3f,4,100);pid_set(&y_rate_pid,0,0,0,100);
     for(int i=0;i<1000;i++) {
         float error=(float)((i*17)%79-39);
         cascade_gain_refresh();

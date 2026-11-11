@@ -206,7 +206,7 @@ static void flash_read_page_to_buffer(uint32 sector,uint32 page) { (void)sector;
 '''
     source += table + '\n#define PARAM_TABLE_NUM (sizeof(g_param_table)/sizeof(g_param_table[0]))\n' + flash_defines + '\n'
     for name in ('param_float_is_finite','param_crc32_words','param_name_key','param_keys_unique',
-                 'param_apply_record','param_normalize_dirs','param_load_defaults','param_migrate_legacy_frame','param_migrate_signs','param_init'):
+                 'param_apply_record','param_normalize_dirs','param_normalize_yaw_sign','param_load_defaults','param_migrate_legacy_frame','param_migrate_signs','param_init'):
         source += _function(param, name) + '\n'
     source += r'''
 static void record(int index,const char *name,float value) {
@@ -215,7 +215,7 @@ static void record(int index,const char *name,float value) {
 }
 int main(void) {
     assert(param_keys_unique());
-    assert(PARAM_TABLE_NUM==95 && PARAM_TABLE_NUM<=PARAM_MAX_RECORDS);
+    assert(PARAM_TABLE_NUM==96 && PARAM_TABLE_NUM<=PARAM_MAX_RECORDS);
     flash_union_buffer[0].uint32_type=PARAM_MAGIC_LEGACY;
     flash_union_buffer[1].uint32_type=5;
     record(0,"lean_roll_kp",100);record(1,"lean_max_angle",8);

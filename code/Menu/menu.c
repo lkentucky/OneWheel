@@ -136,7 +136,8 @@ static const menu_param_item_t s_yaw_items[] =
     { "Rate Kd",  "y_rate_kd",  0.5f,   2 },
     { "Angle Kp", "y_angle_kp", 0.1f,   2 },    // 落点 1~5
     { "Angle Ki", "y_angle_ki", 0.01f,  3 },
-    { "Angle Kd", "y_angle_kd", 0.1f,   2 }
+    { "Angle Kd", "y_angle_kd", 0.1f,   2 },
+    { "Yaw Hold", "yaw_hold_deg", 1.0f, 1 }     // Balance 下相对启动航向的保持偏移
 };
 
 static const menu_param_item_t s_lean_items[] =

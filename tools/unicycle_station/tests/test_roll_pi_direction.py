@@ -55,7 +55,8 @@ def test_roll_actual_cascade_and_test_signs_targets_limits_and_periods(tmp_path)
 param_t g_param;
 static pid_t r_rcy_pid,r_angle_pid,r_rate_pid,p_vel_pid,p_angle_pid,p_rate_pid,y_angle_pid,y_rate_pid;
 static struct {float roll,roll_rate;} att;
-static float g_roll_zero=2,s_roll_angle_target,s_rcy_fb,g_flywheel_common_rpm,g_yaw_momentum_scale;
+static float g_roll_zero=2,s_roll_angle_target,s_rcy_fb,g_flywheel_common_rpm,g_yaw_momentum_scale,s_yaw_desat_offset,g_yaw_target,g_pwm_yaw;
+static float imu_get_angle_yaw(void){return g_yaw_target;}
 static int16 rpm_a,rpm_b;
 static int16 W_Motor_GetSpeed1(void){return rpm_a;}
 static int16 W_Motor_GetSpeed2(void){return rpm_b;}

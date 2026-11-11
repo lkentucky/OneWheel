@@ -29,6 +29,15 @@
 // R_RATE_KD_BASE is retained ONLY for legacy Flash migration. The current
 // Roll Rate controller is incremental PI and never uses a derivative gain.
 #define R_RATE_KD_BASE        (-1.0f)
-#define Y_RATE_BASE           (-1.0f)
+
+/* Yaw plant sign, measured on this car (2026-11-11).
+ * Positive common-mode duty (A=B=+u) produces POSITIVE yaw acceleration here.
+ * The former -1 assumed the opposite, so the rate loop was positive feedback:
+ * with y_angle_kp=0 and y_rate_kp=+10 the body spun up by itself, y_rate_kp=-3
+ * decayed 129 -> 7 deg/s, and u/gyro_z measured exactly -1.00.
+ * control.c now uses (yaw_target - yaw) as the heading error, so both yaw
+ * gains are POSITIVE user values. param_init() negates negative values that
+ * older Flash records still hold, so a stored -60/-24 becomes +60/+24. */
+#define Y_RATE_BASE           (1.0f)
 
 #endif

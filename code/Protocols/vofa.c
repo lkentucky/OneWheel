@@ -417,6 +417,7 @@ static const char *cfg_group(const char *n)
     if (strncmp(n,"beacon_",7)==0) return "Beacon";
     if (strncmp(n, "r_", 2) == 0) return "Roll";
     if (strncmp(n, "p_", 2) == 0) return "Pitch";
+    if (strncmp(n, "yaw_", 4) == 0) return "Yaw";
     if (strncmp(n, "y_", 2) == 0) return "Yaw";
     if (strncmp(n, "lean_", 5) == 0) return "Lean";
     if (strncmp(n, "ipm_", 4) == 0) return "IPM";

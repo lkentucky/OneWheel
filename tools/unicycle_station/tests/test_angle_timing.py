@@ -47,7 +47,7 @@ int main(void) {
     cascade_gain_refresh();
     near(r_angle_pid.ki,-.008f); near(r_angle_pid.kd,25);
     near(r_angle_pid.integrator,17); near(r_angle_pid.last_error,3);
-    near(r_rate_pid.kp,20); near(r_rate_pid.kd,0); near(y_rate_pid.kp,-56);
+    near(r_rate_pid.kp,20); near(r_rate_pid.kd,0); near(y_rate_pid.kp,56);
     /* Same constant error for one second: same integral contribution. */
     pid_set(&old,0,.03f,0,1000);
     angle_pid_init(&trial,0,.03f,0,1000);
