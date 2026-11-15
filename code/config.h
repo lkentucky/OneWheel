@@ -256,7 +256,6 @@
 #define DIRECTION_D_RATE_LIMIT       (200.0f)   // 滤波后误差变化率限幅(pixel/s)
 #define DIRECTION_YAW_RATE_LIMIT     (120.0f)   // 正式循迹目标横摆角速度限幅(°/s)
 #define DIRECTION_YAW_SLEW           (600.0f)   // 目标横摆角速度变化率(°/s^2)
-#define DIRECTION_YAW_LEAD_LIMIT     (35.0f)    // 目标航向相对当前航向最大超前角(°)
 #define DIRECTION_LEAN_LIMIT         (10.0f)    // 压弯角软件硬限幅(°)
 #define ROLL_TARGET_LIMIT            (10.0f)    // 回收与压弯合成后的 Roll 目标限幅(°)
 #define YAW_MOMENTUM_WARN_RPM        (2500.0f)  // 单项实测：共模RPM超过该值后温和降低转向与Run速度
@@ -267,16 +266,29 @@
 // 误差会持续给占空比，共模转速因此单向累积，最后撞到 FLY_SPEED_LIMIT 停机。
 // 超出门限后让航向目标缓慢让角，让角本身产生反向转速变化，把飞轮带回 0。
 // 代价是航向缓慢漂移；低于门限时完全停止，设 YAW_DESAT_ENABLE=0 可整体关闭。
-#define YAW_DESAT_ENABLE             (1)
+#define YAW_DESAT_ENABLE             (0)
 #define YAW_DESAT_RPM                (1200.0f)  // 超过该共模转速开始回收
 #define YAW_DESAT_DPS                (3.0f)     // 让角速率(°/s)，越大回收越快、漂移越多
 #define YAW_DESAT_LIMIT_DEG          (90.0f)    // 累计让角上限(°)
-#define YAW_DESAT_MAX_ERR_DEG        (3.0f)     // 仅当航向误差小于此值(已稳住)才让角
-#define YAW_DESAT_MAX_OUTPUT         (6000.0f)  // 仅当 Yaw 输出低于此值(未打满)才让角
+#define YAW_DESAT_MAX_ERR_DEG        (3.0f)     // 已稳住判据：航向误差小于此值
+#define YAW_DESAT_MAX_OUTPUT         (6000.0f)  // 已稳住判据：Yaw 输出低于此值
+// 卡死出口：车身几乎不转、飞轮却在高速时，不论误差多大都向实际航向让角，
+// 否则"误差大 -> 不回收 -> 飞轮极速无力矩 -> 误差大"会一直锁死到超速停机。
+#define YAW_DESAT_STALL_RATE_DPS     (10.0f)    // |gyro_z| 低于此值视为车身转不动
+#define YAW_DESAT_STALL_DPS          (15.0f)    // 卡死时的让角速率(°/s)
 
 // 角度环输出是角速度指令。不限幅时大误差会命令出几百 °/s，内环占空比打满、
-// 失去阻尼，飞轮冲向高速后 Roll 也会失去权限。与 DIRECTION_YAW_RATE_LIMIT 同量级。
-#define YAW_RATE_CMD_LIMIT           (120.0f)
+// 失去阻尼，飞轮冲向高速后 Roll 也会失去权限。60°/s × Rate Kp 56~60 ≈ 3400~3600。
+#define YAW_RATE_CMD_LIMIT           (60.0f)
+// Yaw 内环最终输出限幅。位置式 P 的输出就是稳态占空比/稳态转速，留出余量
+// 给飞轮继续加速产生回正力矩，同时保证 Roll 至少还有 40% 权限。
+#define YAW_PWM_LIMIT                (6000.0f)
+
+/* Balance common-speed feedforward. Logged steady duty/speed was ~1.7
+ * PWM/RPM in both directions. Compensate part of it to retain damping. */
+#define YAW_SPEED_FF_PWM_PER_RPM     (0.85f)
+#define YAW_SPEED_FF_PWM_LIMIT       (1200.0f)
+#define YAW_SPEED_FF_WHEEL_LIMIT     (4500.0f)
 
 // Balance 下 Yaw Hold 目标的变化速率(°/s)。直接给阶跃会让角度环饱和，
 // 与大角度指令造成的超调是同一个问题。
@@ -504,7 +516,7 @@ typedef enum
 #define ODOM_TEST_SLOW_DISTANCE_M   (0.20f)
 #define ODOM_TEST_MIN_SPEED_MPS     (0.05f)
 
-// 无线 Run Test：speed:<相对航向角输入>,<速度输入>，两个输入范围均为 -90~90。
+// 无线 Run Test：speed:<有符号转向输入>,<速度输入>，两个输入范围均为 -90~90。
 #define REMOTE_STEER_INPUT_LIMIT    (90.0f)
 #define REMOTE_SPEED_INPUT_LIMIT    (90.0f)
 #define REMOTE_SPEED_INPUT_DIVISOR  (40.0f)     // 速度输入除以 40 得到 m/s
@@ -513,12 +525,10 @@ typedef enum
 
 // ===== WiFi 公共配置 =====
 // 1：WiFi SPI；0：原 UART2。电脑和车辆须连接同一局域网。
-// 本机的热点名、密码和电脑 IP 仅填写 code/config_private.h。
+// 本机的热点名、密码、电脑 IP 和可选端口覆写填写 code/config_private.h。
 #ifndef STATION_WIFI_ENABLED
 #define STATION_WIFI_ENABLED 1
 #endif
-#define STATION_WIFI_PC_PORT "1349"       // 电脑上位机监听端口
-#define STATION_WIFI_LOCAL_PORT "6666"    // 车载模块本地端口
 #define STATION_WIFI_FRAME_MAX 512u       // 单帧 SPI 发送缓冲上限
 #define STATION_WIFI_RX_MAX 32u           // 单次 SPI 接收缓冲上限
 #if STATION_WIFI_ENABLED
@@ -526,6 +536,12 @@ typedef enum
 #if !defined(STATION_WIFI_SSID) || !defined(STATION_WIFI_PASSWORD) || !defined(STATION_WIFI_PC_IP)
 #error "Copy code/config_private.example.h to code/config_private.h and fill local WiFi settings"
 #endif
+#endif
+#ifndef STATION_WIFI_PC_PORT
+#define STATION_WIFI_PC_PORT "1349"       // 电脑上位机监听端口
+#endif
+#ifndef STATION_WIFI_LOCAL_PORT
+#define STATION_WIFI_LOCAL_PORT "6666"    // 车载模块本地端口
 #endif
 
 #endif /* CONFIG_H_ */

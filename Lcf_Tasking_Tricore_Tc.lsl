@@ -300,7 +300,9 @@ derivative tc26B
             select "(.bss.flash_readback|.bss.flash_readback.*)";
         }
 
-        group (ordered, contiguous, align = 32, attributes=rw, run_addr = mem:dsram1)
+        /* Shared objects use global DSPR1 addresses. The display frame and
+         * the smaller mailboxes can occupy separate free ranges. */
+        group (ordered, align = 4, attributes=rw, run_addr = mem:dsram1)
         {
             select "(.data.vision_shared|.data.vision_shared.*)";
             select "(.bss.vision_shared|.bss.vision_shared.*)";

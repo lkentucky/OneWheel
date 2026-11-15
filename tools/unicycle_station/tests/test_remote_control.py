@@ -98,3 +98,25 @@ def test_mode_loss_and_query_expiry_release_active_input(remote):
     e.status[2]=0;r.arm();r.update_intent(10,.2)
     now[0]+=.81;e.status_time=now[0];r.update_intent(10,.2);r.tick()
     assert not r.armed  # Fresh ordinary telemetry cannot replace a Remote confirmation.
+
+
+def test_lost_probe_can_recover_before_remote_confirmation_expires(remote):
+    e, now = remote
+    r = e.remote
+    assert r.arm()
+    e.requests.enqueue('remote', callback=r.accept_status)
+    e.requests.tick(now[0])
+    e.requests.enqueue('status')
+
+    now[0] += .61
+    e.requests.tick(now[0])
+    assert e.requests.pending.operation == 'status'
+    assert r.update_intent(10, .15)
+    r.tick()
+    assert r.armed and e.transport.writes[-1] == b'speed:10.000,6.000\r\n'
+
+    now[0] += .20
+    e.status_time = now[0]
+    assert r.update_intent(10, .15)
+    r.tick()
+    assert not r.armed and e.transport.writes[-1] == b'speed:0.000,0.000\r\n'

@@ -6,6 +6,11 @@ static int16 r10h_signed16(const uint8 *p)
 
 static uint8 r10h_read_body(void)
 {
+    /* Register order is sensor X/Y/Z. The body mapping is Z/X/Y. */
+    static const char saturated_axis[6][21] = {
+        "IMU SATURATED GYRO Z", "IMU SATURATED GYRO X", "IMU SATURATED GYRO Y",
+        "IMU SATURATED ACC Z", "IMU SATURATED ACC X", "IMU SATURATED ACC Y"
+    };
     uint8 bytes[12], j, all_ff=1, acc_zero=1;
     const char *reason = "IMU INVALID SAMPLE";
     int16 v[6];
@@ -20,10 +25,20 @@ static uint8 r10h_read_body(void)
     }
     if (all_ff) { reason="IMU DATA ALL FF"; goto invalid_sample; }
     if (acc_zero) { reason="IMU ACC ALL ZERO"; goto invalid_sample; }
+    for (j=0; j<6u; ++j) v[j]=r10h_signed16(bytes+2u*j);
     for (j=0; j<6u; ++j)
     {
-        v[j]=r10h_signed16(bytes+2u*j);
-        if (v[j]>=32760 || v[j]<=-32760) { reason="IMU SATURATED"; goto invalid_sample; }
+        if (v[j]>=32760 || v[j]<=-32760)
+        {
+            uint8 axis;
+            if (!link_lost)
+            {
+                for (axis=0; axis<6u; ++axis) s_saturation_raw[axis]=v[axis];
+                s_saturation_valid=1;
+            }
+            reason=saturated_axis[j];
+            goto invalid_sample;
+        }
     }
     if (++r10h_identity_ticks>=100u)
     {

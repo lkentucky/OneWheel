@@ -89,6 +89,8 @@ const param_desc_t g_param_table[] =
     { "motor_dir_a",      &g_param.motor_dir_a,      0, -1.0f,    1.0f   },
     { "motor_dir_b",      &g_param.motor_dir_b,      0, -1.0f,    1.0f   },
     { "motor_dir_c",      &g_param.motor_dir_c,      0, -1.0f,    1.0f   },
+    { "motor_c_deadzone_fwd", &g_param.motor_c_deadzone_fwd, 0, 0, 2000 },
+    { "motor_c_deadzone_rev", &g_param.motor_c_deadzone_rev, 0, 0, 2000 },
     { "enc_dir_a",        &g_param.enc_dir_a,        0, -1.0f,    1.0f   },
     { "enc_dir_b",        &g_param.enc_dir_b,        0, -1.0f,    1.0f   },
     { "enc_dir_c",        &g_param.enc_dir_c,        0, -1.0f,    1.0f   },
@@ -513,6 +515,10 @@ void param_load_defaults(void)
     g_param.motor_dir_a = MOTOR_DIR_A_DEFAULT;
     g_param.motor_dir_b = MOTOR_DIR_B_DEFAULT;
     g_param.motor_dir_c = MOTOR_DIR_C_DEFAULT;
+    g_param.motor_c_deadzone_fwd = (MOTOR_DIR_C_BASE * MOTOR_DIR_C_DEFAULT > 0)
+        ? QCAR_GROUND_DEADZONE_POS : QCAR_GROUND_DEADZONE_NEG;
+    g_param.motor_c_deadzone_rev = (MOTOR_DIR_C_BASE * MOTOR_DIR_C_DEFAULT > 0)
+        ? QCAR_GROUND_DEADZONE_NEG : QCAR_GROUND_DEADZONE_POS;
     g_param.enc_dir_a   = ENC_DIR_A_DEFAULT;
     g_param.enc_dir_b   = ENC_DIR_B_DEFAULT;
     g_param.enc_dir_c   = ENC_DIR_C_DEFAULT;

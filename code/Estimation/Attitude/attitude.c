@@ -14,6 +14,7 @@ att_diag_t att_diag;
 extern compare_result_t v2_compare_result;
 static ahrs_output_t pending;
 static uint8 initialized, fault, has_pending, clock_started;
+static const char *fault_text;
 static uint16 accepted_ticks;
 static uint32 last_tick;
 static float clock_us;
@@ -40,18 +41,25 @@ static float wrap180(float angle)
     return wrapped;
 }
 
+static void latch_fault(const char *reason)
+{
+    fault_text=reason;
+    fault=1; has_pending=0;
+}
+
 void attitude_init(void)
 {
     imu_data_t mean;
     ahrs_sample_t initial;
     memset(&att,0,sizeof(att)); memset(&att_diag,0,sizeof(att_diag));
     initialized=fault=has_pending=clock_started=0; accepted_ticks=0;
+    fault_text="NONE";
     clock_us=1000000.0f/IfxStm_getFrequency(&MODULE_STM0);
     if (!isfinite(clock_us) || clock_us<=0.0f || !imu_get_startup_mean(&mean))
-    { fault=1; return; }
+    { latch_fault("ATT INIT INPUT"); return; }
     initial=sample_from_imu(&mean);
     initialized=r10h_init(&initial);
-    if (!initialized) { fault=1; return; }
+    if (!initialized) { latch_fault("ATT INIT CORE"); return; }
     r10h_set_clock(clock_ticks,clock_us);
     /* Core aligned to measured gravity. Do not run a synthetic update,
      * subtract startup bias again, negate acceleration, or filter outside. */
@@ -64,6 +72,7 @@ uint8 attitude_converged(void)
     return (uint8)(initialized && !fault && !imu_link_lost() && accepted_ticks>=ATT_READY_SAMPLES);
 }
 uint8 attitude_diverged(void) { return fault; }
+const char *attitude_fault_text(void) { return fault ? fault_text : "NONE"; }
 void attitude_update_rate(void)
 {
     att.roll_rate=imu.gyro_x; att.pitch_rate=imu.gyro_y; att.yaw_rate=imu.gyro_z;
@@ -82,19 +91,20 @@ void attitude_tick1ms(void)
     {
         att_diag.period_us=(float)(now-last_tick)*clock_us;
         if (att_diag.period_us<750.0f || att_diag.period_us>1250.0f)
-        { fault=1; has_pending=0; return; }
+        { latch_fault("ATT PERIOD"); return; }
     }
     clock_started=1; last_tick=now;
-    if (!imu_get_raw_sample(&raw)) { fault=1; has_pending=0; return; }
+    if (!imu_get_raw_sample(&raw)) { latch_fault("ATT RAW SAMPLE"); return; }
     input=sample_from_imu(&raw);
-    if (!r10h_update(&input) || !r10h_get_output(&pending) ||
-        !valid_output(&pending) || !valid_output(&v2_compare_result.b) ||
-        !valid_output(&v2_compare_result.c))
-    { fault=1; has_pending=0; return; }
+    if (!r10h_update(&input) || !r10h_get_output(&pending))
+    { latch_fault("ATT CORE UPDATE"); return; }
+    if (!valid_output(&pending)) { latch_fault("ATT OUTPUT A"); return; }
+    if (!valid_output(&v2_compare_result.b)) { latch_fault("ATT OUTPUT B"); return; }
+    if (!valid_output(&v2_compare_result.c)) { latch_fault("ATT OUTPUT C"); return; }
     elapsed=(float)(clock_ticks()-now)*clock_us;
     att_diag.update_us=elapsed;
     if (elapsed>att_diag.max_update_us) att_diag.max_update_us=elapsed;
-    if (elapsed>=1000.0f) { fault=1; has_pending=0; return; }
+    if (elapsed>=1000.0f) { latch_fault("ATT UPDATE TIME"); return; }
     att_diag.acc_norm=sqrtf(raw.acc_x*raw.acc_x+raw.acc_y*raw.acc_y+raw.acc_z*raw.acc_z);
     att_diag.acc_weight=pending.acc_weight;
     att_diag.acc_valid=(uint8)(pending.acc_weight>0.0f);

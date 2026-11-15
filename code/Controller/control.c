@@ -3,7 +3,6 @@
 #include "HW_Drivers/Motor/W_Motor.h"
 #include "HW_Drivers/Motor/Y_Motor.h"
 #include "config.h"
-#include "Common/param.h"
 #include "HW_Drivers/IMU/imu.h"
 #include "Estimation/Attitude/attitude.h"
 #include "Protocols/vofa.h"
@@ -81,14 +80,15 @@ static volatile control_test_status_t s_test_status;    // 最近一次启动结
 static volatile motor_jog_t s_jog_target;       // 点动目标电机
 static volatile int16       s_jog_duty;         // 点动占空比，带符号
 
-// 无线 Run Test 状态。主循环写命令，1ms 中断读取并更新速度与航向目标。
+// 无线 Run Test 状态。主循环写命令，1ms 中断读取并更新速度与转向目标。
 static volatile uint8  s_remote_active;          // 1=Run Test 已启动
 static volatile uint8  s_remote_cmd_seen;        // 1=至少收到过一条合法 speed 命令
 static volatile uint8  s_remote_timeout_latched; // 1=本次命令已执行过超时急停
 static volatile uint16 s_remote_cmd_age_ms;      // 距最新合法命令的时间
-static volatile float  s_remote_steer_angle;     // 最近一次相对航向指令(°)
+static volatile float  s_remote_steer_angle;     // 最近一次上位机转向输入
 static volatile float  s_remote_speed_mps;       // 行进速度目标(m/s)
-static volatile float  s_remote_yaw_target;      // 当前绝对航向目标(°)
+static volatile float  s_remote_yaw_target;      // 遥控示教使用的绝对航向目标(°)
+static float           s_remote_yaw_rate_cmd;    // 普通 Remote 的斜坡后目标角速度(°/s)
 
 // 正式跑车(Run)状态。目标更新在 1ms 中断，菜单只负责启停和显示
 static volatile uint8  s_run_active;             // 1=Run 已启动
@@ -100,7 +100,6 @@ static float           s_direction_yaw_rate_target; // 视觉生成的目标横�
 static float           s_direction_yaw_rate_cmd; // 斜率限制后的目标横摆角速度
 static float           s_balance_yaw_ref;        // Balance 启动瞬间的航向，Yaw Hold 以它为基准
 static float           s_yaw_desat_offset;       // 共模动量回收时允许航向缓慢让出的角度(°)
-static float           s_direction_hold_yaw;     // 十字或丢线进入时锁存的航向
 static uint8           s_direction_last_mode;    // 上一拍跟踪模式
 static float           s_roll_angle_target;      // Roll 回收与压弯合成后的实际角度目标
 static float           s_yaw_output_applied;     // Roll 优先混控后实际分配给 Yaw 的输出
@@ -248,7 +247,6 @@ static void cascade_reset(void)
     s_direction_last_error = 0.0f;
     s_direction_yaw_rate_target = 0.0f;
     s_direction_yaw_rate_cmd = 0.0f;
-    s_direction_hold_yaw = 0.0f;
     s_direction_last_mode = TRACK_MODE_MIDDLE;
     s_roll_angle_target = g_roll_zero;
     s_yaw_output_applied = 0.0f;
@@ -275,6 +273,7 @@ static void remote_state_reset(void)
     s_remote_steer_angle = 0.0f;
     s_remote_speed_mps = 0.0f;
     s_remote_yaw_target = 0.0f;
+    s_remote_yaw_rate_cmd = 0.0f;
     s_odom_test_state = ODOM_TEST_IDLE;
     s_odom_test_start_count = 0;
     s_odom_test_yaw_zero = 0.0f;
@@ -345,9 +344,13 @@ static void run_hold_balance(run_stop_t reason)
     s_direction_last_error = 0.0f;
     s_direction_last_mode = TRACK_MODE_HOLD;
     pid_reset(&p_vel_pid);
+    pid_reset(&y_rate_pid);
     g_lean_offset = 0.0f;
     s_lean_speed_mps = 0.0f;
     g_yaw_target = imu_get_angle_yaw();
+    /* Returning to ordinary Balance starts from the current heading. */
+    s_balance_yaw_ref = g_yaw_target - YAW_HOLD_DEG;
+    s_yaw_desat_offset = 0.0f;
 }
 
 //-------------------------------------------------------------------------------------------------------------------
@@ -496,6 +499,14 @@ static void run_target_update(void)
     g_target_distance = speed_target_from_mps(speed_mps);
 }
 
+/* On this car the host's positive left input needs positive yaw rate
+ * with the default steering setting. */
+static float remote_yaw_rate_target(void)
+{
+    float limit = YAW_RATE_CMD_LIMIT * g_yaw_momentum_scale;
+    return constrain_float(-(float)STEER_DIR * s_remote_steer_angle, -limit, limit);
+}
+
 //-------------------------------------------------------------------------------------------------------------------
 // 函数简介     更新无线遥控或 1m 验证的速度与航向目标
 // 参数说明     void
@@ -544,7 +555,7 @@ static void motion_target_update(void)
         return;
     }
 
-    // 正式跑车。速度规划、航向积分与斑马线停车均由 Run 状态更新。
+    // 正式跑车。速度规划与斑马线停车由 Run 状态更新。
     if (s_run_active && start_flag == START_BALANCE)
     {
         run_target_update();
@@ -586,6 +597,8 @@ static void motion_target_update(void)
             s_remote_steer_angle = 0.0f;
             s_remote_yaw_target = imu_get_angle_yaw();
             g_yaw_target = s_remote_yaw_target;
+            s_remote_yaw_rate_cmd = 0.0f;
+            pid_reset(&y_rate_pid);
             s_speed_ramp = 0.0f;
             pid_reset(&p_vel_pid);
         }
@@ -594,8 +607,16 @@ static void motion_target_update(void)
         return;
     }
 
-    // 航向与速度目标在同一拍发布，速度斜坡只限制加速度，不等待转向完成。
-    g_yaw_target = s_remote_yaw_target;
+    if (s_path_teach_remote)
+        g_yaw_target = s_remote_yaw_target;
+    else if (s_remote_steer_angle == 0.0f)
+        s_remote_yaw_rate_cmd = 0.0f;
+    else
+    {
+        float step = DIRECTION_YAW_SLEW * (CTRL_PERIOD_MS * 0.001f);
+        float delta = remote_yaw_rate_target() - s_remote_yaw_rate_cmd;
+        s_remote_yaw_rate_cmd += constrain_float(delta, -step, step);
+    }
     g_target_distance = speed_target_from_mps(s_remote_speed_mps);
 }
 
@@ -669,7 +690,7 @@ static float direction_balance_Control(float direction_now, float direction_zero
 }
 
 //-------------------------------------------------------------------------------------------------------------------
-// 函数简介     按跟踪模式更新方向偏差、目标航向和压弯共用控制量
+// 函数简介     按跟踪模式更新方向偏差及转向、压弯共用的目标角速度
 // 参数说明     void
 // 返回参数     void
 // 使用示例     if (run20) direction_control_update();
@@ -692,14 +713,12 @@ static void direction_control_update(void)
     mode = g_vision_track_mode;
     if (mode > TRACK_MODE_HOLD) mode = TRACK_MODE_MIDDLE;
 
-    if (mode == TRACK_MODE_HOLD || (!g_track_valid && !beacon_search_active()))
+    if (mode == TRACK_MODE_HOLD || !s_run_vision_armed ||
+        (!g_track_valid && !beacon_search_active()))
     {
-        if (s_direction_last_mode != TRACK_MODE_HOLD)
-            s_direction_hold_yaw = imu_get_angle_yaw();
         s_direction_offset = 0.0f;
         s_direction_last_error = 0.0f;
         s_direction_yaw_rate_target = 0.0f;
-        g_yaw_target = s_direction_hold_yaw;
         mode = TRACK_MODE_HOLD;
     }
     else
@@ -719,49 +738,40 @@ static void direction_control_update(void)
             s_direction_offset += DIRECTION_ERROR_ALPHA *
                                   (raw_offset - s_direction_offset);
         }
-        s_direction_yaw_rate_target = direction_balance_Control(s_direction_offset, 0.0f);
+        s_direction_yaw_rate_target = constrain_float(
+            direction_balance_Control(s_direction_offset, 0.0f),
+            -YAW_RATE_CMD_LIMIT, YAW_RATE_CMD_LIMIT);
     }
-    if(g_param.beacon.mode!=0) s_direction_yaw_rate_target=constrain_float(s_direction_yaw_rate_target,-g_param.beacon.yaw_limit_dps,g_param.beacon.yaw_limit_dps);
+    if (g_param.beacon.mode != 0)
+        s_direction_yaw_rate_target = constrain_float(s_direction_yaw_rate_target,
+            -g_param.beacon.yaw_limit_dps, g_param.beacon.yaw_limit_dps);
     s_direction_last_mode = mode;
 }
 
 //-------------------------------------------------------------------------------------------------------------------
-// 函数简介     平滑目标横摆角速度并积分生成连续航向目标
+// 函数简介     每毫秒平滑视觉角速度指令，目标丢失时立即回到零角速度
 // 参数说明     void
 // 返回参数     void
-// 使用示例     direction_yaw_target_update();
+// 使用示例     direction_yaw_rate_update();
 //-------------------------------------------------------------------------------------------------------------------
-static void direction_yaw_target_update(void)
+static void direction_yaw_rate_update(void)
 {
-    float yaw_now;
     float delta;
     float step;
 
     if (!s_run_active) return;
-    if (s_direction_last_mode == TRACK_MODE_HOLD)
+    if (!s_run_vision_armed || g_vision_track_mode == TRACK_MODE_HOLD ||
+        s_direction_last_mode == TRACK_MODE_HOLD || (!g_track_valid && !beacon_search_active()))
     {
+        s_direction_last_mode = TRACK_MODE_HOLD;
+        s_direction_yaw_rate_target = 0.0f;
         s_direction_yaw_rate_cmd = 0.0f;
-        g_yaw_target = s_direction_hold_yaw;
         return;
     }
 
     delta = s_direction_yaw_rate_target - s_direction_yaw_rate_cmd;
     step = DIRECTION_YAW_SLEW * 0.001f;
-    if (delta > step)       s_direction_yaw_rate_cmd += step;
-    else if (delta < -step) s_direction_yaw_rate_cmd -= step;
-    else                    s_direction_yaw_rate_cmd = s_direction_yaw_rate_target;
-
-    yaw_now = imu_get_angle_yaw();
-    g_yaw_target += s_direction_yaw_rate_cmd * 0.001f;
-    g_yaw_target = yaw_now + constrain_float(g_yaw_target - yaw_now,
-                                              -DIRECTION_YAW_LEAD_LIMIT,
-                                               DIRECTION_YAW_LEAD_LIMIT);
-    if (!ctrl_is_finite(g_yaw_target))
-    {
-        g_yaw_target = yaw_now;
-        s_direction_yaw_rate_target = 0.0f;
-        s_direction_yaw_rate_cmd = 0.0f;
-    }
+    s_direction_yaw_rate_cmd += constrain_float(delta, -step, step);
 }
 
 //-------------------------------------------------------------------------------------------------------------------
@@ -864,33 +874,6 @@ static float roll_recovery_offset(uint8 run20)
                 (1.0f - YAW_MOMENTUM_MIN_SCALE) *
                 (fabsf(g_flywheel_common_rpm) - warn_rpm) / (hard_rpm - warn_rpm);
     }
-
-    // Yaw 共模动量回收（20 ms 拍）。反作用轮只在转速变化时给车身力矩，P-only
-    // 环为了顶住静态误差会一直给占空比，共模转速单向累积到 FLY_SPEED_LIMIT。
-    // 这里按超出门限的量让航向目标缓慢让角，让角本身产生反向转速变化把飞轮带回 0。
-#if YAW_DESAT_ENABLE
-    {
-        float common      = g_flywheel_common_rpm;
-        float excess      = fabsf(common) - YAW_DESAT_RPM;
-        float heading_err = fabsf(g_yaw_target - imu_get_angle_yaw());
-
-        // 只在已经稳住（误差小、输出没打满）时让角。正在做大角度回正时让角
-        // 会使目标朝偏差方向走，车会顺着偏差一直转过去。
-        if (excess > 0.0f && heading_err < YAW_DESAT_MAX_ERR_DEG &&
-            fabsf(g_pwm_yaw) < YAW_DESAT_MAX_OUTPUT)
-        {
-            float bleed = YAW_DESAT_DPS * 0.020f;   // 本拍让出的角度(deg)
-
-            if (excess < YAW_DESAT_RPM)             // 门限附近线性淡入
-                bleed *= excess / YAW_DESAT_RPM;
-            if (common > 0.0f) s_yaw_desat_offset -= bleed;
-            else               s_yaw_desat_offset += bleed;
-            s_yaw_desat_offset = constrain_float(s_yaw_desat_offset,
-                                                 -YAW_DESAT_LIMIT_DEG,
-                                                  YAW_DESAT_LIMIT_DEG);
-        }
-    }
-#endif
 
     // 输出直接加进角度环误差，不在回收环内附加输出限幅。
     pid_loc_calc(&r_rcy_pid, s_rcy_fb);
@@ -1017,6 +1000,44 @@ static float yaw_cascade_ctrl(uint8 run_angle)
         }
         return pid_loc_calc_limited(&y_rate_pid, s_path_yaw_rate_cmd-imu.gyro_z, -headroom, headroom);
     }
+    if (s_run_active || (s_remote_active && !s_path_teach_remote))
+    {
+        float limit = constrain_float(FLYWHEEL_OUT_LIMIT - fabsf(g_pwm_roll), 0.0f, YAW_PWM_LIMIT);
+        float rate_cmd = s_run_active ? s_direction_yaw_rate_cmd : s_remote_yaw_rate_cmd;
+        uint8 zero_turn = s_run_active ? (s_direction_last_mode == TRACK_MODE_HOLD) :
+                                       (s_remote_steer_angle == 0.0f);
+        if (zero_turn || limit <= 0.0f)
+            y_rate_pid.integrator = 0.0f;
+        return pid_loc_calc_limited(&y_rate_pid, rate_cmd - imu.gyro_z, -limit, limit);
+    }
+    if (start_flag == START_BALANCE && !s_remote_active &&
+        s_odom_test_state == ODOM_TEST_IDLE)
+    {
+        float yaw_pwm;
+        if (run_angle)
+            pid_loc_calc(&y_angle_pid, g_yaw_target - imu_get_angle_yaw());
+        yaw_pwm = pid_loc_calc(&y_rate_pid, y_angle_pid.out - imu.gyro_z);
+        if (!W_Motor_LinkLost())
+        {
+            float rpm_a = (float)W_Motor_GetSpeed1();
+            float rpm_b = (float)W_Motor_GetSpeed2();
+            float common_rpm = 0.5f * (rpm_a + rpm_b);
+            float peak_rpm = fmaxf(fabsf(rpm_a), fabsf(rpm_b));
+            float speed_limit = YAW_SPEED_FF_WHEEL_LIMIT;
+            float fade, allowance, compensation;
+
+            if (FLY_SPEED_LIMIT > 0)
+                speed_limit = fminf(speed_limit, 0.75f * (float)FLY_SPEED_LIMIT);
+            fade = constrain_float(2.0f * (1.0f - peak_rpm / speed_limit), 0.0f, 1.0f);
+            /* Assist acceleration only. A zero or reverse controller command
+             * must still release or brake the wheels. The mixer limits the sum. */
+            allowance = fminf(0.5f * fabsf(yaw_pwm), YAW_SPEED_FF_PWM_LIMIT) * fade;
+            compensation = YAW_SPEED_FF_PWM_PER_RPM * common_rpm;
+            if (yaw_pwm * compensation > 0.0f)
+                yaw_pwm += constrain_float(compensation, -allowance, allowance);
+        }
+        return yaw_pwm;
+    }
     // 航向用连续角，环岛要累计 340°，这里不能换成 ±180° 包装角
     // 误差取 目标-实际：本车正共模占空比产生正 yaw 角加速度，见 config.h
     if (run_angle) pid_loc_calc(&y_angle_pid, g_yaw_target - imu_get_angle_yaw());   // 转向外环，1ms
@@ -1026,7 +1047,53 @@ static float yaw_cascade_ctrl(uint8 run_angle)
                  constrain_float(y_angle_pid.out, -YAW_RATE_CMD_LIMIT, YAW_RATE_CMD_LIMIT)
                  - imu.gyro_z);                    // 角速度内环，1ms
 
-    return y_rate_pid.out;
+    // 位置式 P 的输出就是稳态占空比，等价于飞轮的稳态转速。不限幅时一个静态
+    // 航向误差就能把飞轮顶到极速，此后飞轮不再加速、车身得不到回正力矩。
+    return constrain_float(y_rate_pid.out, -YAW_PWM_LIMIT, YAW_PWM_LIMIT);
+}
+
+//-------------------------------------------------------------------------------------------------------------------
+// 函数简介     Yaw 共模动量回收（20 ms 拍），调整 s_yaw_desat_offset 让航向目标让角
+// 参数说明     void；调用前 roll_recovery_offset() 已在同一拍刷新 g_flywheel_common_rpm
+// 返回参数     void
+// 使用示例     if (run20) yaw_desat_update();
+//-------------------------------------------------------------------------------------------------------------------
+// 反作用轮只在转速变化时给车身力矩。P-only 环为了顶住静态误差会一直给占空比，
+// 共模转速单向累积；飞轮一旦到达该占空比的稳态转速，回正力矩就降为 0。
+// 让角本身产生反向转速变化，把飞轮带回 0。两种情况允许让角：
+//   1) 已稳住：误差小、输出未打满，缓慢让角（原有行为）；
+//   2) 卡死：车身几乎不转，且让角方向是把目标拉向当前实际航向（减小误差）。
+//      旧门控要求误差 < 3°，而卡死时误差恰恰大于 3°、输出也大于门限，
+//      回收永远不触发，飞轮停在极速直到超速保护——这里是死锁出口。
+// 正在快速回转时两者都不满足，不会出现"目标顺着偏差走"的问题。
+static void yaw_desat_update(void)
+{
+#if YAW_DESAT_ENABLE
+    float common = g_flywheel_common_rpm;
+    float excess = fabsf(common) - YAW_DESAT_RPM;
+    float err    = g_yaw_target - imu_get_angle_yaw();
+    float dir    = (common > 0.0f) ? -1.0f : 1.0f;  // 让角方向：使共模转速回落
+    float rate_dps;
+    uint8 settled, stalled;
+
+    if (start_flag != START_BALANCE || s_path_active || s_run_active ||
+        !ctrl_is_finite(common) || !ctrl_is_finite(err) || excess <= 0.0f)
+        return;
+
+    settled = (uint8)(fabsf(err) < YAW_DESAT_MAX_ERR_DEG &&
+                      fabsf(g_pwm_yaw) < YAW_DESAT_MAX_OUTPUT);
+    stalled = (uint8)(fabsf(imu.gyro_z) < YAW_DESAT_STALL_RATE_DPS &&
+                      dir * err < 0.0f);           // 让角会缩小 |误差|
+    if (stalled)      rate_dps = YAW_DESAT_STALL_DPS;
+    else if (settled) rate_dps = YAW_DESAT_DPS;
+    else              return;
+
+    if (excess < YAW_DESAT_RPM)                     // 门限附近线性淡入
+        rate_dps *= excess / YAW_DESAT_RPM;
+    s_yaw_desat_offset += dir * rate_dps * 0.020f;
+    s_yaw_desat_offset = constrain_float(s_yaw_desat_offset,
+                                         -YAW_DESAT_LIMIT_DEG, YAW_DESAT_LIMIT_DEG);
+#endif
 }
 
 //-------------------------------------------------------------------------------------------------------------------
@@ -1113,11 +1180,12 @@ static void cascade_run(void)
     }
 
     if (run20) direction_control_update();
-    direction_yaw_target_update();
+    direction_yaw_rate_update();
     if (run5) g_lean_offset = lean_offset_update();
-    if (!s_path_active) g_pwm_yaw = yaw_cascade_ctrl(run_angle);
     if (run20) speed_ramp_update();                      // 速度目标斜坡与速度环同拍
     g_pwm_roll  = roll_cascade_ctrl(g_roll_zero + LEAN_DIR * g_lean_offset, run_angle, run20);
+    if (!s_path_active) g_pwm_yaw = yaw_cascade_ctrl(run_angle);
+    if (run20) yaw_desat_update();                       // 共模转速已在回收环同拍刷新
     if (s_path_active) g_pwm_yaw = yaw_cascade_ctrl(run_angle);
     g_pwm_pitch = pitch_cascade_ctrl(g_pitch_zero, run_angle, run20);
 
@@ -1287,7 +1355,7 @@ static float pitch_test_ctrl(uint8 run_angle, uint8 run20)
 }
 
 //-------------------------------------------------------------------------------------------------------------------
-// 函数简介     跑一拍 Yaw 测试串级，未选转向外环时整个旁路并保持清零
+// 函数简介     跑一拍 Yaw 测试串级，Rate 模式跟踪零角速度
 // 参数说明     run_angle       1ms 分频标志
 // 返回参数     float           Yaw 测试输出
 // 使用示例     output = yaw_test_ctrl(run_angle);
@@ -1739,7 +1807,6 @@ uint8 control_run_start(void)
     s_direction_last_error = 0.0f;
     s_direction_yaw_rate_target = 0.0f;
     s_direction_yaw_rate_cmd = 0.0f;
-    s_direction_hold_yaw = imu_get_angle_yaw();
     s_direction_last_mode = TRACK_MODE_MIDDLE;
     s_zebra_stop_latched = 0;
     s_zebra_stop_start_count = 0;
@@ -1759,11 +1826,14 @@ uint8 control_run_start(void)
 //-------------------------------------------------------------------------------------------------------------------
 void control_run_stop(void)
 {
+    uint32 irq = interrupt_global_disable();
     if (s_run_active)
     {
         run_hold_balance(RUN_STOP_MANUAL);
+        interrupt_global_enable(irq);
         return;
     }
+    interrupt_global_enable(irq);
     control_stop();
 }
 
@@ -1832,6 +1902,11 @@ void control_run_diag_snapshot(volatile control_run_diag_t *out)
     out->lean_offset          = g_lean_offset;
     out->yaw_rate_target      = s_path_active ? s_path_yaw_rate_target : s_direction_yaw_rate_target;
     out->yaw_rate_command     = s_path_active ? s_path_yaw_rate_cmd : s_direction_yaw_rate_cmd;
+    if (s_remote_active && !s_path_teach_remote)
+    {
+        out->yaw_rate_target = remote_yaw_rate_target();
+        out->yaw_rate_command = s_remote_yaw_rate_cmd;
+    }
     out->yaw_rate_actual      = imu.gyro_z;
     out->yaw_output_raw       = g_pwm_yaw;
     out->yaw_output_applied   = s_yaw_output_applied;
@@ -1840,7 +1915,8 @@ void control_run_diag_snapshot(volatile control_run_diag_t *out)
     out->lateral_error        = g_vision_lateral_error;
     out->heading_error        = g_vision_heading_error;
     out->curvature            = g_vision_curvature;
-    out->speed_plan_mps       = s_path_active ? s_path_command.speed_mps : g_run_speed_target_mps;
+    out->speed_plan_mps       = s_path_active ? s_path_command.speed_mps :
+                                (s_remote_active ? s_remote_speed_mps : g_run_speed_target_mps);
     out->speed_ramp_mps       = Y_Motor_Count20msToMps(s_speed_ramp);
     out->speed_actual_mps     = Y_Motor_GetSpeedMps();
     out->momentum_scale       = g_yaw_momentum_scale;
@@ -1871,6 +1947,7 @@ uint8 control_remote_start(void)
     s_remote_steer_angle = 0.0f;
     s_remote_speed_mps = 0.0f;
     s_remote_yaw_target = imu_get_angle_yaw();
+    s_remote_yaw_rate_cmd = 0.0f;
     g_target_distance = 0;
     g_yaw_target = s_remote_yaw_target;
     return 1;
@@ -1889,14 +1966,13 @@ void control_remote_stop(void)
 
 //-------------------------------------------------------------------------------------------------------------------
 // 函数简介     接收一条无线遥控命令并刷新命令看门狗
-// 参数说明     steer_angle/speed_mps 相对当前航向角度(°)与线速度(m/s)
+// 参数说明     steer_angle/speed_mps 上位机有符号转向输入与目标线速度(m/s)
 // 返回参数     uint8           1=已接受 0=未运行或数值越界
 // 使用示例     control_remote_command(30.0f, 0.20f);
 //-------------------------------------------------------------------------------------------------------------------
 uint8 control_remote_command(float steer_angle, float speed_mps)
 {
     uint32 interrupt_state;
-    float yaw_now;
 
     if (!ctrl_is_finite(steer_angle) || !ctrl_is_finite(speed_mps) ||
         steer_angle < -REMOTE_STEER_INPUT_LIMIT ||
@@ -1905,17 +1981,15 @@ uint8 control_remote_command(float steer_angle, float speed_mps)
         speed_mps > REMOTE_SPEED_LIMIT_MPS)
         return 0;
 
-    if (s_path_teach_remote && (speed_mps < 0.0f || speed_mps > PATH_SPEED_MAX)) return 0;
-    yaw_now = imu_get_angle_yaw();
     interrupt_state = interrupt_global_disable();
-    if (!s_remote_active || start_flag != START_BALANCE)
+    if (!s_remote_active || start_flag != START_BALANCE ||
+        (s_path_teach_remote && (speed_mps < 0.0f || speed_mps > PATH_SPEED_MAX)))
     {
         interrupt_global_enable(interrupt_state);
         return 0;
     }
-    // 每条命令均以接收时航向为基准；航向和速度在下一次 1ms 控制拍同时生效。
-    // 转向意图是相对行进方向说的，车掉头之后要跟着翻，见 STEER_DIR
-    s_remote_yaw_target = yaw_now + (float)STEER_DIR * steer_angle;
+    if (s_path_teach_remote)
+        s_remote_yaw_target = imu_get_angle_yaw() + (float)STEER_DIR * steer_angle;
     s_remote_steer_angle = steer_angle;
     s_remote_speed_mps = speed_mps;
     s_remote_cmd_age_ms = 0;

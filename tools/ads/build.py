@@ -180,12 +180,17 @@ def main():
     ok = ok and bool(re.search(r"Build Finished\.\s+0 errors", console))
     artifacts = []
     for ext in ("elf", "hex", "map"):
-        f = snapshot / "Debug" / ("OneWheelUpright." + ext)
-        valid = f.is_file() and f.stat().st_size > 0
-        if args.clean or changed or removed:
-            valid = valid and f.stat().st_mtime >= started if f.exists() else False
-        ok = ok and valid
-        if f.exists():
+        name = "OneWheelUpright." + ext
+        candidates = [snapshot / "Debug" / name]
+        if ext == "map":
+            # ADS uses Debug by default. An explicit map path can use the project root.
+            candidates.append(snapshot / name)
+        f = max((p for p in candidates if p.is_file() and p.stat().st_size > 0),
+                key=lambda p: p.stat().st_mtime, default=None)
+        valid = f is not None and (not (args.clean or changed or removed) or f.stat().st_mtime >= started)
+        if ext != "map":
+            ok = ok and valid
+        if valid:
             artifacts.append({"path": str(f), "bytes": f.stat().st_size, "sha256": digest(f)})
     if inputs(ROOT) != current:
         ok = False

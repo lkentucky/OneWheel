@@ -2,7 +2,6 @@
 #include "Protocols/station_wifi.h"
 #include "Estimation/Attitude/attitude.h"
 #include "config.h"
-#include "Common/param.h"
 #include "Controller/control.h"
 #include "Controller/Planner/path_store.h"
 #include "Common/param.h"
@@ -74,6 +73,12 @@ static uint8 s_stop_seen;
 static volatile uint8 s_station_att;
 static char s_save_group[24];
 
+#if STATION_WIFI_ENABLED
+/* Every current producer enqueues a complete line shorter than 256 bytes. */
+#define VOFA_WIFI_LINE_MAX 256u
+#define VOFA_WIFI_REMOTE_RUN_PERIOD_MS 40u
+#endif
+
 /* The run: tag is a diagnostic frame, not a requirement to start visual Run.
  * Keep menu selection intact; station-linked balance/test modes reuse the same
  * bounded snapshot and divider instead of creating a second telemetry stream. */
@@ -90,6 +95,9 @@ static uint8 tx_push(const uint8 *dat, uint32 len)
     uint32 used = head - s_tx_tail;           
     uint32 i;
 
+#if STATION_WIFI_ENABLED
+    if (len > VOFA_WIFI_LINE_MAX) { s_cfg_tx_drop++; return 0; }
+#endif
     if (len == 0u || len > (VOFA_TX_SIZE - used)) { s_cfg_tx_drop++; return 0; }
 
     for (i = 0; i < len; i++) s_tx_buf[(head + i) & VOFA_TX_MASK] = dat[i];
@@ -99,25 +107,28 @@ static uint8 tx_push(const uint8 *dat, uint32 len)
 }
 
 #if STATION_WIFI_ENABLED
+/* Reuse the original staging capacity to fit the CPU0 DSPR budget. */
+static uint8 s_wifi_frame[VOFA_WIFI_LINE_MAX];
+
 /* Exactly one SPI transaction per call; no module waits in the 1 ms ISR.
- * Whole protocol lines become UDP datagrams. Neither link shares parser state
+ * Pack queued complete lines into one datagram without waiting for more.
+ * Neither link shares parser state
  * with the other: UART2 is inactive while the WiFi build is selected.
  */
 static void vofa_wifi_poll(void)
 {
-    static uint8 frame[STATION_WIFI_FRAME_MAX];
     uint8 rx[STATION_WIFI_RX_MAX];
-    uint16 length = 0, received = 0, i;
+    uint16 length = 0, scanned = 0, received = 0, i;
     uint32 tail = s_tx_tail;
+    uint32 queued = s_tx_head - tail;
     int sent;
-    while (tail + length != s_tx_head && length < STATION_WIFI_FRAME_MAX)
+    while (scanned < queued && scanned < sizeof(s_wifi_frame))
     {
-        frame[length] = s_tx_buf[(tail + length) & VOFA_TX_MASK];
-        length++;
-        if (frame[length - 1u] == '\n') break;
+        uint8 byte = s_tx_buf[(tail + scanned) & VOFA_TX_MASK];
+        s_wifi_frame[scanned++] = byte;
+        if (byte == '\n') length = scanned;
     }
-    if (length && frame[length - 1u] != '\n') length = 0;
-    sent = station_wifi_step(frame, length, rx, &received);
+    sent = station_wifi_step(s_wifi_frame, length, rx, &received, g_control_uptime_ms);
     if (sent < 0) { s_rx_overflow = 1; s_cfg_rx_error++; return; }
     if (sent > 0) s_tx_tail = tail + (uint32)sent;
     if (received)
@@ -268,7 +279,7 @@ static char *cmd_trim(char *text)
 }
 
 //-------------------------------------------------------------------------------------------------------------------
-// 函数简介     解析并执行 speed:<相对航向角>,<速度原始值> 无线遥控命令
+// 函数简介     解析并执行 speed:<转向输入>,<速度原始值> 无线遥控命令
 // 参数说明     line            已去掉换行符的命令字符串
 // 返回参数     vofa_cmd_result_t 处理结果，APPLIED 表示目标已写入控制层
 // 使用示例     result = cmd_execute_speed(line);
@@ -446,6 +457,44 @@ static uint8 cfg_stopped(void)
         !path_nav_busy() && !control_path_active());
 }
 
+/* Only this mode consumes yaw_hold_deg as a heading reference. */
+static uint8 cfg_balance_yaw_hold(void)
+{
+    return (uint8)(start_flag == START_BALANCE && !control_imu_recovery_busy() &&
+        !control_test_running() && control_jog_running() == MOTOR_JOG_NONE &&
+        !control_run_running() && !control_remote_running() &&
+        !path_nav_busy() && !control_path_active() &&
+        control_odometry_test_state() == ODOM_TEST_IDLE);
+}
+
+static void cfg_yaw_hold_report(void)
+{
+    uint32 irq, now;
+    float target, yaw, rate, rpm, output;
+    char line[112];
+    int len;
+
+    irq = interrupt_global_disable();
+    if (!cfg_balance_yaw_hold())
+    {
+        interrupt_global_enable(irq);
+        return;
+    }
+    now = g_control_uptime_ms;
+    target = g_yaw_target;
+    yaw = imu_get_angle_yaw();
+    rate = imu.gyro_z;
+    rpm = g_flywheel_common_rpm;
+    output = g_pwm_yaw;
+    interrupt_global_enable(irq);
+    len = snprintf(line, sizeof(line), "yaw:%lu,%.3f,%.3f,%.2f,%.0f,%.0f\n",
+        (unsigned long)now, (double)target, (double)yaw, (double)rate,
+        (double)rpm, (double)output);
+    if (len > 0 && len < (int)sizeof(line) &&
+        (uint32)(s_tx_head - s_tx_tail) + (uint32)len <= VOFA_TX_SIZE - 384u)
+        (void)tx_push((const uint8 *)line, (uint32)len);
+}
+
 static uint32 cfg_pid_mask(void)
 {
     uint32 mask;
@@ -556,6 +605,41 @@ static vofa_cmd_result_t cfg_execute(char *line)
         if (cfg_status()) (void)cfg_reply(seq, "ok", "status");
         else (void)cfg_reply(seq, "err", "BUSY,Status TX unavailable");
     }
+    else if (strcmp(fields[0], "imu_status") == 0 && count == 2u)
+    {
+        const char *fault_text;
+        float period_us, update_us, max_update_us;
+        uint8 lost, ready, fault;
+
+        irq = interrupt_global_disable();
+        lost = imu_link_lost();
+        ready = attitude_converged();
+        fault = attitude_diverged();
+        fault_text = lost ? imu_fault_text() : attitude_fault_text();
+        period_us = att_diag.period_us;
+        update_us = att_diag.update_us;
+        max_update_us = att_diag.max_update_us;
+        interrupt_global_enable(irq);
+        (void)snprintf(payload, sizeof(payload), "imu_status,%u,%u,%u,%s,%.1f,%.1f,%.1f",
+            (unsigned)lost, (unsigned)ready, (unsigned)fault, fault_text,
+            (double)period_us, (double)update_us, (double)max_update_us);
+        (void)cfg_reply(seq, "ok", payload);
+    }
+    else if (strcmp(fields[0], "imu_fault_raw") == 0 && count == 2u)
+    {
+        int16 sample[6];
+        uint8 valid;
+        irq = interrupt_global_disable();
+        valid = imu_get_saturation_raw(sample);
+        interrupt_global_enable(irq);
+        if (valid)
+            (void)snprintf(payload, sizeof(payload), "imu_fault_raw,%d,%d,%d,%d,%d,%d",
+                (int)sample[0], (int)sample[1], (int)sample[2],
+                (int)sample[3], (int)sample[4], (int)sample[5]);
+        else
+            (void)snprintf(payload, sizeof(payload), "imu_fault_raw,NONE");
+        (void)cfg_reply(seq, "ok", payload);
+    }
     else if (strcmp(fields[0], "remote") == 0 && count == 2u)
     {
         float steer, speed;
@@ -589,7 +673,8 @@ static vofa_cmd_result_t cfg_execute(char *line)
             pid_index = cfg_pid_index(d->name);
             live_control = cfg_live_control(d->name);
             irq = interrupt_global_disable();
-            allowed = (uint8)(cfg_stopped() || (pid_index >= 0 && (cfg_pid_mask() & (1u << pid_index)) != 0u) ||
+            allowed = (uint8)(cfg_stopped() || (d->ptr == &g_param.yaw_hold_deg && cfg_balance_yaw_hold()) ||
+                (pid_index >= 0 && (cfg_pid_mask() & (1u << pid_index)) != 0u) ||
                 (live_control && (cfg_pid_mask() & 0x01000000u) != 0u));
             if (allowed)
             {
@@ -645,7 +730,33 @@ static void cfg_poll(void)
     {
         s_cfg_last_status = now;
         (void)cfg_status();
+        if (s_station_att) cfg_yaw_hold_report();
     }
+#if STATION_WIFI_ENABLED
+    {
+        static uint32 last_wifi_diag;
+        if ((uint32)(now - last_wifi_diag) >= 1000u)
+        {
+            station_wifi_diag_t d;
+            char line[192];
+            int len;
+            last_wifi_diag = now;
+            station_wifi_get_diag(&d);
+            /* Leave stat: unchanged for existing hosts. Each wait pair is count,max_ms. */
+            len = snprintf(line, sizeof(line),
+                "wdiag:%lu,%u,%u,%lu,%lu,%lu,%lu,%lu,%lu,%lu,%lu,%lu,%lu\n",
+                (unsigned long)now, (unsigned)d.ready, (unsigned)d.phase,
+                (unsigned long)d.submitted, (unsigned long)d.acknowledged,
+                (unsigned long)d.errors, (unsigned long)d.poll_gap_max_ms,
+                (unsigned long)d.wait_count[0], (unsigned long)d.wait_max_ms[0],
+                (unsigned long)d.wait_count[1], (unsigned long)d.wait_max_ms[1],
+                (unsigned long)d.wait_count[2], (unsigned long)d.wait_max_ms[2]);
+            if (len > 0 && len < (int)sizeof(line) &&
+                (uint32)(s_tx_head - s_tx_tail) + (uint32)len <= VOFA_TX_SIZE - 384u)
+                (void)tx_push((const uint8 *)line, (uint32)len);
+        }
+    }
+#endif
     if (s_station_att && vofa_effective_mode() != VOFA_ATT)
     {
         static uint32 last_att;
@@ -800,10 +911,14 @@ void vofa_poll(void)
     control_run_diag_t run;
     char   line[256];
     uint32 seq1, seq2;
+    uint32 period_ms = g_vofa_div;
     int    len;
 
     #if STATION_WIFI_ENABLED
     vofa_wifi_poll();
+    /* Leave SPI/UDP capacity for Remote status replies and incoming commands. */
+    if (mode == VOFA_RUN && control_remote_running() && period_ms < VOFA_WIFI_REMOTE_RUN_PERIOD_MS)
+        period_ms = VOFA_WIFI_REMOTE_RUN_PERIOD_MS;
     #endif
     cfg_poll();
     task_poll();
@@ -817,7 +932,7 @@ void vofa_poll(void)
 
     seq1 = s_seq;
     if (seq1 & 1u) return;                                          // 快照正在更新
-    if ((seq1 - last_seq) < (uint32)(2u * g_vofa_div)) return;      // 未达到发送分频
+    if ((seq1 - last_seq) < 2u * period_ms) return;                // 未达到发送分频
 
     if (mode == VOFA_ATT)
     {

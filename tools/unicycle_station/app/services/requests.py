@@ -14,6 +14,8 @@ class Request:
 
 
 class RequestManager:
+    REMOTE_PROBE_TIMEOUT = .60
+
     def __init__(self, parser, send, notify=lambda *a: None, timeout=2):
         self.parser, self.send, self.notify = parser, send, notify
         self.timeout = timeout
@@ -38,6 +40,12 @@ class RequestManager:
 
     def tick(self, now=None):
         now = time.monotonic() if now is None else now
+        if (self.pending and self.pending.operation == 'remote'
+                and now - self.pending.sent >= self.REMOTE_PROBE_TIMEOUT):
+            missed = self.pending
+            self.pending = None
+            if missed.callback:
+                missed.callback(False, ['TIMEOUT'])
         if self.pending and now - self.pending.sent > (15 if self.pending.operation == 'schema' else self.timeout):
             p = self.pending
             # Only idempotent reads retry. Never repeat a set/save with uncertain outcome.

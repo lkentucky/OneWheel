@@ -121,10 +121,10 @@ static uint16 s_run_lost_ms,g_vision_age_ms;
 static int32 s_zebra_stop_start_count;
 static int g_target_distance;
 static float g_run_speed_target_mps,s_speed_ramp,s_direction_yaw_rate_target,s_direction_yaw_rate_cmd;
-static float s_direction_offset,s_direction_last_error,s_direction_hold_yaw,g_yaw_target;
+static float s_direction_offset,s_direction_last_error,g_yaw_target,s_balance_yaw_ref,s_yaw_desat_offset;
 static float g_lean_offset,s_lean_speed_mps,g_vision_direction_camera;
 static float g_vision_heading_error,g_vision_curvature,g_yaw_momentum_scale=1;
-static pid_t p_vel_pid;
+static pid_t p_vel_pid,y_rate_pid;
 static uint8 vision_link_lost(void){return g_vision_age_ms>=VISION_LINK_TIMEOUT_MS;}
 static int32 Y_Motor_GetTotalCount(void){return 0;}
 static float Y_Motor_CountToMeter(int32 count){return (float)count;}
@@ -137,7 +137,7 @@ static int ctrl_is_finite(float v){return v==v && v<=3e38f && v>=-3e38f;}
 '''
     for name in ['run_speed_limit','run_hold_balance','beacon_search_active',
                  'run_target_update','direction_balance_Control','direction_control_update',
-                 'direction_yaw_target_update']:
+                 'direction_yaw_rate_update']:
         source += _function(control, name)+'\n'
     source += r'''
 int main(void){
@@ -149,10 +149,10 @@ int main(void){
  assert(beacon_search_active());run_target_update();assert(g_target_distance==800);
  for(int i=0;i<100;i++)direction_control_update();
  assert(s_direction_yaw_rate_target<0 && s_direction_yaw_rate_target>=-10);
- direction_yaw_target_update();assert(g_yaw_target<0);
+ direction_yaw_rate_update();assert(s_direction_yaw_rate_cmd<0 && g_yaw_target==0);
  /* Waiting for enough misses: no blind forward motion and no steering. */
  g_beacon_result.searching=0;run_target_update();assert(g_target_distance==0);
- direction_control_update();assert(s_direction_yaw_rate_target==0);
+ direction_yaw_rate_update();assert(s_direction_yaw_rate_cmd==0 && s_direction_yaw_rate_target==0);
  /* A source mismatch, unarmed Run, or stopped Run must reject search. */
  g_beacon_result.searching=1;g_vision_source_mode=2;assert(!beacon_search_active());
  g_vision_source_mode=1;s_run_vision_armed=0;assert(!beacon_search_active());

@@ -71,5 +71,6 @@ uint8 attitude_converged(void);
 // 使用示例     uint8 fault = attitude_diverged();
 //-------------------------------------------------------------------------------------------------------------------
 uint8 attitude_diverged(void);
+const char *attitude_fault_text(void);
 
 #endif

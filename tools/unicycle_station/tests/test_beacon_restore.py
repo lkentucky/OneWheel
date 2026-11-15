@@ -164,7 +164,7 @@ param_t g_param;
 uint8 start_flag=START_STOP,g_track_valid=1,g_vision_ipm_ok=0,g_vision_source_mode=0;
 static uint8 s_run_active,s_run_stop,s_direction_last_mode,s_zebra_stop_latched,s_run_vision_armed,g_vision_stop_request;
 static int s_test_status,s_run_lost_ms,s_zebra_stop_start_count,g_vofa_mode,g_target_distance;
-static float g_run_speed_target_mps,s_direction_offset,s_direction_last_error,s_direction_yaw_rate_target,s_direction_yaw_rate_cmd,s_direction_hold_yaw,g_yaw_target;
+static float g_run_speed_target_mps,s_direction_offset,s_direction_last_error,s_direction_yaw_rate_target,s_direction_yaw_rate_cmd,g_yaw_target;
 static int state=VISION_CORE_READY,lost=0,allowed=1,starts=0;
 #define CTRL_TEST_STATUS_INVALID 99
 #define RUN_STOP_NONE 0
@@ -187,6 +187,61 @@ int main(void){
 }
 '''
     _compile_run(tmp_path,source)
+
+
+def test_run_beacon_loss_clears_speed_and_restarts_balance_heading(tmp_path):
+    code = (ROOT/'code/Controller/control.c').read_text(encoding='utf-8')
+    source = r'''
+#include "config.h"
+#include "Common/param.h"
+#include "Common/pid.c"
+#include <assert.h>
+#include <math.h>
+param_t g_param;
+typedef enum { RUN_STOP_NONE, RUN_STOP_VISION, RUN_STOP_LOST, RUN_STOP_ZEBRA } run_stop_t;
+enum { TRACK_MODE_HOLD=3 };
+static pid_t p_vel_pid, y_rate_pid;
+static run_stop_t s_run_stop;
+static uint8 s_run_active=1, s_run_vision_armed=1, g_track_valid=1;
+static uint8 s_direction_last_mode, g_vision_stop_request, s_zebra_stop_latched;
+static uint16 s_run_lost_ms;
+static int32 s_zebra_stop_start_count;
+static float g_run_speed_target_mps=.1f, g_target_distance, s_speed_ramp;
+static float s_direction_yaw_rate_target, s_direction_yaw_rate_cmd;
+static float s_direction_offset, s_direction_last_error, g_lean_offset, s_lean_speed_mps;
+static float g_yaw_target, s_balance_yaw_ref, s_yaw_desat_offset;
+static uint8 vision_link_lost(void){return 0;}
+static uint8 beacon_search_active(void){return 0;}
+static float run_speed_limit(float speed){return speed;}
+static float speed_target_from_mps(float speed){return speed*100;}
+static float imu_get_angle_yaw(void){return 29;}
+static int32 Y_Motor_GetTotalCount(void){return 0;}
+static float Y_Motor_CountToMeter(int32 count){return (float)count;}
+static int Y_Motor_GetSpeed20ms(void){return 0;}
+static int func_abs(int x){return x < 0 ? -x : x;}
+'''
+    for name in ('run_hold_balance', 'run_target_update'):
+        source += _function(code, name) + '\n'
+    source += r'''
+int main(void){
+    g_param.run_speed_lost=.2f;
+    run_target_update();assert(g_target_distance==10);
+    g_track_valid=0;
+    run_target_update();assert(g_target_distance==20 && s_run_active);
+    g_param.beacon.mode=1;
+    run_target_update();assert(g_target_distance==0 && s_run_active);
+    g_param.yaw_hold_deg=5;
+    s_yaw_desat_offset=4; s_balance_yaw_ref=10;
+    s_direction_yaw_rate_cmd=15; y_rate_pid.integrator=20;
+    s_run_lost_ms=RUN_LOST_STOP_MS-1;
+    run_target_update();
+    assert(!s_run_active && !s_run_vision_armed && s_run_stop==RUN_STOP_LOST);
+    assert(s_direction_yaw_rate_cmd==0 && y_rate_pid.integrator==0);
+    assert(s_yaw_desat_offset==0 && s_balance_yaw_ref+g_param.yaw_hold_deg==29);
+    return 0;
+}
+'''
+    _compile_run(tmp_path, source)
 
 
 def test_beacon_group_flash_roundtrip_preserves_existing_roll(tmp_path):
@@ -250,7 +305,7 @@ int main(void){
  patch(70,65);vision_core_run();
  assert(publications==1 && !edges && published.source_mode==1 && published.frame_seq==1);
  assert(published.beacon.valid && published.track_valid && published.run_active && published.input_seq==23);
- assert(published.direction_camera>0 && published.speed_limit_mps==incoming.beacon.speed_mps);
+ assert(published.direction_camera<0 && published.speed_limit_mps==incoming.beacon.speed_mps);
  have_frame=0;vision_core_run();assert(publications==1);
  have_frame=1;memset(gray.p,0,sizeof(gray.p));vision_core_run();
  assert(publications==2 && !published.track_valid && !published.beacon.valid && published.speed_limit_mps==0 && published.direction_camera==0);
@@ -258,12 +313,13 @@ int main(void){
  for(int i=1;i<20;i++)vision_core_run();
  assert(!published.beacon.valid && !published.track_valid && published.beacon.searching);
  assert(published.beacon.steer_valid && published.track_mode==TRACK_MODE_MIDDLE);
- assert(published.direction_camera<0 && published.speed_limit_mps==incoming.beacon.speed_mps);
+ assert(published.direction_camera>0 && published.speed_limit_mps==incoming.beacon.speed_mps);
  assert(published.beacon.cx==0 && published.beacon.cy==0);
  incoming.beacon.mode=0;incoming.input_seq++;vision_core_run();
  assert(publications==22 && edges==1 && published.source_mode==0 && !published.beacon.valid);
- incoming.beacon.mode=3;incoming.input_seq++;patch(70,65);vision_core_run();
+ incoming.beacon.mode=3;incoming.input_seq++;patch(110,65);vision_core_run();
  assert(published.source_mode==3 && published.beacon.valid && edges==1);
+ assert(published.direction_camera>0);
  return 0;
 }
 '''

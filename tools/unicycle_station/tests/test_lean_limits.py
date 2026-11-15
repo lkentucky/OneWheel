@@ -13,7 +13,7 @@ NAMES = ('lean_turn_kp', 'lean_speed_kp', 'lean_slew_dps', 'lean_max_angle')
 
 
 def _function(source, name):
-    match = re.search(r'^(?:static )?(?:float|void|uint8|uint32) ' + name + r'\([^\n]*\)\s*\{.*?^\}', source, re.M | re.S)
+    match = re.search(r'^(?:static )?(?:float|void|int|uint8|uint32) ' + name + r'\([^\n]*\)\s*\{.*?^\}', source, re.M | re.S)
     assert match, name
     return match.group()
 

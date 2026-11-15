@@ -44,6 +44,7 @@
 #define UI_STEP_HOLD_MS        (300u)
 #define UI_LONG_REPEAT_MS      (120u)
 #define UI_LIVE_PERIOD_MS      (100u)
+#define UI_REMOTE_LIVE_PERIOD_MS (250u)
 #define UI_IMAGE_PERIOD_MS     (100u)    // 横屏整帧刷新周期
 #define UI_IMAGE_STALL_MS      (500u)    // 停帧时的状态栏刷新周期，保证 FPS 能掉到 0
 #define UI_RESET_CONFIRM_MS    (3000u)   // Reset 二次确认窗口
@@ -933,7 +934,7 @@ static void render_run_test(void)
     draw_action_row(1, 1, control_remote_running() ? "Remote: ON" : "Remote: OFF");
     draw_action_row(2, 2, "Back");
     render_run_test_live();
-    ui_line(208, "speed:deg,raw  raw/30=m/s", UI_WHITE);
+    ui_line(208, "speed:turn,raw  raw/40=m/s", UI_WHITE);
     // 232 行由 render_run_test_live() 画最近一次解析到的数值
     ui_line(256, "CRLF each, send >=2 Hz", UI_GRAY);
     draw_status();
@@ -2329,7 +2330,9 @@ void menu_run(void)
          s_page == MENU_PAGE_ATTITUDE ||
          s_page == MENU_PAGE_GROUP ||
          s_page == MENU_PAGE_RUN_TEST) &&
-        (uint32)(now - s_last_live_ms) >= UI_LIVE_PERIOD_MS)
+        (uint32)(now - s_last_live_ms) >=
+            ((s_page == MENU_PAGE_RUN_TEST && control_remote_running()) ?
+             UI_REMOTE_LIVE_PERIOD_MS : UI_LIVE_PERIOD_MS))
     {
         s_last_live_ms = now;
         if (s_page == MENU_PAGE_MAIN)          render_main_live();

@@ -34,21 +34,20 @@ static float g_direction_camera, g_mid_error;
 static uint8 g_direction_valid;
 static float s_direction_last_error, g_vision_heading_error, g_vision_curvature;
 static float g_yaw_momentum_scale=1, s_direction_offset, s_direction_yaw_rate_target;
-static float s_direction_yaw_rate_cmd, s_direction_hold_yaw, g_yaw_target;
+static float s_direction_yaw_rate_cmd;
 static float g_vision_direction_camera;
-static uint8 s_run_active=1, s_direction_last_mode, g_vision_track_mode, g_track_valid=1;
+static uint8 s_run_active=1, s_run_vision_armed=1, s_direction_last_mode, g_vision_track_mode, g_track_valid=1;
 static float constrain_float(float v,float lo,float hi){return v<lo?lo:(v>hi?hi:v);}
 static float image_fclip(float v,float lo,float hi){return constrain_float(v,lo,hi);}
 static int ctrl_is_finite(float v){return isfinite(v);}
 static float Y_Motor_GetSpeedMps(void){return .5f;}
-static float imu_get_angle_yaw(void){return 17;}
 /* Lane regression; the beacon-specific gates are exercised separately. */
 static uint8 beacon_search_active(void){return 0;}
 '''
     for text, name in [(image, 'image_update_direction_camera'),
                        (control, 'direction_balance_Control'),
                        (control, 'direction_control_update'),
-                       (control, 'direction_yaw_target_update')]:
+                       (control, 'direction_yaw_rate_update')]:
         source += _function(text, name) + '\n'
     source += r'''
 static void near(float a,float b){assert(fabsf(a-b)<.002f);}
@@ -75,7 +74,7 @@ int main(void){
    float expected=constrain_float(e*345.f,-15000.f,15000.f);
    assert(g_direction_valid);near(g_direction_camera,expected);
    steer();near(s_direction_offset,-expected/345.f);
-   near(s_direction_yaw_rate_target,-2*expected/345.f);
+   near(s_direction_yaw_rate_target,constrain_float(-2*expected/345.f,-60,60));
  }
  /* Partial valid rows are renormalized, not weakened by missing row weights. */
  lines(30,TRACK_MODE_MIDDLE);
@@ -87,21 +86,23 @@ int main(void){
  image_update_direction_camera();near(g_direction_camera,10350);
  my_image.Track_Valid=0;image_update_direction_camera();
  assert(!g_direction_valid);steer();near(s_direction_yaw_rate_target,0);
- near(g_yaw_target,17);
  lines(30,TRACK_MODE_HOLD);image_update_direction_camera();
  assert(g_direction_valid);near(g_direction_camera,0);
  /* CPU0 still bounds oversized values and final rate/momentum permissions. */
  g_vision_track_mode=TRACK_MODE_MIDDLE;g_track_valid=1;
  g_vision_direction_camera=1e8f;pixel_kp=100;
  for(int i=0;i<100;i++)direction_control_update();
- near(s_direction_offset,-15000.f/345);near(s_direction_yaw_rate_target,-120);
+ near(s_direction_offset,-15000.f/345);near(s_direction_yaw_rate_target,-60);
  g_yaw_momentum_scale=.25f;direction_control_update();
  near(s_direction_yaw_rate_target,-30);
- /* Existing 1 ms slew and heading-lead bounds remain active. */
- s_direction_yaw_rate_cmd=0;g_yaw_target=17;
- direction_yaw_target_update();near(s_direction_yaw_rate_cmd,-.6f);
- for(int i=0;i<5000;i++)direction_yaw_target_update();
- near(s_direction_yaw_rate_cmd,-30);near(g_yaw_target,17-35);
+ /* Slew the command, and stop turning on the first control tick after loss. */
+ s_direction_yaw_rate_cmd=0;
+ direction_yaw_rate_update();near(s_direction_yaw_rate_cmd,-.6f);
+ for(int i=0;i<5000;i++)direction_yaw_rate_update();
+ near(s_direction_yaw_rate_cmd,-30);
+ g_track_valid=0;direction_yaw_rate_update();
+ near(s_direction_yaw_rate_cmd,0);near(s_direction_yaw_rate_target,0);
+ assert(s_direction_last_mode==TRACK_MODE_HOLD);
  s_run_active=0;direction_control_update();
  near(s_direction_offset,0);near(s_direction_yaw_rate_target,0);
  near(s_direction_yaw_rate_cmd,0);
@@ -109,8 +110,11 @@ int main(void){
  s_run_active=1;g_track_valid=1;g_vision_track_mode=TRACK_MODE_MIDDLE;
  g_vision_direction_camera=15000;g_yaw_momentum_scale=1;
  g_param.beacon.mode=1;g_param.beacon.yaw_limit_dps=15;
+ s_run_vision_armed=0;direction_control_update();direction_yaw_rate_update();
+ near(s_direction_yaw_rate_target,0);near(s_direction_yaw_rate_cmd,0);
+ s_run_vision_armed=1;
  for(int i=0;i<100;i++)direction_control_update();
- assert(fabsf(s_direction_yaw_rate_target)<=15);
+ near(s_direction_yaw_rate_target,-15);
  return 0;
 }
 '''

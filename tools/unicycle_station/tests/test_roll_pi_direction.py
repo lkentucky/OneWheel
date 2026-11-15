@@ -191,7 +191,7 @@ def test_actual_reset_clears_incremental_output_on_stop_and_restart(tmp_path):
 static pid_t r_rcy_pid,r_angle_pid,r_rate_pid,p_vel_pid,p_angle_pid,p_rate_pid,y_angle_pid,y_rate_pid;
 static float s_path_yaw_rate_target,s_path_yaw_rate_cmd,g_lean_offset,s_lean_speed_mps,s_speed_ramp;
 static float s_rcy_fb,g_flywheel_common_rpm,g_yaw_momentum_scale,s_direction_offset,s_direction_last_error;
-static float s_direction_yaw_rate_target,s_direction_yaw_rate_cmd,s_direction_hold_yaw;
+static float s_direction_yaw_rate_target,s_direction_yaw_rate_cmd;
 static float s_roll_angle_target,g_roll_zero=2,s_yaw_output_applied;
 static uint8 s_pitch_rate_cache_valid,s_direction_last_mode;
 #define TRACK_MODE_MIDDLE 0

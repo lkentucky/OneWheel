@@ -1,7 +1,6 @@
 #include "HW_Drivers/IMU/imu.h"
 #include "config.h"
 #include "Common/param.h"
-#include "Common/param.h"
 #include <math.h>
 #if defined(__TASKING__)
 #pragma section all "cpu0_dsram"
@@ -30,7 +29,7 @@ static volatile uint8 link_lost;        // 链路失效标志，由显式重初�
 #define IMU_CALIB_MOVE_DPS      (3.0f)  // 标定期间陀螺峰峰值超过它判定为动过
 #define IMU_CALIB_MOVE_G        (0.15f) // 标定期间加计峰峰值超过它判定为动过
 
-/* Recovery-only workspace, CPU0-owned. Use globally addressed spare DSPR1
+/* Calibration workspace and fault snapshot, CPU0-owned. Use spare DSPR1
  * data RAM; CPU0's fixed-stack layout has insufficient contiguous slack.
  * No control/estimator state or stack reserve is moved. */
 #if defined(__TASKING__)
@@ -42,6 +41,8 @@ static struct {
     uint8 attempt;
     volatile uint8 busy;
 } s_cal;
+static int16 s_saturation_raw[6];
+static uint8 s_saturation_valid;
 #if defined(__TASKING__)
 #pragma section farbss restore
 #endif
@@ -53,6 +54,14 @@ static void imu_latch_fault(const char *reason)
     link_lost = 1;
 }
 const char *imu_fault_text(void) { return s_imu_fault; }
+
+uint8 imu_get_saturation_raw(int16 out[6])
+{
+    uint8 i;
+    if (!link_lost || !s_saturation_valid) return 0;
+    for (i=0; i<6u; ++i) out[i]=s_saturation_raw[i];
+    return 1;
+}
 
 #include "imu_spi.inc"
 
@@ -162,6 +171,7 @@ uint8 imu_init(void)
     s_forward_dir = (IMU_FORWARD_DIR < 0) ? -1 : 1;
     link_lost     = 0;
     s_imu_fault = "IMU LINK LOST";
+    s_saturation_valid = 0;
     r10h_sample_valid = r10h_identity_ticks = 0;
     calib_state = IMU_CALIB_NONE;
     s_cal.busy = 0;

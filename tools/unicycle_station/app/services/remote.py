@@ -87,6 +87,9 @@ class RemoteControl:
 
     def accept_status(self, ok, fields):
         with self.engine.tx_lock:
+            # One lost probe leaves the last confirmation valid until STATUS_TIMEOUT.
+            if not ok and fields == ['TIMEOUT']:
+                return
             try:
                 if not ok or len(fields)!=7 or fields[:2]!=['remote','1']:
                     if fields and fields[0] in ('UNKNOWN_COMMAND','UNSUPPORTED'):

@@ -92,6 +92,8 @@ typedef struct
     int   motor_dir_a;                  // 动量轮A占空比与转速回读极性
     int   motor_dir_b;                  // 动量轮B占空比与转速回读极性
     int   motor_dir_c;                  // 行进轮C输出极性
+    int   motor_c_deadzone_fwd;         // C轮前进补偿（PWM）
+    int   motor_c_deadzone_rev;         // C轮后退补偿（PWM）
     int   enc_dir_a;                    // A原始编码器RPM相对驱动正PWM的极性
     int   enc_dir_b;                    // B原始编码器RPM相对驱动正PWM的极性
     int   enc_dir_c;                    // C轮脉冲/方向编码器计数符号

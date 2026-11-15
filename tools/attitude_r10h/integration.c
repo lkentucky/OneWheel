@@ -79,17 +79,29 @@ int main(void)
     printf("continuous yaw %.4f, wrapped %.4f\n",att.yaw,att.yaw_wrapped);
     init();tick(1000);float old=att.yaw;tick(2000);attitude_update();
     assert(attitude_diverged() && !attitude_converged() && att.yaw==old);
-    tick(1000);assert(attitude_diverged());
+    assert(!strcmp(attitude_fault_text(),"ATT PERIOD"));
+    tick(1000);assert(attitude_diverged() && !strcmp(attitude_fault_text(),"ATT PERIOD"));
     init();tick(1000);tick(500);assert(attitude_diverged());
     init();host_clock=UINT32_MAX-500u;tick(1000);tick(1000);assert(!attitude_diverged());
     init();tick(1000);host_clock_cost=500;tick(1000);assert(attitude_diverged());
+    assert(!strcmp(attitude_fault_text(),"ATT UPDATE TIME"));
     for(int mode=1;mode<=5;mode++) {
-        const char *expected[]={"", "IMU DATA ALL FF", "IMU ACC ALL ZERO", "IMU ACC ALL ZERO", "IMU SATURATED", "IMU SPI READ FAIL"};
+        const char *expected[]={"", "IMU DATA ALL FF", "IMU ACC ALL ZERO", "IMU ACC ALL ZERO", "IMU SATURATED GYRO Z", "IMU SPI READ FAIL"};
         init();assert(!strcmp(imu_fault_text(),"IMU LINK LOST"));
         bad_mode=mode;tick(1000);assert(imu_link_lost() && attitude_diverged());
         assert(!strcmp(imu_fault_text(),expected[mode]));
+        assert(!strcmp(attitude_fault_text(),"ATT RAW SAMPLE"));
         assert(!imu_get_raw_sample(&raw));bad_mode=0;tick(1000);assert(imu_link_lost());
         assert(!strcmp(imu_fault_text(),expected[mode])); /* First reason survives later samples. */
+    }
+    init();sensor[4]=-32768;tick(1000);assert(imu_link_lost() && attitude_diverged());
+    assert(!strcmp(imu_fault_text(),"IMU SATURATED ACC X"));
+    {
+        int16 clipped[6];
+        assert(imu_get_saturation_raw(clipped));
+        assert(!memcmp(sensor,clipped,sizeof(clipped)));
+        sensor[4]=0;tick(1000);assert(imu_get_saturation_raw(clipped) && clipped[4]==-32768);
+        init();assert(!imu_get_saturation_raw(clipped));
     }
     init();status=0;tick(1000);assert(imu_link_lost() && attitude_diverged());assert(!strcmp(imu_fault_text(),"IMU NOT READY"));
     init();regs[0xf]=0;for(unsigned i=0;i<100;i++)tick(1000);assert(imu_link_lost());assert(!strcmp(imu_fault_text(),"IMU BAD CHIP ID"));

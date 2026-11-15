@@ -15,7 +15,12 @@ def test_mcu_protocol_host_contract(tmp_path, wifi):
         (tmp_path/"Protocols").mkdir()
         (tmp_path/"config_private.h").write_text('#define STATION_WIFI_SSID "host-test"\n#define STATION_WIFI_PASSWORD "host-only"\n#define STATION_WIFI_PC_IP "127.0.0.1"\n')
         stub=tmp_path/"wifi_stub.c"
-        stub.write_text('#include "Protocols/station_wifi.h"\nuint8 station_wifi_init(void){return 1;}\nint station_wifi_step(const uint8 *tx,uint16 n,uint8 *rx,uint16 *got){(void)tx;(void)n;(void)rx;*got=0;return 0;}\n')
+        stub.write_text('#include "Protocols/station_wifi.h"\nuint8 station_wifi_init(void){return 1;}\n'
+                        'void station_wifi_get_diag(station_wifi_diag_t *out){memset(out,0,sizeof(*out));}\n'
+                        'uint8 mock_wifi_is_ready; uint16 mock_wifi_length; uint8 mock_wifi_frame[STATION_WIFI_FRAME_MAX];\n'
+                        'int station_wifi_step(const uint8 *tx,uint16 n,uint8 *rx,uint16 *got,uint32 now){'
+                        '(void)rx;(void)now;*got=0;if(!mock_wifi_is_ready)return 0;'
+                        'mock_wifi_length=n;memcpy(mock_wifi_frame,tx,n);return n;}\n')
         extra=["-DSTATION_WIFI_ENABLED=1","-I",str(tmp_path),str(stub)]
     result=subprocess.run([gcc,"-std=c99","-Wall","-Wextra","-I",str(root/"tests/firmware_host"),"-I",str(root.parents[1]/"code"),*extra,str(root/"tests/firmware_host/harness.c"),"-o",str(exe)],capture_output=True,text=True)
     assert result.returncode==0,result.stderr

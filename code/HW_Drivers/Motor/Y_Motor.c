@@ -71,11 +71,11 @@ void Y_Motor_SetDuty(int32 duty)
     uint8 level;
 
     duty = Y_Motor_LimitDuty(duty);
-    duty *= MOTOR_DIR_C;
     if (duty > 0)
-        duty += (int32)QCAR_GROUND_DEADZONE_POS;        // 补掉起转死区，输出直接从 0 跳到 DRIVE_DEAD_ZONE
+        duty += g_param.motor_c_deadzone_fwd;
     else if (duty < 0)
-        duty -= (int32)QCAR_GROUND_DEADZONE_NEG;
+        duty -= g_param.motor_c_deadzone_rev;
+    duty *= MOTOR_DIR_C;
     duty = Y_Motor_LimitDuty(duty);     // 死区补偿后仍不得越过 C 轮控制安全限幅
 
     if (duty == 0)

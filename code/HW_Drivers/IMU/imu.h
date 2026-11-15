@@ -25,6 +25,8 @@ extern imu_data_t imu;
 uint8 imu_link_lost(void);
 /* First failure is retained until imu_init(), including during calibration. */
 const char *imu_fault_text(void);
+/* Raw sensor-register order GX/GY/GZ/AX/AY/AZ, only for a latched saturation. */
+uint8 imu_get_saturation_raw(int16 out[6]);
 
 // 设置值与本次启动坐标不同：须保存并重启，不能启动闭环。
 uint8 imu_forward_pending(void);

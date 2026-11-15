@@ -71,18 +71,31 @@ void spi_write_8bit_array(int index,const uint8 *tx,uint32 length) {
 int main(void) {
     uint8 tx[70],rx[32];uint16 received=99;memset(tx,'x',sizeof(tx));tx[69]='\n';
 #if STATION_WIFI_ENABLED
+    station_wifi_diag_t diag;
     assert(station_wifi_init()==1);
-    ready=0;assert(station_wifi_step(tx,70,rx,&received)==0 && received==0 && packets==0);
-    ready=1;assert(station_wifi_step(tx,70,rx,&received)==70);
+    ready=0;assert(station_wifi_step(tx,0,rx,&received,0)==0 && packets==0);
+    assert(station_wifi_step(tx,70,rx,&received,1)==0 && received==0 && packets==0);
+    ready=1;assert(station_wifi_step(tx,70,rx,&received,5)==70);
     assert(received==3 && !memcmp(rx,"abc",3) && packets==1 && writes==1);
-    assert(station_wifi_step(tx,70,rx,&received)==0);
+    ready=0;assert(station_wifi_step(tx,70,rx,&received,6)==0 && packets==1);
+    ready=1;assert(station_wifi_step(tx,70,rx,&received,13)==0);
     assert(received==2 && !memcmp(rx,"de",2) && packets==2);
-    assert(station_wifi_step(tx,70,rx,&received)==0 && received==0 && packets==3 && transfers==1);
-    oversized=1;assert(station_wifi_step(tx,70,rx,&received)==-1 && received==0);
-    assert(station_wifi_step(tx,70,rx,&received)==0 && packets==4);
+    ready=0;assert(station_wifi_step(tx,70,rx,&received,14)==0 && packets==2);
+    assert(station_wifi_step(tx,70,rx,&received,21)==0 && packets==2);
+    ready=1;assert(station_wifi_step(tx,70,rx,&received,25)==0 && received==0 && packets==3 && transfers==1);
+    station_wifi_get_diag(&diag);
+    assert(diag.wait_count[0]==1 && diag.wait_max_ms[0]==4);
+    assert(diag.wait_count[1]==1 && diag.wait_max_ms[1]==7);
+    assert(diag.wait_count[2]==1 && diag.wait_max_ms[2]==11);
+    assert(diag.poll_gap_max_ms==7 && diag.submitted==1 && diag.acknowledged==1);
+    assert(diag.ready==1 && diag.phase==0 && diag.errors==0);
+    oversized=1;assert(station_wifi_step(tx,70,rx,&received,26)==-1 && received==0);
+    assert(station_wifi_step(tx,70,rx,&received,27)==0 && packets==4);
+    station_wifi_get_diag(&diag);
+    assert(diag.ready==0 && diag.errors==1);
 #else
     assert(station_wifi_init()==0);
-    assert(station_wifi_step(tx,70,rx,&received)==0 && received==0);
+    assert(station_wifi_step(tx,70,rx,&received,0)==0 && received==0);
 #endif
     return 0;
 }
